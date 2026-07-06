@@ -6,12 +6,13 @@ This repo exists so any future working session (with Claude or otherwise) can pi
 
 ## Contents
 
-- [`WCM_Invoice_Automation_Plan.md`](./WCM_Invoice_Automation_Plan.md) — full plan: architecture, workflow steps, prerequisites, decisions log, open questions. **Start here.**
+- [`WCM_Invoice_Automation_Plan.md`](./WCM_Invoice_Automation_Plan.md) — full plan: architecture, workflow steps, prerequisites, decisions log, feasibility validation, open questions. **Start here.**
 - [`project_reference.csv`](./project_reference.csv) — the full list of WCM construction projects and subprojects (26 projects, from the `+ Properties - Const` shared drive), used as the ground truth for Gemini's project matching.
+- [`apps-script/`](./apps-script/) — the actual Apps Script code (Gmail, Gemini, Drive, Sheets services) and [`SETUP.md`](./apps-script/SETUP.md) with deployment steps.
 
 ## Status
 
-Draft plan is done, project/subproject reference data is confirmed. Not yet built. See "Open questions" in the plan doc for what's still blocking implementation (Gmail access type, Gemini API key setup, reference list hosting).
+Plan validated, code written, not yet deployed. Still blocking deployment: confirming `wcmmail@westdellcorp.com` access (direct vs. delegated), generating the Gemini API key, and getting Drive folder IDs into `project_reference.csv` before it's imported into the live sheet. See `apps-script/SETUP.md` for the exact deployment steps once those are sorted.
 
 ## Quick context for a new session
 

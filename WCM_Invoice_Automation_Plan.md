@@ -1,6 +1,6 @@
 # WCM Billing Automation — Invoice Filing Workflow (Plan)
 
-**Status:** Draft, reference data confirmed, ready to move to implementation
+**Status:** Code written — see [`apps-script/`](./apps-script/) and [`apps-script/SETUP.md`](./apps-script/SETUP.md). Blocked on: `wcmmail@westdellcorp.com` access confirmation, Gemini API key generation, and Drive folder IDs for `project_reference.csv` before deployment.
 **Owner:** Ahmed
 **Last updated:** 2026-07-06
 
@@ -25,17 +25,19 @@ Automatically process invoices arriving at `billing@wcmcon.com`: read the email,
 
 1. **Trigger** — a time-driven Apps Script trigger runs every 15–30 minutes (configurable) and checks for new, unprocessed messages. `billing@wcmcon.com` is an alias that routes into `wcmmail@westdellcorp.com`, where matching mail lands under the Gmail label `+-billing`. The Apps Script project is created under (or bound to) `wcmmail@westdellcorp.com`, and the Gmail search query is scoped to `label:"+-billing"` combined with an "unprocessed" label to avoid re-scanning old mail.
 2. **Read email + attachment** — for each matching thread, pull the PDF attachment(s) as a blob.
-3. **Extract with Gemini** — send the PDF as inline base64 data, in the same request as the text prompt, to the Gemini `generateContent` endpoint. The prompt includes the current projects/subprojects reference list (`project_reference.csv`). Ask it to return structured JSON:
+3. **Extract with Gemini** — send the PDF as inline base64 data, in the same request as the text prompt, to the Gemini `generateContent` endpoint, using Gemini's **structured output mode** (a JSON Schema passed via `generationConfig.responseFormat`) rather than just asking for JSON in the prompt text — this guarantees syntactically valid JSON back, every time. The prompt includes the current projects/subprojects reference list (`project_reference.csv`). Schema fields:
    - vendor / company name
    - invoice number
    - invoice date
    - due date
    - amount + currency
-   - best-match project number and subproject number
+   - best-match project number — constrained to an `enum` of the actual project numbers in `project_reference.csv`, so Gemini can't return a project number that doesn't exist
+   - best-match subproject number — same `enum` approach, scoped to valid subprojects
    - a confidence score for the match
-4. **Confidence check** —
-   - High confidence → proceed to auto-file.
-   - Low confidence / no match → skip auto-filing, flag the row in the log sheet as "Needs Review" with the email link, so nothing silently gets filed to the wrong project.
+4. **Confidence check** — two layers, not just Gemini's self-reported score (LLM-reported confidence is a useful signal but isn't a calibrated probability, so it shouldn't be trusted alone):
+   - **Rule-based check:** does the returned project/subproject number actually exist in `project_reference.csv`? (The `enum` constraint above should already guarantee this, but re-validate in Apps Script code too, since it's cheap insurance.)
+   - **Confidence check:** high self-reported confidence + passes rule-based check → proceed to auto-file.
+   - Low confidence, failed rule-based check, or no match → skip auto-filing, flag the row in the log sheet as "Needs Review" with the email link, so nothing silently gets filed to the wrong project.
 5. **File to Drive** — save the PDF into the matched project/subproject's folder using its Drive folder ID (not a name-based search), with a consistent naming convention, e.g. `YYYY-MM-DD_Vendor_InvoiceNumber.pdf`. Folder IDs come from a `Drive Folder Link` column Ahmed will add to the project/subproject reference data — see Section 6.
 6. **Log the row** — append to the log sheet: date processed, invoice date, due date, vendor/company, project, subproject, amount, currency, Drive file link, Gmail thread link, status (Filed / Needs Review), confidence score.
 7. **Mark as processed** — label the Gmail thread (e.g. `Invoice-Processed`) so it's never reprocessed.
@@ -86,6 +88,21 @@ Not every project has numbered subprojects — 7 of them (00 Template, 46+ Gatew
 ## 8b. Site coordinators
 
 [`site_coordinators_PRIVATE.md`](./site_coordinators_PRIVATE.md) maps some projects/subprojects to a site coordinator name + email. It's committed to this repo but intentionally not linked from the README — kept low-profile rather than front-and-center since it contains staff contact info, though the repo itself is public. Not wired into the automated workflow yet.
+
+## 9a. Feasibility check (2026-07-06)
+
+Before moving to implementation, verified the plan against Google's current documentation rather than assuming:
+
+**Will Gemini actually work for this?** Yes — confirmed against Gemini's own docs. Gemini's structured output feature explicitly lists "data extraction" (pulling names/dates from documents) and "structured classification" as primary use cases, and Google's own Gemini cookbook has a worked example for this *exact* scenario: [`Pdf_structured_outputs_on_invoices_and_forms.ipynb`](https://github.com/google-gemini/cookbook/blob/main/examples/Pdf_structured_outputs_on_invoices_and_forms.ipynb) — structured extraction from invoice/form PDFs. This isn't a stretch use case for the model; it's a documented, first-party pattern. Structured output (JSON Schema mode) is supported on Gemini 2.5 and 3.x Flash/Pro models, which covers whatever model is current when this gets built.
+
+**Is Apps Script + `UrlFetchApp` capable of this, quota-wise?** Yes, comfortably, for this volume. Apps Script's documented quotas (for Workspace accounts): 30 minutes of runtime per trigger execution, response/payload sizes up to 50MB for `UrlFetchApp`, tens of thousands of `UrlFetchApp` calls per day. A construction company's invoice volume (realistically dozens per day, not thousands) is far below any of these ceilings. Worth a final glance at [the live quotas page](https://developers.google.com/apps-script/guides/services/quotas) before build, since Google can adjust numbers, but there's no realistic scenario at this volume where quotas become a constraint.
+
+**Is this the best route, vs. alternatives?**
+- **Zapier/Make/other third-party automation platforms** — ruled out per Ahmed's explicit requirement that everything run natively in Google Workspace, not through a third-party automation layer.
+- **Google Cloud Functions + Gmail push notifications (Pub/Sub)** — would give near-instant processing instead of a 15–30 min polling delay, but adds a GCP project, Pub/Sub topic, IAM setup, and billing to maintain — real infrastructure overhead for a workflow where "processed within half an hour of arrival" is entirely sufficient. Not worth the added complexity here.
+- **Document AI Invoice Parser** (Google Cloud's purpose-built invoice OCR model) — genuinely more specialized at raw field extraction, but it only solves half the problem: it doesn't do the project/subproject matching against WCM's internal reference list, which is arguably the *harder* part of this workflow and needs Gemini-style reasoning either way. Adding Document AI on top would mean two API integrations, two billing surfaces, and more moving parts for no clear accuracy win on the part that actually differentiates this task. Gemini alone, doing extraction and matching in one call, is simpler and sufficient.
+
+**Conclusion:** Apps Script + Gemini `generateContent` (structured output mode) + Drive + Sheets remains the right architecture — it's the simplest stack that satisfies "runs natively in Google Workspace," handles both extraction and project-matching in one model call, and comfortably fits within documented quotas for this volume of invoices.
 
 ## 9. Open questions
 
