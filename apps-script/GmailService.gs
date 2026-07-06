@@ -7,7 +7,10 @@
 
 /** Returns GmailThread objects under the billing label that haven't been marked processed yet. */
 function getUnprocessedThreads_() {
-  const query = `label:"${CONFIG.GMAIL_LABEL}" -label:"${CONFIG.PROCESSED_LABEL}"`;
+  let query = `label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL}`;
+  if (CONFIG.LOOKBACK_DAYS) {
+    query += ` newer_than:${CONFIG.LOOKBACK_DAYS}d`;
+  }
   return GmailApp.search(query);
 }
 

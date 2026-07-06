@@ -5,9 +5,15 @@
 
 function processInvoices() {
   const referenceRows = getReferenceData_();
-  const threads = getUnprocessedThreads_();
+  let threads = getUnprocessedThreads_();
 
-  Logger.log(`Found ${threads.length} unprocessed thread(s) under label "${CONFIG.GMAIL_LABEL}".`);
+  Logger.log(`Found ${threads.length} unprocessed thread(s) under label "${CONFIG.GMAIL_LABEL}"` +
+    (CONFIG.LOOKBACK_DAYS ? ` (limited to the last ${CONFIG.LOOKBACK_DAYS} days)` : '') + '.');
+
+  if (CONFIG.MAX_THREADS_PER_RUN !== null && threads.length > CONFIG.MAX_THREADS_PER_RUN) {
+    Logger.log(`Limiting this run to ${CONFIG.MAX_THREADS_PER_RUN} thread(s) (MAX_THREADS_PER_RUN). The rest will be picked up on the next run.`);
+    threads = threads.slice(0, CONFIG.MAX_THREADS_PER_RUN);
+  }
 
   threads.forEach(thread => {
     const threadLink = getThreadLink_(thread);

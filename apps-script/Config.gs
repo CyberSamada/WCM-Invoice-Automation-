@@ -10,6 +10,10 @@ const CONFIG = {
   GMAIL_LABEL: '+-billing',              // where billing@wcmcon.com mail lands (see plan doc, Section 3)
   PROCESSED_LABEL: 'Invoice-Processed',  // applied once a thread has been handled, so it's never reprocessed
 
+  // Volume controls — handy for initial testing with a big backlog, or just to cap Gemini usage per run.
+  MAX_THREADS_PER_RUN: 5,   // process at most this many email threads per run. null = no limit. Leftover threads are simply picked up next run.
+  LOOKBACK_DAYS: null,      // e.g. 30 to only consider mail from the last 30 days (uses Gmail's newer_than: search operator). null = no time limit, considers all mail under the label.
+
   // Gemini
   GEMINI_MODEL: 'gemini-3.5-flash',
   GEMINI_API_KEY_PROPERTY: 'GEMINI_API_KEY', // Script Properties key name — set this via setup() or manually
