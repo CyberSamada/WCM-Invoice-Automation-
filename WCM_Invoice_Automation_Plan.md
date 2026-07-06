@@ -36,7 +36,7 @@ Automatically process invoices arriving at `billing@wcmcon.com`: read the email,
 4. **Confidence check** —
    - High confidence → proceed to auto-file.
    - Low confidence / no match → skip auto-filing, flag the row in the log sheet as "Needs Review" with the email link, so nothing silently gets filed to the wrong project.
-5. **File to Drive** — locate the matched project/subproject subfolder under `+ Properties - Const` and save the PDF there using a consistent naming convention, e.g. `YYYY-MM-DD_Vendor_InvoiceNumber.pdf`.
+5. **File to Drive** — save the PDF into the matched project/subproject's folder using its Drive folder ID (not a name-based search), with a consistent naming convention, e.g. `YYYY-MM-DD_Vendor_InvoiceNumber.pdf`. Folder IDs come from a `Drive Folder Link` column Ahmed will add to the project/subproject reference data — see Section 6.
 6. **Log the row** — append to the log sheet: date processed, invoice date, due date, vendor/company, project, subproject, amount, currency, Drive file link, Gmail thread link, status (Filed / Needs Review), confidence score.
 7. **Mark as processed** — label the Gmail thread (e.g. `Invoice-Processed`) so it's never reprocessed.
 8. **Error handling** — if Gemini extraction fails, the PDF can't be parsed, or Drive filing errors out, log it to an "Errors" tab and optionally send a notification email so nothing gets silently dropped.
@@ -53,12 +53,15 @@ Projects live under the `+ Properties - Const` shared drive, one folder per proj
 
 Not every project has numbered subprojects — 7 of them (00 Template, 46+ Gateway Village, 46+++ Ambassador Plaza, 47 Glenns, 48 Arnprior, 55 Clarke, 59 Elgin, 60 Wyandotte) only have generic phase folders (Design Development / Construction Stage / Coordinations) or admin folders. Invoices matched to these should file at the project level with no subproject.
 
-**Known data quirk:** project 05 (Oxford Westdel Centre) has two folders both labeled `5.1` — worth flagging to whoever maintains the Drive structure, but not something the automation needs to resolve on its own (it can match on folder name/content, not just the number).
+**Known data quirk:** project 05 (Oxford Westdel Centre) has two folders both labeled `5.1` — worth flagging to whoever maintains the Drive structure. This also reinforces why filing should key off explicit folder IDs rather than name matching (see below) — folder names alone aren't reliably unique.
+
+**Filing approach (updated):** rather than having the script search for the destination folder by name at runtime, Ahmed will supply the actual Drive folder link/ID for each project (and subproject, where relevant), to be added as a column in the reference data. The script then files directly via `DriveApp.getFolderById()` using that ID — more robust than name-based lookup, and sidesteps issues like the `5.1` duplicate above. This is not yet done; `project_reference.csv` doesn't have folder IDs yet (see Section 6).
 
 ## 6. Prerequisites before building
 
 - [x] **Drive folder structure** — confirmed, see Section 5 and `project_reference.csv`.
 - [x] **Projects/subprojects reference list** — extracted and saved as `project_reference.csv`. Still need to decide: does Gemini's prompt read this CSV via a Google Sheet copy, or does Apps Script embed it directly in the prompt text? (Recommend a Sheet copy so it's easy to update as new projects are added, without redeploying code.)
+- [ ] **Drive folder IDs/links per project (and subproject)** — Ahmed will provide these separately; needs to be merged into `project_reference.csv` as a new column before the filing step can be built. Filing will key off folder ID, not folder name (see Section 5).
 - [ ] **Correct Google account/Drive connected** — needs to be confirmed sorted (was flagged mid-project; revisit before build).
 - [ ] **Gemini API key** — generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) using the Workspace account. Store the key in the Apps Script project's Script Properties, not hardcoded in the code. New keys are auto-created as "auth keys" tied to a service account — use one of these rather than an old-style unrestricted key, since Google is phasing those out through 2026 (unrestricted standard keys stop working June 19 2026; all standard keys stop working September 2026).
 - [ ] **Gmail access** — read + modify (for labeling) on `wcmmail@westdellcorp.com`, scoped to the `+-billing` label. Confirm whether there's direct access to `wcmmail@westdellcorp.com` to create/authorize the Apps Script project there, or delegated access needs to be set up first.
@@ -79,6 +82,10 @@ Not every project has numbered subprojects — 7 of them (00 Template, 46+ Gatew
 - **Gemini reads PDFs natively** (inline base64 in the same `generateContent` call) — no separate OCR step needed; Gemini handles up to 50MB/1000 pages this way.
 - **Mailbox routing confirmed:** `billing@wcmcon.com` → alias into `wcmmail@westdellcorp.com`, label `+-billing`. Automation must target the real mailbox + label, not the alias address directly.
 - **Drive structure confirmed:** `+ Properties - Const` shared drive, 26 projects, subprojects one level below where they exist (see `project_reference.csv`).
+
+## 8b. Site coordinators
+
+[`site_coordinators_PRIVATE.md`](./site_coordinators_PRIVATE.md) maps some projects/subprojects to a site coordinator name + email. It's committed to this repo but intentionally not linked from the README — kept low-profile rather than front-and-center since it contains staff contact info, though the repo itself is public. Not wired into the automated workflow yet.
 
 ## 9. Open questions
 
