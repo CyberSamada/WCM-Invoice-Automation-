@@ -37,5 +37,17 @@ const CONFIG = {
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
     'Project Number', 'Project Name', 'Subproject Number', 'Subproject Name', 'Drive Folder ID'
+  ],
+
+  // Test mode (see Test.gs) — never touches real project folders or the real Invoice Log.
+  TEST_FOLDER_ID: '1m8xbrt-0uFqQDR00EpUID014XsQL-vuw', // "Test_Output_Folder" in Drive
+  TEST_LABEL: 'AI-Test-Reviewed',  // applied instead of PROCESSED_LABEL, so tested threads stay available to the real run
+  TEST_MAX_THREADS: 5,             // how many threads a single testRun() call processes
+  TEST_LOG_TAB: 'Test Log',
+
+  TEST_LOG_COLUMNS: [
+    'Date Tested', 'Invoice Date', 'Due Date', 'Vendor', 'Matched Project Number', 'Matched Project Name',
+    'Matched Subproject Number', 'Matched Subproject Name', 'Amount', 'Currency', 'Confidence',
+    'Rule Check Passed', 'Would File To', 'Test File Copy', 'Status', 'Note', 'Gmail Link'
   ]
 };
