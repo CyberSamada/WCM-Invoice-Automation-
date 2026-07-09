@@ -16,8 +16,28 @@ function fileInvoiceToDrive_(pdfBlob, folderId, fileName) {
     throw new Error('No Drive Folder ID provided for this project/subproject — check the "Project Reference" sheet.');
   }
   const folder = DriveApp.getFolderById(folderId); // throws if the ID is invalid or inaccessible
+  if (folder.isTrashed()) {
+    // getFolderById() resolves a trashed folder without throwing, so without this check a deleted
+    // archive folder would silently keep accepting files — they'd just be invisible in Trash. Fail
+    // loudly instead so it shows up in the Errors tab rather than vanishing invoices.
+    throw new Error(`Drive Folder ID "${folderId}" points to a folder that has been deleted (in Trash). Run createInvoiceArchiveFolders() to provision a replacement.`);
+  }
   const file = folder.createFile(pdfBlob).setName(fileName);
   return file.getUrl();
+}
+
+/**
+ * Gets or creates a subfolder with the given name directly under parentFolderId (one level, not
+ * recursive). Used to place non-auto-filed documents (statements, low-confidence matches, etc.)
+ * into a predictable subfolder instead of leaving them unfiled — see Main.gs/processOneInvoice_.
+ */
+function getOrCreateNamedSubfolder_(parentFolderId, name) {
+  const parent = DriveApp.getFolderById(parentFolderId);
+  const existing = parent.getFoldersByName(name);
+  if (existing.hasNext()) {
+    return existing.next();
+  }
+  return parent.createFolder(name);
 }
 
 /** Builds the standardized filename: YYYY-MM-DD_Vendor_InvoiceNumber.pdf */

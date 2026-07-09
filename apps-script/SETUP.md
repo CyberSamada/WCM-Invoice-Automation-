@@ -17,7 +17,7 @@
 1. Import [`project_reference.csv`](../project_reference.csv) into a new tab.
 2. Run the `setup()` function once (select it in the function dropdown, click Run) — this creates the `Project Reference`, `Invoice Log`, and `Errors` tabs if they don't already exist, with the right headers.
 3. Rename/merge your imported CSV data into the `Project Reference` tab so its columns match: `Project Number | Project Name | Subproject Number | Subproject Name | Drive Folder ID`.
-4. Fill in the **Drive Folder ID** column for every row. This is the string in a Drive folder's URL: `https://drive.google.com/drive/folders/`**`THIS_PART`**. For projects with no numbered subprojects, use the project-level folder ID for every row with that project number.
+4. Run `createInvoiceArchiveFolders()` (in `DriveSetup.gs`) once. It creates one subfolder per project under the Invoice Archive parent folder (`INVOICE_ARCHIVE_PARENT_FOLDER_ID` — currently the "Outputs" folder), and automatically fills in the **Drive Folder ID** column for every row. Safe to re-run — it reuses folders that already exist by name instead of duplicating them. No manual folder creation or ID copy-pasting needed.
 
 ## 4. Authorize and test
 

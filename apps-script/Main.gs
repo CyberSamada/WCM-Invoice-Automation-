@@ -54,13 +54,26 @@ function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
     (r.subprojectNumber || '') === (extracted.subproject_number || '')
   );
 
+  const fileName = buildInvoiceFileName_(extracted);
   let driveLink = '';
   let status = extracted.is_invoice ? 'Needs Review' : 'Not an Invoice';
 
-  if (shouldAutoFile && matchedRef) {
-    const fileName = buildInvoiceFileName_(extracted);
-    driveLink = fileInvoiceToDrive_(pdfBlob, matchedRef.driveFolderId, fileName);
-    status = 'Filed';
+  if (matchedRef && matchedRef.driveFolderId) {
+    if (shouldAutoFile) {
+      driveLink = fileInvoiceToDrive_(pdfBlob, matchedRef.driveFolderId, fileName);
+      status = 'Filed';
+    } else {
+      // Known project, but not confidently an invoice (statement, low-confidence match, over the
+      // dollar threshold, etc.) — file into that project's "Statements & Others" subfolder rather
+      // than leaving it unfiled, so it's never lost, only sitting one folder deeper awaiting review.
+      const reviewFolder = getOrCreateNamedSubfolder_(matchedRef.driveFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
+      driveLink = fileInvoiceToDrive_(pdfBlob, reviewFolder.getId(), fileName);
+    }
+  } else {
+    // No project match at all (or no archive folder on file yet for the matched project) — still
+    // capture it somewhere findable instead of relying solely on the Gmail Link.
+    const unmatchedFolder = getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
+    driveLink = fileInvoiceToDrive_(pdfBlob, unmatchedFolder.getId(), fileName);
   }
 
   logInvoiceRow_({

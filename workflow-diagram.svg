@@ -1,0 +1,95 @@
+<svg viewBox="0 0 900 900" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>WCM Invoice Automation workflow diagram</title>
+<desc>Flowchart: invoice email arrives, AI reads it, then routes to a filed folder, a review folder, or an unmatched folder, all logged to a sheet and reviewed by a coordinator before payment. A note explains the invoice folders stay synced with the real project folders in Drive.</desc>
+<defs>
+<marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+<path d="M0,0 L10,5 L0,10 z" fill="#5b6470"/>
+</marker>
+</defs>
+<rect x="1" y="1" width="898" height="898" rx="16" fill="#fbfbfc" stroke="#e5e7eb" stroke-width="1"/>
+
+<text x="450" y="40" text-anchor="middle" font-family="Arial, sans-serif" font-size="22" font-weight="700" fill="#111827">WCM Invoice Automation — How It Works</text>
+<text x="450" y="62" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" fill="#6b7280">From inbox to filed &amp; logged, automatically</text>
+
+<!-- Sync note -->
+<rect x="650" y="96" width="230" height="106" rx="10" fill="#f5f2ff" stroke="#9b8fd9" stroke-width="1.5" stroke-dasharray="5,3"/>
+<text x="765" y="120" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="700" fill="#4a3f7a">🔄  Kept in sync</text>
+<text x="765" y="140" text-anchor="middle" font-family="Arial, sans-serif" font-size="10.5" fill="#5b5580">Invoice folders auto-match</text>
+<text x="765" y="156" text-anchor="middle" font-family="Arial, sans-serif" font-size="10.5" fill="#5b5580">the real project folders in</text>
+<text x="765" y="172" text-anchor="middle" font-family="Arial, sans-serif" font-size="10.5" fill="#5b5580">Drive — new projects and</text>
+<text x="765" y="188" text-anchor="middle" font-family="Arial, sans-serif" font-size="10.5" fill="#5b5580">subprojects added daily</text>
+
+<!-- Box 1: Email -->
+<rect x="280" y="90" width="340" height="62" rx="10" fill="#eef2f7" stroke="#c7d2e0" stroke-width="1.5"/>
+<text x="450" y="115" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#1f2937">📧  Invoice email arrives</text>
+<text x="450" y="136" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#5b6470">billing@wcmcon.com — checked every 15 minutes</text>
+
+<line x1="450" y1="152" x2="450" y2="182" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- Box 2: AI -->
+<rect x="280" y="184" width="340" height="62" rx="10" fill="#f1eefc" stroke="#c9b8f0" stroke-width="1.5"/>
+<text x="450" y="209" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#1f2937">🤖  AI reads the invoice</text>
+<text x="450" y="230" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#5b6470">Gemini extracts vendor, dates, amount</text>
+
+<line x1="450" y1="246" x2="450" y2="270" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- Decision diamond -->
+<polygon points="450,272 595,320 450,368 305,320" fill="#fff7e6" stroke="#e0a940" stroke-width="1.5"/>
+<text x="450" y="316" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="600" fill="#7a5b12">Is it an invoice, and a</text>
+<text x="450" y="333" text-anchor="middle" font-family="Arial, sans-serif" font-size="13" font-weight="600" fill="#7a5b12">confident project match?</text>
+
+<!-- Dotted connector from sync note to matching step -->
+<path d="M 700 202 C 640 240, 600 270, 560 300" stroke="#9b8fd9" stroke-width="1.5" fill="none" stroke-dasharray="3,3"/>
+
+<!-- Branch arrows -->
+<line x1="380" y1="345" x2="180" y2="424" stroke="#5b6470" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+<line x1="450" y1="368" x2="450" y2="424" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+<line x1="520" y1="345" x2="720" y2="424" stroke="#5b6470" stroke-width="2" fill="none" marker-end="url(#arrow)"/>
+
+<!-- Outcome boxes -->
+<rect x="50" y="430" width="230" height="74" rx="10" fill="#e8f7ee" stroke="#4caf7d" stroke-width="1.5"/>
+<text x="165" y="458" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="600" fill="#1c6b45">✅ Filed to Project Folder</text>
+<text x="165" y="478" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#2f7a52">High-confidence invoice match</text>
+
+<rect x="335" y="430" width="230" height="74" rx="10" fill="#fff4e0" stroke="#e0a940" stroke-width="1.5"/>
+<text x="450" y="458" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="600" fill="#8a5a00">⚠️ Statements &amp; Others</text>
+<text x="450" y="478" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#8a6a2e">Needs a human review</text>
+
+<rect x="620" y="430" width="230" height="74" rx="10" fill="#eef0f2" stroke="#9aa1ab" stroke-width="1.5"/>
+<text x="735" y="458" text-anchor="middle" font-family="Arial, sans-serif" font-size="14" font-weight="600" fill="#41474f">❓ _Unmatched Folder</text>
+<text x="735" y="478" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#5b6470">No project could be matched</text>
+
+<!-- Convergence -->
+<line x1="165" y1="504" x2="450" y2="524" stroke="#5b6470" stroke-width="1.5" fill="none"/>
+<line x1="450" y1="504" x2="450" y2="524" stroke="#5b6470" stroke-width="1.5" fill="none"/>
+<line x1="735" y1="504" x2="450" y2="524" stroke="#5b6470" stroke-width="1.5" fill="none"/>
+<line x1="450" y1="524" x2="450" y2="546" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- Sheet log -->
+<rect x="200" y="550" width="500" height="66" rx="10" fill="#e6f2fb" stroke="#79a8d1" stroke-width="1.5"/>
+<text x="450" y="577" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#1f2937">📊  Logged in Google Sheet</text>
+<text x="450" y="598" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#5b6470">One row per invoice, always</text>
+
+<line x1="450" y1="616" x2="450" y2="644" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- Review -->
+<rect x="280" y="646" width="340" height="62" rx="10" fill="#eef2f7" stroke="#c7d2e0" stroke-width="1.5"/>
+<text x="450" y="671" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="600" fill="#1f2937">👤  Coordinator / PM reviews</text>
+<text x="450" y="692" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#5b6470">Checks their project's Drive folder</text>
+
+<line x1="450" y1="708" x2="450" y2="736" stroke="#5b6470" stroke-width="2" marker-end="url(#arrow)"/>
+
+<!-- Approved -->
+<rect x="280" y="738" width="340" height="66" rx="10" fill="#e6f7ee" stroke="#4caf7d" stroke-width="1.5"/>
+<text x="450" y="765" text-anchor="middle" font-family="Arial, sans-serif" font-size="15" font-weight="700" fill="#1c6b45">✅  Approved for payment</text>
+<text x="450" y="786" text-anchor="middle" font-family="Arial, sans-serif" font-size="11.5" fill="#2f7a52">Becomes part of the Progress Application</text>
+
+<!-- Legend -->
+<text x="450" y="832" text-anchor="middle" font-family="Arial, sans-serif" font-size="11" fill="#6b7280">Color key</text>
+<rect x="150" y="844" width="14" height="14" rx="3" fill="#e8f7ee" stroke="#4caf7d"/>
+<text x="172" y="855" font-family="Arial, sans-serif" font-size="11" fill="#374151">Filed automatically</text>
+<rect x="380" y="844" width="14" height="14" rx="3" fill="#fff4e0" stroke="#e0a940"/>
+<text x="402" y="855" font-family="Arial, sans-serif" font-size="11" fill="#374151">Needs review</text>
+<rect x="590" y="844" width="14" height="14" rx="3" fill="#eef0f2" stroke="#9aa1ab"/>
+<text x="612" y="855" font-family="Arial, sans-serif" font-size="11" fill="#374151">No project match</text>
+</svg>

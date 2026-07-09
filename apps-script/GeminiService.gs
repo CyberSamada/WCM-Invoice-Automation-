@@ -72,6 +72,10 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
     `(make your best guess for fields that don't clearly apply if it isn't an invoice). For project_number and subproject_number, ` +
     `pick the single best match from the reference list above based on any address, tenant name, or project reference ` +
     `mentioned in the invoice. If a project has no matching subproject, use "NONE" for subproject_number. ` +
+    `The reference list may be incomplete — it might not yet include every subproject that actually exists. If the ` +
+    `invoice clearly belongs to a listed project but does NOT specifically and confidently match any listed subproject ` +
+    `(e.g. a different tenant, unit, or address not on the list), use "NONE" for subproject_number rather than forcing ` +
+    `a match to a similar-sounding one, and lower your confidence score to reflect that the specific subproject wasn't found. ` +
     `If you are not confident in the match, still make your best guess but reflect that in a low confidence score.`;
 
   const payload = {

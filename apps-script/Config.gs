@@ -22,6 +22,11 @@ const CONFIG = {
   CONFIDENCE_THRESHOLD: 0.75,   // below this, route to "Needs Review" instead of auto-filing
   DOLLAR_THRESHOLD_FOR_REVIEW: null, // e.g. 5000 to force manual review above $5,000 regardless of confidence. null = disabled.
 
+  // Anything that isn't auto-filed (statements, low-confidence matches, non-invoices) still gets
+  // filed here instead of staying unfiled — see Main.gs/processOneInvoice_ and DriveService.gs.
+  STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
+  UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
+
   // Spreadsheet tab names (all live in the Sheet this script is bound to)
   SHEET_LOG_TAB: 'Invoice Log',
   SHEET_ERRORS_TAB: 'Errors',

@@ -4,8 +4,13 @@
  *
  * - Runs the real Gemini extraction + matching, so you get a genuine accuracy signal.
  * - NEVER touches real project folders — test file copies go to CONFIG.TEST_FOLDER_ID instead,
- *   with a "Would File To" link showing where it WOULD have gone for real, so you can verify
- *   the match by clicking through, with zero risk of a test file landing in a real, shared folder.
+ *   organized exactly like the real Invoice Archive would be: a subfolder per matched project (e.g.
+ *   "54 - WHITE OAKS MALL") with high-confidence invoices at its root and anything else (statements,
+ *   low-confidence matches, non-invoices) inside that project's "Statements & Others" subfolder.
+ *   Anything with no project match at all goes into a top-level "_Unmatched" subfolder. This mirrors
+ *   processOneInvoice_() in Main.gs exactly, so a test run is a true preview of where things would
+ *   land for real — zero risk of a test file landing in a real, shared folder. A "Would File To" link
+ *   on each row also shows the real archive folder it corresponds to.
  * - Applies CONFIG.TEST_LABEL, not CONFIG.PROCESSED_LABEL — tested threads stay fully available
  *   to the real processInvoices() run afterward. Nothing needs to be undone.
  * - Restores each thread's original read/unread state when done, as a safety net.
@@ -71,8 +76,19 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
     : '(no Drive Folder ID on file for this project/subproject yet)';
 
+  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence;
+
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
-  const testFileLink = fileInvoiceToDrive_(pdfBlob, CONFIG.TEST_FOLDER_ID, testFileName);
+  let testDestFolder;
+  if (matchedRef) {
+    const testProjectFolder = getOrCreateTestProjectFolder_(matchedRef.projectNumber, matchedRef.projectName);
+    testDestFolder = wouldAutoFile
+      ? testProjectFolder
+      : getOrCreateNamedSubfolder_(testProjectFolder.getId(), CONFIG.STATEMENTS_SUBFOLDER_NAME);
+  } else {
+    testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
+  }
+  const testFileLink = fileInvoiceToDrive_(pdfBlob, testDestFolder.getId(), testFileName);
 
   let statusText;
   let note = '';
@@ -104,6 +120,15 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
     'Note': note,
     'Gmail Link': threadLink
   });
+}
+
+/**
+ * Gets or creates a subfolder under CONFIG.TEST_FOLDER_ID matching the same naming convention as
+ * the real Invoice Archive ("<project number> - <project name>"), so the test folder mirrors the
+ * real structure and can be browsed the same way.
+ */
+function getOrCreateTestProjectFolder_(projectNumber, projectName) {
+  return getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, `${projectNumber} - ${projectName}`);
 }
 
 /** Applies the test label, creating it the first time it's needed. Distinct from PROCESSED_LABEL on purpose. */
