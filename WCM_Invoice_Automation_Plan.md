@@ -1,8 +1,8 @@
 # WCM Billing Automation — Invoice Filing Workflow (Plan)
 
-**Status:** Code written — see [`apps-script/`](./apps-script/) and [`apps-script/SETUP.md`](./apps-script/SETUP.md). Blocked on: `wcmmail@westdellcorp.com` access confirmation, Gemini API key generation, and Drive folder IDs for `project_reference.csv` before deployment.
+**Status:** Live and deployed — see [`apps-script/`](./apps-script/) and [`apps-script/SETUP.md`](./apps-script/SETUP.md). `wcmmail@westdellcorp.com` access and the Gemini API key are both confirmed and in place; `testRun()` has succeeded against real invoice emails. Still open: most Drive folder IDs in `project_reference.csv` / the live `Project Reference` tab are unfilled, so auto-filing is only active for projects that have one.
 **Owner:** Ahmed
-**Last updated:** 2026-07-06
+**Last updated:** 2026-07-09
 
 ## 1. Goal
 
@@ -14,9 +14,9 @@ Automatically process invoices arriving at `billing@wcmcon.com`: read the email,
 |---|---|---|
 | Automation engine | Google Apps Script | Orchestrates the whole workflow, runs on a time-driven trigger |
 | Email source | Gmail (`wcmmail@westdellcorp.com`, alias `billing@wcmcon.com`) | Source of invoice emails + PDF attachments |
-| Extraction & matching | Gemini API (model: Gemini 3.5 Flash), called from Apps Script via `UrlFetchApp` | Reads PDF content natively, extracts invoice fields, matches to a project/subproject |
+| Extraction & matching | Gemini API (model: `gemini-3.1-flash-lite`, configurable in `Config.gs`), called from Apps Script via `UrlFetchApp` | Reads PDF content natively, extracts invoice fields, classifies whether it's actually an invoice, matches to a project/subproject |
 | Reference data | `project_reference.csv` (this repo) → will live in a Google Sheet/Doc Gemini's prompt can pull from | Ground truth Gemini uses to pick the right project/subproject |
-| Filing destination | Google Drive — `+ Properties - Const` shared drive | Per-project (and per-subproject) folders where PDFs get filed |
+| Filing destination | Google Drive — dedicated **Invoice Archive** folder, one subfolder per project (separate from the project's main working folder) | Where filed PDFs land for a coordinator/PM to review and act on |
 | Logging | Google Sheet | One row per processed invoice |
 | Optional reporting | Looker Studio | Dashboard on top of the log sheet (open balances, upcoming due dates, spend by project) |
 | Key management | Google AI Studio ([aistudio.google.com/apikey](https://aistudio.google.com/apikey)) | Where the Gemini API key is generated (Workspace accounts get access by default) |
@@ -25,7 +25,8 @@ Automatically process invoices arriving at `billing@wcmcon.com`: read the email,
 
 1. **Trigger** — a time-driven Apps Script trigger runs every 15–30 minutes (configurable) and checks for new, unprocessed messages. `billing@wcmcon.com` is an alias that routes into `wcmmail@westdellcorp.com`, where matching mail lands under the Gmail label `+-billing`. The Apps Script project is created under (or bound to) `wcmmail@westdellcorp.com`, and the Gmail search query is scoped to `label:"+-billing"` combined with an "unprocessed" label to avoid re-scanning old mail.
 2. **Read email + attachment** — for each matching thread, pull the PDF attachment(s) as a blob.
-3. **Extract with Gemini** — send the PDF as inline base64 data, in the same request as the text prompt, to the Gemini `generateContent` endpoint, using Gemini's **structured output mode** (a JSON Schema passed via `generationConfig.responseFormat`) rather than just asking for JSON in the prompt text — this guarantees syntactically valid JSON back, every time. The prompt includes the current projects/subprojects reference list (`project_reference.csv`). Schema fields:
+3. **Extract with Gemini** — send the PDF as inline base64 data, in the same request as the text prompt, to the Gemini `generateContent` endpoint, using Gemini's **structured output mode** (a JSON Schema passed via `generationConfig.responseSchema` — note: *not* the nested `responseFormat.text.{mimeType,schema}` shape, which the live v1beta REST API rejects despite appearing in some references) rather than just asking for JSON in the prompt text — this guarantees syntactically valid JSON back, every time. The prompt includes the current projects/subprojects reference list (`project_reference.csv`). Schema fields:
+   - `is_invoice` — boolean; true only for a genuine invoice/bill requesting payment, false for statements, payment-info updates, receipts, or other non-invoice mail. Documents that fail this check are logged as "Not an Invoice" and never auto-filed.
    - vendor / company name
    - invoice number
    - invoice date
@@ -38,10 +39,11 @@ Automatically process invoices arriving at `billing@wcmcon.com`: read the email,
    - **Rule-based check:** does the returned project/subproject number actually exist in `project_reference.csv`? (The `enum` constraint above should already guarantee this, but re-validate in Apps Script code too, since it's cheap insurance.)
    - **Confidence check:** high self-reported confidence + passes rule-based check → proceed to auto-file.
    - Low confidence, failed rule-based check, or no match → skip auto-filing, flag the row in the log sheet as "Needs Review" with the email link, so nothing silently gets filed to the wrong project.
-5. **File to Drive** — save the PDF into the matched project/subproject's folder using its Drive folder ID (not a name-based search), with a consistent naming convention, e.g. `YYYY-MM-DD_Vendor_InvoiceNumber.pdf`. Folder IDs come from a `Drive Folder Link` column Ahmed will add to the project/subproject reference data — see Section 6.
+5. **File to Drive** — save the PDF into that project's subfolder inside the **Invoice Archive** (a separate top-level folder, not the project's main working folder — see Section 5), using its Drive folder ID (not a name-based search), with a consistent naming convention, e.g. `YYYY-MM-DD_Vendor_InvoiceNumber.pdf`. Folder IDs live in the `Drive Folder ID` column of the reference data — see Section 6.
 6. **Log the row** — append to the log sheet: date processed, invoice date, due date, vendor/company, project, subproject, amount, currency, Drive file link, Gmail thread link, status (Filed / Needs Review), confidence score.
 7. **Mark as processed** — label the Gmail thread (e.g. `Invoice-Processed`) so it's never reprocessed.
 8. **Error handling** — if Gemini extraction fails, the PDF can't be parsed, or Drive filing errors out, log it to an "Errors" tab and optionally send a notification email so nothing gets silently dropped.
+9. **Human step (outside this automation)** — the project coordinator/PM checks their project's Invoice Archive subfolder, does final confirmation before sending to payment, and the approved invoice then becomes part of that project's progress application. This automation's scope ends at "filed + logged, ready for review" — it doesn't touch payment approval or progress application assembly.
 
 ## 4. Google Sheet structure (log)
 
@@ -57,18 +59,29 @@ Not every project has numbered subprojects — 7 of them (00 Template, 46+ Gatew
 
 **Known data quirk:** project 05 (Oxford Westdel Centre) has two folders both labeled `5.1` — worth flagging to whoever maintains the Drive structure. This also reinforces why filing should key off explicit folder IDs rather than name matching (see below) — folder names alone aren't reliably unique.
 
-**Filing approach (updated):** rather than having the script search for the destination folder by name at runtime, Ahmed will supply the actual Drive folder link/ID for each project (and subproject, where relevant), to be added as a column in the reference data. The script then files directly via `DriveApp.getFolderById()` using that ID — more robust than name-based lookup, and sidesteps issues like the `5.1` duplicate above. This is not yet done; `project_reference.csv` doesn't have folder IDs yet (see Section 6).
+### Invoice Archive (2026-07-09 decision)
+
+Filed invoices do **not** go into each project's main working folder, and do not go into the project's existing "Progress Application" folder either. They go into a **separate, dedicated Invoice Archive** — one top-level folder, with one subfolder per project (matching the same project numbering as the main structure).
+
+Why: mail through `billing@wcmcon.com` isn't limited to formal progress-billing documents — real examples so far include general subcontractor invoices (Viking Masonry, CANAM, C25 Excavating) and straightforward supply invoices (ULINE). Filing all of those into a project's "Progress Application" folder would miscategorize anything that isn't an actual progress application. A dedicated archive avoids that mismatch while still giving each project a predictable, single place for its invoices.
+
+Workflow once a PDF lands there: the project coordinator/PM checks their subfolder, gives final human confirmation before sending to payment, and the approved invoice then gets folded into that project's progress application as part of the existing (manual, outside this automation) payment process.
+
+**Setup needed:** the Invoice Archive top-level folder and its 26 per-project subfolders don't exist yet and need to be created (recommended: inside the `+ Properties - Const` shared drive, so it inherits the same sharing/permissions as the rest of the project structure, and coordinators who already have access to their project don't need separate sharing set up). Once created, each subfolder's ID goes in the `Drive Folder ID` column of the reference data — see Section 6, and Task #7.
+
+**Filing approach:** the script files directly via `DriveApp.getFolderById()` using the folder ID from the reference data — no name-based search, so it's immune to naming quirks like the `5.1` duplicate above.
 
 ## 6. Prerequisites before building
 
 - [x] **Drive folder structure** — confirmed, see Section 5 and `project_reference.csv`.
 - [x] **Projects/subprojects reference list** — extracted and saved as `project_reference.csv`. Still need to decide: does Gemini's prompt read this CSV via a Google Sheet copy, or does Apps Script embed it directly in the prompt text? (Recommend a Sheet copy so it's easy to update as new projects are added, without redeploying code.)
-- [ ] **Drive folder IDs/links per project (and subproject)** — Ahmed will provide these separately; needs to be merged into `project_reference.csv` as a new column before the filing step can be built. Filing will key off folder ID, not folder name (see Section 5).
-- [ ] **Correct Google account/Drive connected** — needs to be confirmed sorted (was flagged mid-project; revisit before build).
-- [ ] **Gemini API key** — generate one at [aistudio.google.com/apikey](https://aistudio.google.com/apikey) using the Workspace account. Store the key in the Apps Script project's Script Properties, not hardcoded in the code. New keys are auto-created as "auth keys" tied to a service account — use one of these rather than an old-style unrestricted key, since Google is phasing those out through 2026 (unrestricted standard keys stop working June 19 2026; all standard keys stop working September 2026).
-- [ ] **Gmail access** — read + modify (for labeling) on `wcmmail@westdellcorp.com`, scoped to the `+-billing` label. Confirm whether there's direct access to `wcmmail@westdellcorp.com` to create/authorize the Apps Script project there, or delegated access needs to be set up first.
-- [ ] **Drive scope** — write access to the `+ Properties - Const` shared drive.
-- [ ] **Dollar-threshold rule (optional)** — should invoices above a certain amount always route to manual review regardless of match confidence?
+- [ ] **Invoice Archive folder structure** — the dedicated Invoice Archive top-level folder + 26 per-project subfolders (see Section 5) need to be created; they don't exist yet.
+- [ ] **Drive folder IDs per project (and subproject)** — once the Invoice Archive subfolders exist, their IDs go in the `Drive Folder ID` column of the live `Project Reference` tab. Filing keys off folder ID, not folder name (see Section 5). Rows without an ID route to "Needs Review" instead of failing.
+- [x] **Correct Google account/Drive connected** — confirmed; script is bound to `wcmmail@westdellcorp.com`.
+- [x] **Gemini API key** — generated and stored in Script Properties (`GEMINI_API_KEY`), never in code.
+- [x] **Gmail access** — confirmed direct access to `wcmmail@westdellcorp.com` / the `+-billing` label.
+- [x] **Drive scope** — write access to `+ Properties - Const` confirmed via successful `testRun()` filing to a test folder.
+- [ ] **Dollar-threshold rule (optional)** — `CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW` exists and is currently `null` (disabled). Set a value if desired.
 
 ## 7. Rollout plan
 
@@ -84,6 +97,12 @@ Not every project has numbered subprojects — 7 of them (00 Template, 46+ Gatew
 - **Gemini reads PDFs natively** (inline base64 in the same `generateContent` call) — no separate OCR step needed; Gemini handles up to 50MB/1000 pages this way.
 - **Mailbox routing confirmed:** `billing@wcmcon.com` → alias into `wcmmail@westdellcorp.com`, label `+-billing`. Automation must target the real mailbox + label, not the alias address directly.
 - **Drive structure confirmed:** `+ Properties - Const` shared drive, 26 projects, subprojects one level below where they exist (see `project_reference.csv`).
+- **Google Workspace Studio (Flows) evaluated and rejected as the primary engine (2026-07-08/09):** tested extensively as a no-code alternative to Apps Script. Confirmed, via live testing and official docs, that Studio's "Add email attachments to Drive" step only supports a static, UI-picked destination folder — no dynamic variable can be bound to it — which makes per-invoice Drive routing (the core requirement of this whole project) impossible in Studio. Also confirmed Studio's "Send a webhook" step (which could have bridged to Apps Script) is in limited preview and unavailable on this account. Apps Script has no such restriction and became the sole production path.
+- **`WCM Invoice Log_Private` is the definitive, permanent production Sheet** — not a "_Final" or other copy that might exist. Ahmed's explicit call; don't suggest migrating off it.
+- **Explicit `is_invoice` classification added** to the Gemini schema, rather than relying on confidence score alone — a real-world test run showed a vendor "invoice" that was actually a payment-info update email, which the confidence score alone didn't reliably catch.
+- **Rate-limit handling added:** free-tier Gemini keys cap at 5 requests/minute. Fixed with (a) retry-with-backoff on HTTP 429/503 (`fetchWithRetry_` in `GeminiService.gs`), and (b) proactive `Utilities.sleep()` pacing between calls in both `Main.gs` and `Test.gs`. Considered and rejected rotating multiple free API keys to dodge the limit — likely a Terms of Service violation and more fragile than just pacing calls or enabling billing if volume grows.
+- **Model swapped from `gemini-3.5-flash` to `gemini-3.1-flash-lite`** — the former experienced persistent free-tier congestion (503 "high demand") as the newest/most popular model; the latter resolved it.
+- **Filed invoices go into a dedicated Invoice Archive, not a project's main working folder or its "Progress Application" folder** — see Section 5 for full reasoning. Coordinators/PMs pull invoices from their project's Archive subfolder, give final human confirmation before payment, then the approved invoice becomes part of that project's progress application (manual, outside this automation's scope).
 
 ## 8b. Site coordinators
 

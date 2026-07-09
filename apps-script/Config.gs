@@ -40,7 +40,7 @@ const CONFIG = {
   ],
 
   // Test mode (see Test.gs) — never touches real project folders or the real Invoice Log.
-  TEST_FOLDER_ID: '1m8xbrt-0uFqQDR00EpUID014XsQL-vuw', // "Test_Output_Folder" in Drive
+  TEST_FOLDER_ID: '1C-AH90kifz_S8M0fHvORYzlihDo0lGle', // "Test_Output_Folder" in Drive
   TEST_LABEL: 'AI-Test-Reviewed',  // applied instead of PROCESSED_LABEL, so tested threads stay available to the real run
   TEST_MAX_THREADS: 5,             // how many threads a single testRun() call processes
   TEST_LOG_TAB: 'Test Log',
