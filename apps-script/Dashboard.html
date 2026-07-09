@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <base target="_top">
+  <meta charset="utf-8">
+  <style>
+    :root {
+      --wcm-blue: #1D5DA6;
+      --wcm-blue-dark: #144577;
+      --wcm-grey: #9A9A9A;
+      --wcm-grey-dark: #63666A;
+      --bg: #F4F5F7;
+      --border: #e5e7eb;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', Arial, sans-serif;
+      background: var(--bg);
+      color: #1f2937;
+      margin: 0;
+      padding: 0;
+    }
+
+    /* Brand header */
+    .brand-header { background: #ffffff; border-bottom: 3px solid var(--wcm-blue); }
+    .brand-header-inner {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 16px 24px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      flex-wrap: wrap;
+    }
+    .brand-ring { width: 44px; height: 44px; flex-shrink: 0; }
+    .brand-text { line-height: 1.1; }
+    .brand-wordmark { font-size: 21px; font-weight: 800; color: var(--wcm-grey-dark); letter-spacing: 1px; }
+    .brand-tagline { font-size: 9px; font-weight: 700; color: var(--wcm-blue); letter-spacing: 1.4px; margin-top: 3px; }
+    .brand-divider { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
+    .page-title-main { font-size: 16px; font-weight: 700; color: #1f2937; }
+    .page-title-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
+
+    .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
+
+    /* Summary cards */
+    .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
+    .card {
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-top: 3px solid var(--card-accent, var(--wcm-blue));
+      border-radius: 10px;
+      padding: 14px;
+      text-align: center;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .card-value { font-size: 24px; font-weight: 700; }
+    .card-label { font-size: 11.5px; color: #6b7280; margin-top: 2px; }
+    .card.total { --card-accent: var(--wcm-blue); }
+    .card.total .card-value { color: var(--wcm-blue-dark); }
+    .card.filed { --card-accent: #4caf7d; }
+    .card.filed .card-value { color: #1c6b45; }
+    .card.review { --card-accent: #e0a940; }
+    .card.review .card-value { color: #8a5a00; }
+    .card.notinvoice { --card-accent: #9aa1ab; }
+    .card.notinvoice .card-value { color: #41474f; }
+    .card.error { --card-accent: #d64550; }
+    .card.error .card-value { color: #a4222c; }
+
+    /* Stat strips (period counts, dollar totals) */
+    .stat-strip {
+      display: flex;
+      gap: 24px;
+      flex-wrap: wrap;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      margin-bottom: 12px;
+      font-size: 13px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .stat-strip strong { color: var(--wcm-blue-dark); }
+
+    /* Section headings */
+    .section { margin-bottom: 28px; }
+    .section h2 {
+      font-size: 15px;
+      margin: 0 0 12px 0;
+      padding-left: 10px;
+      border-left: 4px solid var(--wcm-blue);
+      color: #1f2937;
+    }
+    .empty, .empty-cell { color: #6b7280; font-size: 13px; }
+
+    /* Filter bar */
+    .filter-bar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: flex-end;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      margin-bottom: 14px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    .filter-field { display: flex; flex-direction: column; gap: 4px; }
+    .filter-field label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+    .filter-field select, .filter-field input {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 6px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2937;
+    }
+    .filter-field input[type="number"] { width: 100px; }
+    .filter-field input[type="date"] { width: 140px; }
+    .amount-range { display: flex; gap: 6px; align-items: center; }
+    #customDateRange { display: none; gap: 12px; }
+    .date-input-group { display: flex; flex-direction: column; gap: 3px; }
+    .date-input-label { font-size: 9.5px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+    .reset-btn {
+      font-family: inherit;
+      font-size: 13px;
+      font-weight: 600;
+      padding: 7px 14px;
+      border: 1px solid var(--wcm-blue);
+      color: var(--wcm-blue);
+      background: #fff;
+      border-radius: 6px;
+      cursor: pointer;
+    }
+    .reset-btn:hover { background: #eef4fb; }
+    .results-count { font-size: 12px; color: #6b7280; margin: 0 0 8px 0; }
+
+    /* Tables */
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      background: #ffffff;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      overflow: hidden;
+      font-size: 13px;
+      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+    }
+    th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid #eef0f2; }
+    th {
+      background: #f9fafb;
+      color: #6b7280;
+      font-weight: 600;
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    tr:last-child td { border-bottom: none; }
+    tr:hover td { background: #fafbfc; }
+
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge-filed { background: #e8f7ee; color: #1c6b45; }
+    .badge-review { background: #fff4e0; color: #8a5a00; }
+    .badge-notinvoice { background: #eef0f2; color: #41474f; }
+    .badge-other { background: #eef2f7; color: #374151; }
+
+    a { color: var(--wcm-blue); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    .note {
+      font-size: 11.5px;
+      color: #9ca3af;
+      margin-top: 24px;
+      text-align: center;
+    }
+
+    @media (max-width: 900px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
+      .stat-strip { flex-direction: column; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <div class="brand-header">
+    <div class="brand-header-inner">
+      <svg class="brand-ring" viewBox="0 0 60 60" aria-hidden="true">
+        <circle cx="30" cy="30" r="21" fill="none" stroke="#1D5DA6" stroke-width="8"
+                stroke-dasharray="94 32" stroke-linecap="round" transform="rotate(50 30 30)"/>
+      </svg>
+      <div class="brand-text">
+        <div class="brand-wordmark">WCM</div>
+        <div class="brand-tagline">CONSTRUCTION MANAGEMENT</div>
+      </div>
+      <div class="brand-divider"></div>
+      <div>
+        <div class="page-title-main">Invoice Automation Dashboard</div>
+        <div class="page-title-sub">Live data — generated <?= data.generatedAtFormatted ?>. Reload for the latest.</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="container">
+
+    <div class="cards">
+      <div class="card total">
+        <div class="card-value"><?= data.totalProcessed ?></div>
+        <div class="card-label">Total Processed</div>
+      </div>
+      <div class="card filed">
+        <div class="card-value"><?= data.counts['Filed'] || 0 ?></div>
+        <div class="card-label">Filed</div>
+      </div>
+      <div class="card review">
+        <div class="card-value"><?= data.counts['Needs Review'] || 0 ?></div>
+        <div class="card-label">Needs Review</div>
+      </div>
+      <div class="card notinvoice">
+        <div class="card-value"><?= data.counts['Not an Invoice'] || 0 ?></div>
+        <div class="card-label">Not an Invoice</div>
+      </div>
+      <div class="card error">
+        <div class="card-value"><?= data.errorCount ?></div>
+        <div class="card-label">Errors</div>
+      </div>
+    </div>
+
+    <div class="stat-strip">
+      <div>Processed today: <strong><?= data.countToday ?></strong></div>
+      <div>This week: <strong><?= data.countThisWeek ?></strong></div>
+      <div>This month: <strong><?= data.countThisMonth ?></strong></div>
+    </div>
+
+    <div class="stat-strip">
+      <div>Total Filed: <strong><?= data.totalFiledAmountFormatted ?></strong></div>
+      <div>Total Needs Review: <strong><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
+    </div>
+
+    <div class="section">
+      <h2>Invoices</h2>
+
+      <div class="filter-bar">
+        <div class="filter-field">
+          <label for="filterStatus">Status</label>
+          <select id="filterStatus">
+            <option value="all">All</option>
+            <option value="Filed">Filed</option>
+            <option value="Needs Review">Needs Review</option>
+            <option value="Not an Invoice">Not an Invoice</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label for="filterProject">Project</label>
+          <select id="filterProject">
+            <option value="all">All Projects</option>
+          </select>
+        </div>
+        <div class="filter-field">
+          <label for="filterVendor">Vendor</label>
+          <input type="text" id="filterVendor" placeholder="Search vendor...">
+        </div>
+        <div class="filter-field">
+          <label for="filterTimeframe">Time frame</label>
+          <select id="filterTimeframe">
+            <option value="all">All time</option>
+            <option value="today">Today</option>
+            <option value="week">This week</option>
+            <option value="month">This month</option>
+            <option value="custom">Custom range</option>
+          </select>
+        </div>
+        <div class="filter-field" id="customDateRange">
+          <label>Date range</label>
+          <div class="amount-range">
+            <div class="date-input-group">
+              <span class="date-input-label">From</span>
+              <input type="date" id="filterDateStart">
+            </div>
+            <div class="date-input-group">
+              <span class="date-input-label">To</span>
+              <input type="date" id="filterDateEnd">
+            </div>
+          </div>
+        </div>
+        <div class="filter-field">
+          <label>Amount</label>
+          <div class="amount-range">
+            <input type="number" id="filterAmountMin" placeholder="Min">
+            <span>–</span>
+            <input type="number" id="filterAmountMax" placeholder="Max">
+          </div>
+        </div>
+        <div class="filter-field">
+          <label>&nbsp;</label>
+          <button class="reset-btn" id="resetFiltersBtn" type="button">Reset filters</button>
+        </div>
+      </div>
+
+      <p class="results-count" id="resultsCount">Showing all invoices</p>
+
+      <table>
+        <thead>
+          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Amount</th><th>Status</th><th>Links</th></tr>
+        </thead>
+        <tbody id="resultsBody">
+          <tr><td colspan="6" class="empty-cell">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="section">
+      <h2>By Project (all-time)</h2>
+      <table>
+        <thead>
+          <tr><th>Project</th><th>Invoices</th><th>Total Amount</th></tr>
+        </thead>
+        <tbody>
+        <? for (var k = 0; k < data.byProject.length; k++) { var p = data.byProject[k]; ?>
+          <tr>
+            <td><?= p.project ?></td>
+            <td><?= p.count ?></td>
+            <td><?= p.amountFormatted ?></td>
+          </tr>
+        <? } ?>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="note">WCM Invoice Automation — automatically filed and logged from billing@wcmcon.com</p>
+  </div>
+
+  <script>
+    var ALL_RECORDS = <?!= data.recordsJson ?>;
+
+    function escapeHtml(s) {
+      return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    function formatMoney(amount, currency) {
+      var num = Number(amount) || 0;
+      return (currency || 'CAD') + ' $' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    function projectKey(r) {
+      return r.projectNumber ? (r.projectNumber + ' - ' + r.projectName) : '(no project match)';
+    }
+
+    function populateProjectFilter() {
+      var select = document.getElementById('filterProject');
+      var seen = {};
+      var projects = [];
+      ALL_RECORDS.forEach(function (r) {
+        var key = projectKey(r);
+        if (!seen[key]) { seen[key] = true; projects.push(key); }
+      });
+      projects.sort();
+      projects.forEach(function (p) {
+        var opt = document.createElement('option');
+        opt.value = p;
+        opt.textContent = p;
+        select.appendChild(opt);
+      });
+    }
+
+    function getTimeframeStart(value) {
+      var now = new Date();
+      var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+      if (value === 'today') return startOfToday;
+      if (value === 'week') return startOfToday - 6 * 24 * 60 * 60 * 1000;
+      if (value === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
+      return null;
+    }
+
+    function toggleCustomDateInputs() {
+      var isCustom = document.getElementById('filterTimeframe').value === 'custom';
+      document.getElementById('customDateRange').style.display = isCustom ? 'flex' : 'none';
+    }
+
+    function applyFilters() {
+      var status = document.getElementById('filterStatus').value;
+      var project = document.getElementById('filterProject').value;
+      var vendor = document.getElementById('filterVendor').value.trim().toLowerCase();
+      var timeframe = document.getElementById('filterTimeframe').value;
+      var amountMin = parseFloat(document.getElementById('filterAmountMin').value);
+      var amountMax = parseFloat(document.getElementById('filterAmountMax').value);
+      var customStart = document.getElementById('filterDateStart').value;
+      var customEnd = document.getElementById('filterDateEnd').value;
+
+      var tfStart = null, tfEnd = null;
+      if (timeframe === 'custom') {
+        tfStart = customStart ? new Date(customStart).getTime() : null;
+        tfEnd = customEnd ? (new Date(customEnd).getTime() + 24 * 60 * 60 * 1000 - 1) : null;
+      } else {
+        tfStart = getTimeframeStart(timeframe);
+      }
+
+      var filtered = ALL_RECORDS.filter(function (r) {
+        if (status !== 'all' && r.status !== status) return false;
+        if (project !== 'all' && projectKey(r) !== project) return false;
+        if (vendor && r.vendor.toLowerCase().indexOf(vendor) === -1) return false;
+        if (tfStart !== null && r.dateProcessedRaw < tfStart) return false;
+        if (tfEnd !== null && r.dateProcessedRaw > tfEnd) return false;
+        if (!isNaN(amountMin) && r.amount < amountMin) return false;
+        if (!isNaN(amountMax) && r.amount > amountMax) return false;
+        return true;
+      });
+
+      filtered.sort(function (a, b) { return b.dateProcessedRaw - a.dateProcessedRaw; });
+
+      renderResults(filtered);
+    }
+
+    function renderResults(list) {
+      var tbody = document.getElementById('resultsBody');
+      document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
+
+      if (list.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No invoices match these filters.</td></tr>';
+        return;
+      }
+
+      var html = '';
+      list.forEach(function (r) {
+        html += '<tr>' +
+          '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
+          '<td>' + escapeHtml(r.vendor) + '</td>' +
+          '<td>' + escapeHtml(projectKey(r) === '(no project match)' ? '' : (r.projectNumber + ' ' + r.projectName)) + '</td>' +
+          '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
+          '<td><span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span></td>' +
+          '<td>' +
+            (r.driveLink ? '<a href="' + escapeHtml(r.driveLink) + '" target="_blank">File</a>' : '') +
+            (r.driveLink && r.gmailLink ? ' &middot; ' : '') +
+            (r.gmailLink ? '<a href="' + escapeHtml(r.gmailLink) + '" target="_blank">Email</a>' : '') +
+          '</td>' +
+        '</tr>';
+      });
+      tbody.innerHTML = html;
+    }
+
+    function resetFilters() {
+      document.getElementById('filterStatus').value = 'all';
+      document.getElementById('filterProject').value = 'all';
+      document.getElementById('filterVendor').value = '';
+      document.getElementById('filterTimeframe').value = 'all';
+      document.getElementById('filterAmountMin').value = '';
+      document.getElementById('filterAmountMax').value = '';
+      document.getElementById('filterDateStart').value = '';
+      document.getElementById('filterDateEnd').value = '';
+      toggleCustomDateInputs();
+      applyFilters();
+    }
+
+    document.addEventListener('DOMContentLoaded', function () {
+      populateProjectFilter();
+      document.getElementById('filterStatus').addEventListener('change', applyFilters);
+      document.getElementById('filterProject').addEventListener('change', applyFilters);
+      document.getElementById('filterVendor').addEventListener('input', applyFilters);
+      document.getElementById('filterTimeframe').addEventListener('change', function () { toggleCustomDateInputs(); applyFilters(); });
+      document.getElementById('filterAmountMin').addEventListener('input', applyFilters);
+      document.getElementById('filterAmountMax').addEventListener('input', applyFilters);
+      document.getElementById('filterDateStart').addEventListener('change', applyFilters);
+      document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
+      document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+      applyFilters();
+    });
+  </script>
+</body>
+</html>

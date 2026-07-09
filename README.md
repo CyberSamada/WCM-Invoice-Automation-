@@ -22,11 +22,13 @@ The project coordinator/PM checks their project's Invoice Archive subfolder, giv
 
 No email is deleted or altered. The system only reads and copies; the original email and any manual process around it are untouched.
 
+Employees who want to check on invoice status don't need access to the Google Sheet or Apps Script — there's a read-only dashboard web page (status counts, a "Needs Review" list, recent activity, totals by project) they can bookmark instead. See `apps-script/Dashboard.gs`/`Dashboard.html` and the deployment step in `SETUP.md`.
+
 ## Contents
 
 - [`WCM_Invoice_Automation_Plan.md`](./WCM_Invoice_Automation_Plan.md) — full plan: architecture, workflow steps, decisions log, feasibility validation, open questions. **Start here for technical detail.**
 - [`project_reference.csv`](./project_reference.csv) — the full list of WCM construction projects and subprojects (26 projects, from the `+ Properties - Const` shared drive), used as the ground truth for Gemini's project matching.
-- [`apps-script/`](./apps-script/) — the actual Apps Script code (Gmail, Gemini, Drive, Sheets services), [`DriveSetup.gs`](./apps-script/DriveSetup.gs) (one-time Invoice Archive folder creation), and [`SETUP.md`](./apps-script/SETUP.md) with deployment steps.
+- [`apps-script/`](./apps-script/) — the actual Apps Script code (Gmail, Gemini, Drive, Sheets services), [`DriveSetup.gs`](./apps-script/DriveSetup.gs) (one-time Invoice Archive folder creation), [`Dashboard.gs`](./apps-script/Dashboard.gs)/[`Dashboard.html`](./apps-script/Dashboard.html) (read-only employee dashboard), and [`SETUP.md`](./apps-script/SETUP.md) with deployment steps.
 - [`site_coordinators_PRIVATE.md`](./site_coordinators_PRIVATE.md) — project → coordinator/PM contact list (partial, 5 of 26 projects). Not yet wired into the automation.
 
 ## Status (as of 2026-07-09)
