@@ -24,16 +24,17 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
   }
 
   const projectNumbers = [...new Set(referenceRows.map(r => r.projectNumber))];
-  // '' (empty string) is a valid "no subproject" value for projects that don't have numbered subprojects
-  const subprojectNumbers = [...new Set(referenceRows.map(r => r.subprojectNumber).concat(['']))];
+  // Gemini's schema validation rejects an empty string as an enum value, so use the sentinel
+  // "NONE" instead, then convert it back to '' after parsing the response (see below).
+  const subprojectNumbers = [...new Set(referenceRows.map(r => r.subprojectNumber || 'NONE'))];
 
   const schema = {
     type: 'object',
     properties: {
       vendor_name: { type: 'string', description: 'The vendor/company name that issued the invoice.' },
-      invoice_number: { type: ['string', 'null'], description: 'The invoice number, if present.' },
+      invoice_number: { type: 'string', nullable: true, description: 'The invoice number, if present.' },
       invoice_date: { type: 'string', format: 'date', description: 'Invoice date in YYYY-MM-DD format.' },
-      due_date: { type: ['string', 'null'], format: 'date', description: 'Payment due date in YYYY-MM-DD format, if present.' },
+      due_date: { type: 'string', format: 'date', nullable: true, description: 'Payment due date in YYYY-MM-DD format, if present.' },
       amount: { type: 'number', description: 'Total amount due on the invoice.' },
       currency: { type: 'string', description: 'ISO 4217 currency code, e.g. CAD, USD.' },
       project_number: {
@@ -44,7 +45,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
       subproject_number: {
         type: 'string',
         enum: subprojectNumbers,
-        description: 'Best-match subproject number, or empty string if the project has no matching numbered subproject.'
+        description: 'Best-match subproject number, or "NONE" if the project has no matching numbered subproject.'
       },
       match_reasoning: { type: 'string', description: 'One sentence on why this project/subproject was chosen.' },
       confidence: {
@@ -63,7 +64,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
     `Read the attached invoice PDF and extract the requested fields. For project_number and subproject_number, ` +
     `pick the single best match from the reference list above based on any address, tenant name, or project reference ` +
-    `mentioned in the invoice. If a project has no matching subproject, use an empty string for subproject_number. ` +
+    `mentioned in the invoice. If a project has no matching subproject, use "NONE" for subproject_number. ` +
     `If you are not confident in the match, still make your best guess but reflect that in a low confidence score.`;
 
   const payload = {
@@ -74,9 +75,8 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
       ]
     }],
     generationConfig: {
-      responseFormat: {
-        text: { mimeType: 'application/json', schema: schema }
-      }
+      responseMimeType: 'application/json',
+      responseSchema: schema
     }
   };
 
@@ -100,7 +100,11 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
     throw new Error(`Gemini response had no text content: ${response.getContentText()}`);
   }
 
-  return JSON.parse(text);
+  const parsed = JSON.parse(text);
+  if (parsed.subproject_number === 'NONE') {
+    parsed.subproject_number = '';
+  }
+  return parsed;
 }
 
 /**
