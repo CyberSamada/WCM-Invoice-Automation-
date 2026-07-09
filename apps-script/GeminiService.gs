@@ -31,6 +31,10 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
   const schema = {
     type: 'object',
     properties: {
+      is_invoice: {
+        type: 'boolean',
+        description: 'True only if this document is a genuine invoice/bill requesting payment for goods or services (typically has an invoice number, amount due, and due date). False for anything else — payment/banking info updates, account statements, paid receipts, marketing or informational emails, etc.'
+      },
       vendor_name: { type: 'string', description: 'The vendor/company name that issued the invoice.' },
       invoice_number: { type: 'string', nullable: true, description: 'The invoice number, if present.' },
       invoice_date: { type: 'string', format: 'date', description: 'Invoice date in YYYY-MM-DD format.' },
@@ -53,7 +57,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
         description: 'Self-assessed confidence (0-1) that the project/subproject match is correct. Treat as a rough signal, not a calibrated probability.'
       }
     },
-    required: ['vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'confidence']
+    required: ['is_invoice', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'confidence']
   };
 
   const referenceListText = referenceRows.map(r =>
@@ -62,7 +66,10 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
 
   const prompt = `You are matching a construction-company invoice PDF to the correct project and subproject.\n\n` +
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
-    `Read the attached invoice PDF and extract the requested fields. For project_number and subproject_number, ` +
+    `First, determine whether this document is actually an invoice or bill requesting payment — as opposed to ` +
+    `something else like a banking/payment info update, an account statement, a paid receipt, or an informational ` +
+    `email — and set is_invoice accordingly. Then read the document and extract the requested fields regardless ` +
+    `(make your best guess for fields that don't clearly apply if it isn't an invoice). For project_number and subproject_number, ` +
     `pick the single best match from the reference list above based on any address, tenant name, or project reference ` +
     `mentioned in the invoice. If a project has no matching subproject, use "NONE" for subproject_number. ` +
     `If you are not confident in the match, still make your best guess but reflect that in a low confidence score.`;
@@ -81,7 +88,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
   };
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${CONFIG.GEMINI_MODEL}:generateContent`;
-  const response = UrlFetchApp.fetch(url, {
+  const response = fetchWithRetry_(url, {
     method: 'post',
     contentType: 'application/json',
     headers: { 'x-goog-api-key': apiKey },
@@ -105,6 +112,30 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
     parsed.subproject_number = '';
   }
   return parsed;
+}
+
+/**
+ * Calls UrlFetchApp.fetch, retrying on 429 (rate limit) and 503 (temporary overload) —
+ * both are transient per Google's own error messages, which explicitly say to retry.
+ * Free-tier Gemini API keys are capped at 5 requests/minute, so bursts of calls (e.g. testRun()
+ * processing several PDFs back to back) commonly hit this; retrying with backoff smooths it over.
+ */
+function fetchWithRetry_(url, options, maxRetries) {
+  maxRetries = maxRetries || 4;
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const response = UrlFetchApp.fetch(url, options);
+    const code = response.getResponseCode();
+    if (code !== 429 && code !== 503) {
+      return response; // success, or a non-retryable error — let the caller handle it
+    }
+    if (attempt < maxRetries) {
+      const waitMs = 15000 * (attempt + 1); // 15s, 30s, 45s, 60s
+      Logger.log(`Gemini API returned ${code}, retrying in ${waitMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`);
+      Utilities.sleep(waitMs);
+    } else {
+      return response; // out of retries — return the last response, let the caller throw
+    }
+  }
 }
 
 /**

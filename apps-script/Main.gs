@@ -32,6 +32,9 @@ function processInvoices() {
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
       }
+      // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
+      // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
+      Utilities.sleep(13000);
     });
 
     markThreadProcessed_(thread);
@@ -44,7 +47,7 @@ function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
 
-  const shouldAutoFile = passesRuleCheck && isHighConfidence && !overDollarThreshold;
+  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold;
 
   const matchedRef = referenceRows.find(r =>
     r.projectNumber === extracted.project_number &&
@@ -52,7 +55,7 @@ function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
   );
 
   let driveLink = '';
-  let status = 'Needs Review';
+  let status = extracted.is_invoice ? 'Needs Review' : 'Not an Invoice';
 
   if (shouldAutoFile && matchedRef) {
     const fileName = buildInvoiceFileName_(extracted);

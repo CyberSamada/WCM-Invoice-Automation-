@@ -37,7 +37,12 @@ function testRun() {
       if (attachments.length === 0) {
         logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': 'No PDF attachment on this thread.', 'Gmail Link': threadLink });
       } else {
-        attachments.forEach(({ blob }) => testOneInvoice_(blob, referenceRows, threadLink));
+        attachments.forEach(({ blob }) => {
+          testOneInvoice_(blob, referenceRows, threadLink);
+          // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
+          // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
+          Utilities.sleep(13000);
+        });
       }
 
       markTestLabel_(thread);
@@ -69,6 +74,17 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
   const testFileLink = fileInvoiceToDrive_(pdfBlob, CONFIG.TEST_FOLDER_ID, testFileName);
 
+  let statusText;
+  let note = '';
+  if (!extracted.is_invoice) {
+    statusText = 'Test-Not an Invoice';
+    note = 'Gemini determined this document is not an invoice/bill — extracted fields are best-guess only.';
+  } else if (passesRuleCheck && isHighConfidence) {
+    statusText = 'Test-OK (would auto-file)';
+  } else {
+    statusText = 'Test-Needs Review';
+  }
+
   logTestRow_({
     'Date Tested': new Date(),
     'Invoice Date': extracted.invoice_date || '',
@@ -84,8 +100,8 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
     'Rule Check Passed': passesRuleCheck,
     'Would File To': wouldFileLink,
     'Test File Copy': testFileLink,
-    'Status': (passesRuleCheck && isHighConfidence) ? 'Test-OK (would auto-file)' : 'Test-Needs Review',
-    'Note': '',
+    'Status': statusText,
+    'Note': note,
     'Gmail Link': threadLink
   });
 }
