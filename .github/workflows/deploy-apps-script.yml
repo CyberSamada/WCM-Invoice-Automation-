@@ -6,9 +6,14 @@
 #   2. Run `clasp login` locally once, then save the contents of ~/.clasprc.json
 #      as a repository secret named CLASPRC_JSON (Settings > Secrets and variables > Actions).
 #
-# This pushes the script's code (like pressing Save in the editor) AND bumps the live dashboard
-# web app deployment to a new version, so the shared /exec URL always serves what's on `main` —
-# no separate manual "Deploy > New version" click needed.
+# This pushes the script's code (like pressing Save in the editor). It deliberately does NOT also
+# bump the live dashboard web app deployment: `clasp deploy --deploymentId <id>` was tried for
+# that and turned out to silently strip the deployment's "Web app" configuration down to
+# library-only, breaking the live /exec URL — apparently the Apps Script API's deployments.update
+# (which is what clasp deploy calls) doesn't reliably preserve entry-point config the way the
+# Apps Script UI's own "Deploy" button does. So: after a push, still bump the version manually —
+# Deploy > Manage deployments > pencil icon > confirm Web app / Execute as Me / access setting >
+# New version > Deploy. See SETUP.md, "Keeping Apps Script in sync," for the full explanation.
 
 name: Deploy to Apps Script
 
@@ -45,10 +50,3 @@ jobs:
       - name: Push code to Apps Script
         working-directory: apps-script
         run: clasp push -f
-
-      # Bumps the live web app deployment (the one whose /exec URL is the actual shared dashboard
-      # link) to a new version, so it serves the code just pushed above. This is the deployment ID
-      # from `clasp deployments` — NOT the "@HEAD" one, which is never the production URL.
-      - name: Redeploy dashboard web app
-        working-directory: apps-script
-        run: clasp deploy --deploymentId AKfycbzGoslEdm989zlr9DXuTtxm9C71MCGQEbKqx5g0c4KbLBqnG4C4cLxG9Aetb8cB_mLg0Q --description "Auto-deploy from GitHub"
