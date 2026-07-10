@@ -4,7 +4,7 @@
 
 1. Go to [script.google.com](https://script.google.com), signed in as **wcmmail@westdellcorp.com** (or whichever account has access to the `+-billing` label — see the open question in the plan doc about direct vs. delegated access).
 2. Create a new project, or better: create a new Google Sheet first (this becomes the log spreadsheet), then Extensions > Apps Script from inside it, so the script is bound to that Sheet.
-3. Delete the default `Code.gs` boilerplate. Create each file in this folder (`Config.gs`, `Main.gs`, `GmailService.gs`, `GeminiService.gs`, `DriveService.gs`, `SheetService.gs`, `Setup.gs`, `Test.gs`, `DriveSetup.gs`, `Dashboard.gs`, `Dashboard.html`) as a matching file in the Apps Script editor, and paste in the contents. For `appsscript.json`, use the editor's "Show manifest file" option (Project Settings > check "Show appsscript.json") and replace its contents. `Dashboard.html` should be created as an **HTML** file, not a `.gs` file — use the "+" next to Files and choose "HTML".
+3. Delete the default `Code.gs` boilerplate. Create each file in this folder (`Config.gs`, `Main.gs`, `GmailService.gs`, `GeminiService.gs`, `DriveService.gs`, `SheetService.gs`, `Setup.gs`, `Test.gs`, `DriveSetup.gs`, `DashboardServer.gs`, `Dashboard.html`) as a matching file in the Apps Script editor, and paste in the contents. For `appsscript.json`, use the editor's "Show manifest file" option (Project Settings > check "Show appsscript.json") and replace its contents. `Dashboard.html` should be created as an **HTML** file, not a `.gs` file — use the "+" next to Files and choose "HTML". (The dashboard server code lives in `DashboardServer.gs` rather than `Dashboard.gs` because the editor won't allow a script file and an HTML file to both be named "Dashboard".)
 
 ## 2. Set the Gemini API key
 
@@ -53,13 +53,13 @@ Rather than a script-maintained second tab, add a new sheet tab with this formul
 
 ## 7. Optional: employee dashboard (no Sheet or Apps Script access needed)
 
-`Dashboard.gs` + `Dashboard.html` serve a read-only web page — status counts, a "Needs Review" list, recent activity, totals by project — built entirely from live Sheet data, with no ability for a viewer to edit anything. Good for sharing with employees who shouldn't have Sheet or Apps Script editor access.
+`DashboardServer.gs` + `Dashboard.html` serve a read-only web page — status counts, a "Needs Review" list, recent activity, totals by project — built entirely from live Sheet data, with no ability for a viewer to edit anything. Good for sharing with employees who shouldn't have Sheet or Apps Script editor access.
 
 1. In the Apps Script editor: **Deploy** (top right) > **New deployment**.
 2. Click the gear icon next to "Select type" > **Web app**.
 3. Description: anything (e.g. "Invoice dashboard v1"). **Execute as:** `Me`. **Who has access:** `Anyone within [your Google Workspace domain]` — this keeps it viewable only by signed-in company accounts. Avoid "Anyone with the link" since invoice amounts/vendors would then be reachable by anyone who has the URL, not just your org.
 4. Click **Deploy**, authorize if prompted, then copy the **Web app URL** it gives you — that's what you share with employees (bookmark-able, no login prompts beyond their normal Google sign-in).
-5. **After any future change** to `Dashboard.gs` or `Dashboard.html`: Deploy > **Manage deployments** > pencil/edit icon on the existing deployment > Version: **New version** > Deploy. The shared URL stays the same; this just pushes the update live. (A brand-new deployment would give employees a different URL to re-bookmark — avoid that unless you actually want to retire the old one.)
+5. **After any future change** to `DashboardServer.gs` or `Dashboard.html`: Deploy > **Manage deployments** > pencil/edit icon on the existing deployment > Version: **New version** > Deploy. The shared URL stays the same; this just pushes the update live. (A brand-new deployment would give employees a different URL to re-bookmark — avoid that unless you actually want to retire the old one.)
 
 ## 8. Keeping Apps Script in sync with this repo (no more copy-pasting)
 
@@ -82,7 +82,7 @@ That overwrites every file in the Apps Script project with this folder's content
 
 **Fully automatic (GitHub Action):** `.github/workflows/deploy-apps-script.yml` runs `clasp push` on every push to `main` that touches `apps-script/`. To enable it, after doing `clasp login` locally, copy the contents of the `~/.clasprc.json` file it created, and add it as a repository secret named `CLASPRC_JSON` (GitHub repo > Settings > Secrets and variables > Actions > New repository secret).
 
-**One thing `clasp push` does not do:** the dashboard web app serves the code from its *deployed version*, not the latest saved code. After a push that changes `Dashboard.gs`/`Dashboard.html`, bump the version once: **Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy** (the URL stays the same). This can also be automated — see the commented-out step at the bottom of the workflow file. Tip while iterating: the **Test deployment** URL (`/dev` instead of `/exec`, under Deploy > Test deployments) always serves the latest saved code with no version bumping, so you can preview changes there before publishing.
+**One thing `clasp push` does not do:** the dashboard web app serves the code from its *deployed version*, not the latest saved code. After a push that changes `DashboardServer.gs`/`Dashboard.html`, bump the version once: **Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy** (the URL stays the same). This can also be automated — see the commented-out step at the bottom of the workflow file. Tip while iterating: the **Test deployment** URL (`/dev` instead of `/exec`, under Deploy > Test deployments) always serves the latest saved code with no version bumping, so you can preview changes there before publishing.
 
 ## Notes
 

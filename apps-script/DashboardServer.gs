@@ -1,5 +1,8 @@
 /**
- * Dashboard.gs
+ * DashboardServer.gs
+ * (Named "DashboardServer" because the Apps Script editor does not allow a script file and an
+ * HTML file to share the name "Dashboard". The file name has no effect on behavior — only the
+ * HTML file's name is referenced in code, via createTemplateFromFile('Dashboard').)
  * Serves a read-only web dashboard summarizing the Invoice Log — no Google Sheet access and no
  * Apps Script editor access needed to view it. Runs "Execute as: Me" when deployed as a Web App
  * (see SETUP.md), so anyone with the URL sees a live rendering of the data with zero ability to
@@ -48,8 +51,10 @@ function buildDashboardData_() {
         dateProcessedRaw: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(), // epoch ms — used for client-side filtering
         dateProcessedFormatted: formatDateForDashboard_(dateValue, timezone),
         vendor: r[idx['Vendor']] || '(unknown vendor)',
-        projectNumber: r[idx['Project Number']] || '',
+        projectNumber: String(r[idx['Project Number']] == null ? '' : r[idx['Project Number']]).trim(),
         projectName: r[idx['Project Name']] || '',
+        subprojectNumber: String(r[idx['Subproject Number']] == null ? '' : r[idx['Subproject Number']]).trim(),
+        subprojectName: r[idx['Subproject Name']] || '',
         amount: amount,
         currency: currency,
         status: status,
@@ -83,36 +88,80 @@ function buildDashboardData_() {
   });
 
   // Rows logged before the subproject-fallback fix (see findReferenceMatch_) have a Project Number
-  // but a blank Project Name. Backfill names from the Project Reference tab (and from other log
-  // rows) so the same project never shows up twice — once as "6 - FOREST EDGE CMNS." and once as "6 -".
-  const nameByNumber = {};
+  // but blank names. Backfill project AND subproject names from the Project Reference tab (and from
+  // other log rows), so the same project never shows up twice — once as "6 - FOREST EDGE CMNS." and
+  // once as "6 -". Lookups use normalizeNumberKey_ because the reference sheet zero-pads project
+  // numbers ("05") while logged rows may carry them unpadded ("5") — those must count as the same.
+  const projectNames = {};
+  const subprojectNames = {};
   try {
     getReferenceData_().forEach(r => {
-      if (r.projectName && !nameByNumber[r.projectNumber]) nameByNumber[r.projectNumber] = r.projectName;
+      const p = normalizeNumberKey_(r.projectNumber);
+      if (r.projectName && !projectNames[p]) projectNames[p] = r.projectName;
+      const s = normalizeNumberKey_(r.subprojectNumber);
+      if (s && r.subprojectName && !subprojectNames[`${p}|${s}`]) subprojectNames[`${p}|${s}`] = r.subprojectName;
     });
   } catch (e) { /* Reference tab missing — fall back to names already present in the log */ }
   records.forEach(r => {
-    if (r.projectName && !nameByNumber[r.projectNumber]) nameByNumber[r.projectNumber] = r.projectName;
+    const p = normalizeNumberKey_(r.projectNumber);
+    if (r.projectName && !projectNames[p]) projectNames[p] = r.projectName;
+    const s = normalizeNumberKey_(r.subprojectNumber);
+    if (s && r.subprojectName && !subprojectNames[`${p}|${s}`]) subprojectNames[`${p}|${s}`] = r.subprojectName;
   });
   records.forEach(r => {
-    if (r.projectNumber && !r.projectName) r.projectName = nameByNumber[r.projectNumber] || '';
+    const p = normalizeNumberKey_(r.projectNumber);
+    if (p && !r.projectName) r.projectName = projectNames[p] || '';
+    const s = normalizeNumberKey_(r.subprojectNumber);
+    if (s && !r.subprojectName) r.subprojectName = subprojectNames[`${p}|${s}`] || '';
   });
 
+  // "By Project" — nested rollup mirroring the Project Reference structure: one row per project,
+  // with its subprojects broken out underneath. Invoices with no (or unlisted) subproject are
+  // grouped under a "General / no subproject" line when the project has other subproject activity.
   const byProjectMap = {};
   records.forEach(r => {
-    const key = !r.projectNumber ? '(no project match)'
-      : r.projectName ? `${r.projectNumber} - ${r.projectName}`
-      : String(r.projectNumber);
-    if (!byProjectMap[key]) byProjectMap[key] = { count: 0, amount: 0 };
-    byProjectMap[key].count++;
-    byProjectMap[key].amount += r.amount;
+    const p = normalizeNumberKey_(r.projectNumber);
+    const key = p || '(no project match)';
+    if (!byProjectMap[key]) byProjectMap[key] = { number: p, name: '', count: 0, amount: 0, subs: {} };
+    const g = byProjectMap[key];
+    g.count++;
+    g.amount += r.amount;
+    if (r.projectName && !g.name) g.name = r.projectName;
+    const s = normalizeNumberKey_(r.subprojectNumber);
+    if (!g.subs[s]) g.subs[s] = { number: s, name: '', count: 0, amount: 0 };
+    g.subs[s].count++;
+    g.subs[s].amount += r.amount;
+    if (r.subprojectName && !g.subs[s].name) g.subs[s].name = r.subprojectName;
   });
   const byProject = Object.keys(byProjectMap)
-    .map(key => ({
-      project: key,
-      count: byProjectMap[key].count,
-      amountFormatted: formatCurrencyForDashboard_(byProjectMap[key].amount, 'CAD')
-    }))
+    .map(key => {
+      const g = byProjectMap[key];
+      const subKeys = Object.keys(g.subs);
+      // Don't render a lone "General" line that would just repeat the project totals.
+      const showSubs = subKeys.some(s => s !== '');
+      const subprojects = !showSubs ? [] : subKeys
+        .sort((a, b) => {
+          if (a === '') return 1; // "General / no subproject" bucket sorts last
+          if (b === '') return -1;
+          return compareNumberKeys_(a, b);
+        })
+        .map(s => {
+          const sub = g.subs[s];
+          return {
+            label: !sub.number ? 'General / no subproject'
+              : sub.name ? `${sub.number} - ${sub.name}` : sub.number,
+            count: sub.count,
+            amountFormatted: formatCurrencyForDashboard_(sub.amount, 'CAD')
+          };
+        });
+      return {
+        project: !g.number ? '(no project match)'
+          : g.name ? `${g.number} - ${g.name}` : g.number,
+        count: g.count,
+        amountFormatted: formatCurrencyForDashboard_(g.amount, 'CAD'),
+        subprojects: subprojects
+      };
+    })
     .sort((a, b) => b.count - a.count);
 
   const errSheet = ss.getSheetByName(CONFIG.SHEET_ERRORS_TAB);
@@ -232,6 +281,35 @@ function getLogoDataUri_() {
   } catch (e) {
     return '';
   }
+}
+
+/**
+ * Canonical form of a project/subproject number for grouping and lookups: trims, and strips
+ * leading zeros from the integer part ("05" → "5", "06.10" → "6.10") so zero-padded reference
+ * numbers and unpadded logged numbers count as the same project. Non-numeric values (e.g. "46++")
+ * pass through unchanged.
+ */
+function normalizeNumberKey_(value) {
+  const s = String(value == null ? '' : value).trim();
+  return s.replace(/^0+(?=\d)/, '');
+}
+
+/** Numeric-aware compare for dotted numbers, so "43.2" sorts before "43.10". */
+function compareNumberKeys_(a, b) {
+  const as = String(a).split('.');
+  const bs = String(b).split('.');
+  const len = Math.max(as.length, bs.length);
+  for (let i = 0; i < len; i++) {
+    const an = Number(as[i] || 0);
+    const bn = Number(bs[i] || 0);
+    if (isNaN(an) || isNaN(bn)) {
+      const cmp = String(as[i] || '').localeCompare(String(bs[i] || ''));
+      if (cmp !== 0) return cmp;
+    } else if (an !== bn) {
+      return an - bn;
+    }
+  }
+  return 0;
 }
 
 function statusToClass_(status) {

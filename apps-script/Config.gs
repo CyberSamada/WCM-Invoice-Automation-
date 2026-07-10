@@ -28,10 +28,10 @@ const CONFIG = {
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
 
   // Dashboard branding — the "WCM Logo" PNG in Drive, embedded into the dashboard header at
-  // render time (Dashboard.gs/getLogoDataUri_). Blank = fall back to the text wordmark.
+  // render time (DashboardServer.gs/getLogoDataUri_). Blank = fall back to the text wordmark.
   DASHBOARD_LOGO_FILE_ID: '14jr0ZlJjKKnLLaYgOqEYOtzXJqNPNRwM',
 
-  // Automation Start/Pause (dashboard header buttons — see Dashboard.gs). While paused, the
+  // Automation Start/Pause (dashboard header buttons — see DashboardServer.gs). While paused, the
   // 15-minute trigger still fires but processInvoices() returns immediately without doing anything.
   PAUSED_PROPERTY: 'AUTOMATION_PAUSED', // Script Property that stores the paused state
   DASHBOARD_CONTROL_EMAILS: [],          // extra emails allowed to press Start/Pause — the script owner always can. e.g. ['controller@wcmcon.com']
