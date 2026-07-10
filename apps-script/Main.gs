@@ -49,10 +49,7 @@ function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
 
   const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold;
 
-  const matchedRef = referenceRows.find(r =>
-    r.projectNumber === extracted.project_number &&
-    (r.subprojectNumber || '') === (extracted.subproject_number || '')
-  );
+  const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
   const fileName = buildInvoiceFileName_(extracted);
   let driveLink = '';

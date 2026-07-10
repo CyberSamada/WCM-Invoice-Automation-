@@ -143,13 +143,48 @@ function fetchWithRetry_(url, options, maxRetries) {
 }
 
 /**
+ * Resolves the extracted project/subproject numbers against the Project Reference rows.
+ *
+ * Tries an exact project + subproject match first. If that fails but the project number itself
+ * exists, falls back to a project-level match: Drive filing is per-project anyway (one archive
+ * folder per project number, not per subproject), so a correctly identified project should never
+ * be dropped just because its exact subproject row isn't in the reference sheet yet. The old
+ * behavior (require both to match) is what left invoices in "_Unmatched"/"Needs Review" with a
+ * blank Project Name even when the project number was correct.
+ *
+ * The Drive Folder ID is resolved at the project level too — if the matched row doesn't carry one,
+ * any sibling row of the same project that does is used.
+ *
+ * @return {Object|null} { projectNumber, projectName, subprojectNumber, subprojectName,
+ *                         driveFolderId, exactSubproject } or null if the project number
+ *                         doesn't exist in the reference data at all.
+ */
+function findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) {
+  if (!projectNumber) return null;
+  const projectRows = referenceRows.filter(r => r.projectNumber === projectNumber);
+  if (projectRows.length === 0) return null;
+
+  const sub = subprojectNumber || '';
+  const exact = projectRows.find(r => (r.subprojectNumber || '') === sub);
+  // Prefer the blank-subproject ("main") row as the fallback identity for the project.
+  const base = exact || projectRows.find(r => !r.subprojectNumber) || projectRows[0];
+  const rowWithFolder = projectRows.find(r => r.driveFolderId);
+
+  return {
+    projectNumber: projectNumber,
+    projectName: base.projectName,
+    subprojectNumber: exact ? (exact.subprojectNumber || '') : '',
+    subprojectName: exact ? exact.subprojectName : '',
+    driveFolderId: (exact && exact.driveFolderId) || (rowWithFolder ? rowWithFolder.driveFolderId : ''),
+    exactSubproject: !!exact
+  };
+}
+
+/**
  * Rule-based sanity check on top of Gemini's self-reported confidence — see plan doc Section 3, step 4.
- * Returns true only if the project/subproject Gemini returned actually exists in the reference data
- * (belt-and-braces on top of the `enum` constraint, which should already guarantee this).
+ * Passes if the extracted project number exists in the reference data (exact subproject no longer
+ * required — see findReferenceMatch_).
  */
 function validateMatch_(result, referenceRows) {
-  return referenceRows.some(r =>
-    r.projectNumber === result.project_number &&
-    (r.subprojectNumber || '') === (result.subproject_number || '')
-  );
+  return findReferenceMatch_(referenceRows, result.project_number, result.subproject_number) !== null;
 }

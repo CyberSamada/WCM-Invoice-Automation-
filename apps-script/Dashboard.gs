@@ -82,9 +82,27 @@ function buildDashboardData_() {
     if (r.dateProcessedRaw >= startOfMonth) countThisMonth++;
   });
 
+  // Rows logged before the subproject-fallback fix (see findReferenceMatch_) have a Project Number
+  // but a blank Project Name. Backfill names from the Project Reference tab (and from other log
+  // rows) so the same project never shows up twice — once as "6 - FOREST EDGE CMNS." and once as "6 -".
+  const nameByNumber = {};
+  try {
+    getReferenceData_().forEach(r => {
+      if (r.projectName && !nameByNumber[r.projectNumber]) nameByNumber[r.projectNumber] = r.projectName;
+    });
+  } catch (e) { /* Reference tab missing — fall back to names already present in the log */ }
+  records.forEach(r => {
+    if (r.projectName && !nameByNumber[r.projectNumber]) nameByNumber[r.projectNumber] = r.projectName;
+  });
+  records.forEach(r => {
+    if (r.projectNumber && !r.projectName) r.projectName = nameByNumber[r.projectNumber] || '';
+  });
+
   const byProjectMap = {};
   records.forEach(r => {
-    const key = r.projectNumber ? `${r.projectNumber} - ${r.projectName}` : '(no project match)';
+    const key = !r.projectNumber ? '(no project match)'
+      : r.projectName ? `${r.projectNumber} - ${r.projectName}`
+      : String(r.projectNumber);
     if (!byProjectMap[key]) byProjectMap[key] = { count: 0, amount: 0 };
     byProjectMap[key].count++;
     byProjectMap[key].amount += r.amount;
@@ -105,6 +123,7 @@ function buildDashboardData_() {
   const recordsJson = JSON.stringify(records).replace(/<\//g, '<\\/');
 
   return {
+    logoDataUri: getLogoDataUri_(),
     generatedAtFormatted: formatDateForDashboard_(new Date(), timezone),
     totalProcessed: records.length,
     counts: counts,
@@ -117,6 +136,48 @@ function buildDashboardData_() {
     errorCount: errorCount,
     recordsJson: recordsJson
   };
+}
+
+/**
+ * Returns the WCM logo as a data: URI for the dashboard header, reading it from Drive at render
+ * time so the logo bytes never live inside Dashboard.html (a 400KB base64 blob pasted into the
+ * editor is easy to truncate by accident — a truncated PNG still reports its dimensions but
+ * renders blank).
+ *
+ * The source file is a 6584px original, so we prefer Drive's pre-scaled ~200px thumbnail and only
+ * fall back to inlining the full-size file if the thumbnail isn't available. Cached for 6 hours.
+ * Any failure returns '' and the header falls back to the text wordmark instead.
+ */
+function getLogoDataUri_() {
+  if (!CONFIG.DASHBOARD_LOGO_FILE_ID) return '';
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get('dashboardLogoDataUri');
+  if (cached) return cached;
+  try {
+    let uri = '';
+    try {
+      const meta = JSON.parse(UrlFetchApp.fetch(
+        `https://www.googleapis.com/drive/v3/files/${CONFIG.DASHBOARD_LOGO_FILE_ID}?fields=thumbnailLink`,
+        { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
+      ).getContentText());
+      if (meta.thumbnailLink) {
+        // thumbnailLink ends in a size directive like "=s220" — ask for 200px tall instead.
+        const resp = UrlFetchApp.fetch(meta.thumbnailLink.replace(/=s\d+[^&]*$/, '=s200'), { muteHttpExceptions: true });
+        if (resp.getResponseCode() === 200) {
+          const blob = resp.getBlob();
+          uri = `data:${blob.getContentType()};base64,${Utilities.base64Encode(blob.getBytes())}`;
+        }
+      }
+    } catch (e) { /* thumbnail unavailable — inline the full-size file below */ }
+    if (!uri) {
+      const blob = DriveApp.getFileById(CONFIG.DASHBOARD_LOGO_FILE_ID).getBlob();
+      uri = `data:${blob.getContentType()};base64,${Utilities.base64Encode(blob.getBytes())}`;
+    }
+    if (uri.length < 95000) cache.put('dashboardLogoDataUri', uri, 21600); // CacheService caps values at 100KB
+    return uri;
+  } catch (e) {
+    return '';
+  }
 }
 
 function statusToClass_(status) {

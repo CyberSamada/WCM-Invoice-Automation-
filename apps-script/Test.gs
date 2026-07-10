@@ -67,10 +67,7 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
 
-  const matchedRef = referenceRows.find(r =>
-    r.projectNumber === extracted.project_number &&
-    (r.subprojectNumber || '') === (extracted.subproject_number || '')
-  );
+  const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
   const wouldFileLink = (matchedRef && matchedRef.driveFolderId)
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
@@ -99,6 +96,10 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
     statusText = 'Test-OK (would auto-file)';
   } else {
     statusText = 'Test-Needs Review';
+  }
+  if (matchedRef && !matchedRef.exactSubproject && extracted.subproject_number) {
+    note = (note ? note + ' ' : '') +
+      `Subproject "${extracted.subproject_number}" isn't listed under project ${matchedRef.projectNumber} — matched at the project level instead.`;
   }
 
   logTestRow_({

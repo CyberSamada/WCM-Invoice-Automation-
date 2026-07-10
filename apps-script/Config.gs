@@ -27,6 +27,10 @@ const CONFIG = {
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
 
+  // Dashboard branding — the "WCM Logo" PNG in Drive, embedded into the dashboard header at
+  // render time (Dashboard.gs/getLogoDataUri_). Blank = fall back to the text wordmark.
+  DASHBOARD_LOGO_FILE_ID: '14jr0ZlJjKKnLLaYgOqEYOtzXJqNPNRwM',
+
   // Spreadsheet tab names (all live in the Sheet this script is bound to)
   SHEET_LOG_TAB: 'Invoice Log',
   SHEET_ERRORS_TAB: 'Errors',

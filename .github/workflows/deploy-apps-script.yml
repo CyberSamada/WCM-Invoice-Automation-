@@ -1,0 +1,55 @@
+# Pushes the apps-script/ folder to the live Apps Script project whenever it changes on main,
+# so the code in GitHub and the code in the Apps Script editor never drift apart.
+#
+# One-time setup (details in apps-script/SETUP.md, "Keeping Apps Script in sync"):
+#   1. Put your Apps Script project's Script ID in apps-script/.clasp.json
+#   2. Run `clasp login` locally once, then save the contents of ~/.clasprc.json
+#      as a repository secret named CLASPRC_JSON (Settings > Secrets and variables > Actions).
+#
+# Note: this updates the script's code (like pressing Save in the editor). The dashboard web app
+# additionally needs its deployment bumped to a new version to serve the new code — either do that
+# manually (Deploy > Manage deployments > New version) or set DEPLOYMENT_ID below to automate it.
+
+name: Deploy to Apps Script
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps-script/**'
+  workflow_dispatch:
+
+jobs:
+  push-to-apps-script:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Install clasp
+        run: npm install -g @google/clasp
+
+      - name: Write clasp credentials
+        env:
+          CLASPRC_JSON: ${{ secrets.CLASPRC_JSON }}
+        run: |
+          if [ -z "$CLASPRC_JSON" ]; then
+            echo "::error::The CLASPRC_JSON repository secret is not set. Run 'clasp login' locally and save ~/.clasprc.json as the CLASPRC_JSON secret. See apps-script/SETUP.md."
+            exit 1
+          fi
+          printf '%s' "$CLASPRC_JSON" > ~/.clasprc.json
+
+      - name: Push code to Apps Script
+        working-directory: apps-script
+        run: clasp push -f
+
+      # Optional: also publish a new version of the dashboard web app automatically.
+      # Fill in the deployment ID from Deploy > Manage deployments (starts with "AKfycb..."),
+      # then uncomment the step below.
+      #
+      # - name: Redeploy dashboard web app
+      #   working-directory: apps-script
+      #   run: clasp deploy --deploymentId YOUR_DEPLOYMENT_ID --description "Auto-deploy from GitHub"

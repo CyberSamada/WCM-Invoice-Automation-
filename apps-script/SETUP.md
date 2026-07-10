@@ -61,6 +61,29 @@ Rather than a script-maintained second tab, add a new sheet tab with this formul
 4. Click **Deploy**, authorize if prompted, then copy the **Web app URL** it gives you — that's what you share with employees (bookmark-able, no login prompts beyond their normal Google sign-in).
 5. **After any future change** to `Dashboard.gs` or `Dashboard.html`: Deploy > **Manage deployments** > pencil/edit icon on the existing deployment > Version: **New version** > Deploy. The shared URL stays the same; this just pushes the update live. (A brand-new deployment would give employees a different URL to re-bookmark — avoid that unless you actually want to retire the old one.)
 
+## 8. Keeping Apps Script in sync with this repo (no more copy-pasting)
+
+Google's official CLI, [`clasp`](https://github.com/google/clasp), pushes this folder straight into the Apps Script project — the same as pasting every file by hand, in one command.
+
+**One-time setup (on any machine with Node.js):**
+
+1. `npm install -g @google/clasp`
+2. `clasp login` (opens a browser to authorize your Google account)
+3. In the Apps Script editor: **Project Settings** (gear icon) > copy the **Script ID**, and paste it into `apps-script/.clasp.json` in this repo (replacing `PASTE_YOUR_SCRIPT_ID_HERE`).
+
+**Then, whenever the repo changes:**
+
+```
+cd apps-script
+clasp push
+```
+
+That overwrites every file in the Apps Script project with this folder's contents (`.gs`, `.html`, and `appsscript.json`). No editor visits needed.
+
+**Fully automatic (GitHub Action):** `.github/workflows/deploy-apps-script.yml` runs `clasp push` on every push to `main` that touches `apps-script/`. To enable it, after doing `clasp login` locally, copy the contents of the `~/.clasprc.json` file it created, and add it as a repository secret named `CLASPRC_JSON` (GitHub repo > Settings > Secrets and variables > Actions > New repository secret).
+
+**One thing `clasp push` does not do:** the dashboard web app serves the code from its *deployed version*, not the latest saved code. After a push that changes `Dashboard.gs`/`Dashboard.html`, bump the version once: **Deploy > Manage deployments > edit (pencil) > Version: New version > Deploy** (the URL stays the same). This can also be automated — see the commented-out step at the bottom of the workflow file. Tip while iterating: the **Test deployment** URL (`/dev` instead of `/exec`, under Deploy > Test deployments) always serves the latest saved code with no version bumping, so you can preview changes there before publishing.
+
 ## Notes
 
 - Nothing here needs Claude or any external server running — once deployed, it's entirely self-contained inside Google Workspace, per the plan.
