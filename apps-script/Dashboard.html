@@ -196,6 +196,9 @@
     a { color: var(--wcm-blue); text-decoration: none; }
     a:hover { text-decoration: underline; }
 
+    .status-note { border-bottom: 1px dotted #9ca3af; cursor: help; }
+    #filterProject option.sub-option { padding-left: 14px; }
+
     .note {
       font-size: 11.5px;
       color: #9ca3af;
@@ -332,10 +335,10 @@
 
       <table>
         <thead>
-          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Amount</th><th>Status</th><th>Links</th></tr>
+          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="6" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="7" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -422,25 +425,85 @@
       return (currency || 'CAD') + ' $' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // Strips leading zeros ("05" -> "5") so the same project/subproject logged under slightly
+    // different number formats groups as one — mirrors normalizeNumberKey_ in DashboardServer.gs.
+    function normalizeKey(v) {
+      return String(v == null ? '' : v).trim().replace(/^0+(?=\d)/, '');
+    }
+
+    // Numeric-aware compare for dotted numbers ("43.2" before "43.10").
+    function compareDotted(a, b) {
+      var as = String(a).split('.'), bs = String(b).split('.');
+      var len = Math.max(as.length, bs.length);
+      for (var i = 0; i < len; i++) {
+        var an = Number(as[i] || 0), bn = Number(bs[i] || 0);
+        if (isNaN(an) || isNaN(bn)) {
+          var cmp = String(as[i] || '').localeCompare(String(bs[i] || ''));
+          if (cmp !== 0) return cmp;
+        } else if (an !== bn) {
+          return an - bn;
+        }
+      }
+      return 0;
+    }
+
     function projectKey(r) {
       if (!r.projectNumber) return '(no project match)';
       return r.projectName ? (r.projectNumber + ' - ' + r.projectName) : String(r.projectNumber);
     }
 
+    function subprojectKey(r) {
+      if (!r.subprojectNumber) return '';
+      return r.subprojectName ? (r.subprojectNumber + ' - ' + r.subprojectName) : String(r.subprojectNumber);
+    }
+
+    // Builds the Project filter as a two-level tree (project -> its subprojects), rendered as
+    // <optgroup>s so a project can be filtered on its own, or narrowed to one specific subproject —
+    // mirrors the "By Project & Subproject" table structure.
     function populateProjectFilter() {
       var select = document.getElementById('filterProject');
-      var seen = {};
-      var projects = [];
+      var projects = {}; // normalized project key -> { label, subs: { normalized sub key -> label } }
+
       ALL_RECORDS.forEach(function (r) {
-        var key = projectKey(r);
-        if (!seen[key]) { seen[key] = true; projects.push(key); }
+        var pKey = r.projectNumber ? normalizeKey(r.projectNumber) : '';
+        if (!projects[pKey]) projects[pKey] = { label: projectKey(r), subs: {} };
+        if (r.projectName && projects[pKey].label.indexOf(' - ') === -1) projects[pKey].label = projectKey(r);
+        var sKey = normalizeKey(r.subprojectNumber);
+        if (sKey && !projects[pKey].subs[sKey]) projects[pKey].subs[sKey] = subprojectKey(r);
       });
-      projects.sort();
-      projects.forEach(function (p) {
-        var opt = document.createElement('option');
-        opt.value = p;
-        opt.textContent = p;
-        select.appendChild(opt);
+
+      var pKeys = Object.keys(projects).sort(function (a, b) {
+        if (a === '') return 1; // "(no project match)" sorts last
+        if (b === '') return -1;
+        return compareDotted(a, b);
+      });
+
+      pKeys.forEach(function (pKey) {
+        var proj = projects[pKey];
+        var subKeys = Object.keys(proj.subs).sort(compareDotted);
+
+        if (subKeys.length === 0) {
+          var opt = document.createElement('option');
+          opt.value = 'P:' + pKey;
+          opt.textContent = proj.label;
+          select.appendChild(opt);
+          return;
+        }
+
+        var group = document.createElement('optgroup');
+        group.label = proj.label;
+        var allOpt = document.createElement('option');
+        allOpt.value = 'P:' + pKey;
+        allOpt.textContent = 'All of ' + proj.label;
+        group.appendChild(allOpt);
+        subKeys.forEach(function (sKey) {
+          var subOpt = document.createElement('option');
+          subOpt.value = 'S:' + pKey + '|' + sKey;
+          subOpt.className = 'sub-option';
+          subOpt.textContent = '  ↳ ' + proj.subs[sKey];
+          group.appendChild(subOpt);
+        });
+        select.appendChild(group);
       });
     }
 
@@ -478,7 +541,15 @@
 
       var filtered = ALL_RECORDS.filter(function (r) {
         if (status !== 'all' && r.status !== status) return false;
-        if (project !== 'all' && projectKey(r) !== project) return false;
+        if (project !== 'all') {
+          if (project.charAt(0) === 'P') {
+            var pKey = project.slice(2);
+            if (normalizeKey(r.projectNumber) !== pKey) return false;
+          } else if (project.charAt(0) === 'S') {
+            var parts = project.slice(2).split('|');
+            if (normalizeKey(r.projectNumber) !== parts[0] || normalizeKey(r.subprojectNumber) !== parts[1]) return false;
+          }
+        }
         if (vendor && r.vendor.toLowerCase().indexOf(vendor) === -1) return false;
         if (tfStart !== null && r.dateProcessedRaw < tfStart) return false;
         if (tfEnd !== null && r.dateProcessedRaw > tfEnd) return false;
@@ -497,18 +568,22 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="6" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No invoices match these filters.</td></tr>';
         return;
       }
 
       var html = '';
       list.forEach(function (r) {
+        var statusBadge = '<span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span>';
         html += '<tr>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.vendor) + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
+          '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
-          '<td><span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span></td>' +
+          '<td>' + (r.matchNote
+            ? '<span class="status-note" title="' + escapeHtml(r.matchNote) + '">' + statusBadge + '</span>'
+            : statusBadge) + '</td>' +
           '<td>' +
             (r.driveLink ? '<a href="' + escapeHtml(r.driveLink) + '" target="_blank">File</a>' : '') +
             (r.driveLink && r.gmailLink ? ' &middot; ' : '') +

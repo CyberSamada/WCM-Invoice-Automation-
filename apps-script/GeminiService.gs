@@ -14,19 +14,27 @@
 
 /**
  * @param {GoogleAppsScript.Base.Blob} pdfBlob
- * @param {Array<Object>} referenceRows - from getReferenceData_()
+ * @param {Array<Object>} referenceRows - from getReferenceData_() (raw — may include excluded/template rows)
+ * @param {Array<Object>} [aliasRows] - from getAliasData_(); optional, defaults to none
  * @return {Object} parsed extraction result, or throws on failure
  */
-function extractAndMatchInvoice_(pdfBlob, referenceRows) {
+function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
   const apiKey = PropertiesService.getScriptProperties().getProperty(CONFIG.GEMINI_API_KEY_PROPERTY);
   if (!apiKey) {
     throw new Error(`Script Property "${CONFIG.GEMINI_API_KEY_PROPERTY}" is not set. Generate a key at aistudio.google.com/apikey and add it under Project Settings > Script Properties.`);
   }
+  aliasRows = aliasRows || [];
 
-  const projectNumbers = [...new Set(referenceRows.map(r => r.projectNumber))];
+  // Never offer template/placeholder rows (e.g. "00 PROJECT TEMPLATE") as something an invoice
+  // can be matched to — see CONFIG.EXCLUDE_PROJECT_NUMBERS.
+  const matchableRows = getMatchableReferenceRows_(referenceRows);
+
+  // "UNKNOWN" lets Gemini decline to pick a project rather than being forced into the closest
+  // wrong one just because the schema requires *some* enum value — see the prompt below.
+  const projectNumbers = ['UNKNOWN', ...new Set(matchableRows.map(r => r.projectNumber))];
   // Gemini's schema validation rejects an empty string as an enum value, so use the sentinel
   // "NONE" instead, then convert it back to '' after parsing the response (see below).
-  const subprojectNumbers = [...new Set(referenceRows.map(r => r.subprojectNumber || 'NONE'))];
+  const subprojectNumbers = [...new Set(matchableRows.map(r => r.subprojectNumber || 'NONE'))];
 
   const schema = {
     type: 'object',
@@ -44,39 +52,58 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
       project_number: {
         type: 'string',
         enum: projectNumbers,
-        description: 'Best-match project number from the provided reference list.'
+        description: 'Best-match project number from the reference list, or "UNKNOWN" if none can be confidently identified.'
       },
       subproject_number: {
         type: 'string',
         enum: subprojectNumbers,
-        description: 'Best-match subproject number, or "NONE" if the project has no matching numbered subproject.'
+        description: 'Best-match subproject number, or "NONE" if the project has no matching numbered subproject (also "NONE" when project_number is "UNKNOWN").'
       },
-      match_reasoning: { type: 'string', description: 'One sentence on why this project/subproject was chosen.' },
+      match_reasoning: {
+        type: 'string',
+        description: 'Always fill this in, especially when project_number is "UNKNOWN": explain what address/tenant/name you found on the invoice, and — if you have a guess even though you weren\'t confident enough to select it — name the project you suspect it might be and why, so a human reviewer can check quickly.'
+      },
       confidence: {
         type: 'number', minimum: 0, maximum: 1,
-        description: 'Self-assessed confidence (0-1) that the project/subproject match is correct. Treat as a rough signal, not a calibrated probability.'
+        description: 'Self-assessed confidence (0-1) that the project/subproject match is correct. 0 when project_number is "UNKNOWN". Treat as a rough signal, not a calibrated probability.'
       }
     },
-    required: ['is_invoice', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'confidence']
+    required: ['is_invoice', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'match_reasoning', 'confidence']
   };
 
-  const referenceListText = referenceRows.map(r =>
+  const referenceListText = matchableRows.map(r =>
     `${r.projectNumber} | ${r.projectName} | ${r.subprojectNumber || '(no subproject)'} | ${r.subprojectName || ''}`
+  ).join('\n');
+
+  const aliasListText = aliasRows.map(a =>
+    `"${a.alias}" -> Project ${a.projectNumber}${a.subprojectNumber ? ' / Subproject ' + a.subprojectNumber : ''}`
   ).join('\n');
 
   const prompt = `You are matching a construction-company invoice PDF to the correct project and subproject.\n\n` +
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
+    (aliasListText
+      ? `Known aliases — alternate names/addresses invoices sometimes use instead of the project's listed name ` +
+        `(if the invoice mentions one of these, use the project/subproject it points to directly):\n${aliasListText}\n\n`
+      : '') +
     `First, determine whether this document is actually an invoice or bill requesting payment — as opposed to ` +
     `something else like a banking/payment info update, an account statement, a paid receipt, or an informational ` +
     `email — and set is_invoice accordingly. Then read the document and extract the requested fields regardless ` +
-    `(make your best guess for fields that don't clearly apply if it isn't an invoice). For project_number and subproject_number, ` +
-    `pick the single best match from the reference list above based on any address, tenant name, or project reference ` +
-    `mentioned in the invoice. If a project has no matching subproject, use "NONE" for subproject_number. ` +
+    `(make your best guess for fields that don't clearly apply if it isn't an invoice). ` +
+    `For project_number and subproject_number, pick the single best match from the reference list (and alias list, if given) ` +
+    `above based on any address, tenant name, or project reference mentioned in the invoice. If a project has no matching ` +
+    `subproject, use "NONE" for subproject_number. ` +
     `The reference list may be incomplete — it might not yet include every subproject that actually exists. If the ` +
     `invoice clearly belongs to a listed project but does NOT specifically and confidently match any listed subproject ` +
     `(e.g. a different tenant, unit, or address not on the list), use "NONE" for subproject_number rather than forcing ` +
-    `a match to a similar-sounding one, and lower your confidence score to reflect that the specific subproject wasn't found. ` +
-    `If you are not confident in the match, still make your best guess but reflect that in a low confidence score.`;
+    `a match to a similar-sounding one, and lower your confidence score to reflect that the specific subproject wasn't found.\n\n` +
+    `IMPORTANT — do not force a project match either. The reference list does NOT include every real project or every way ` +
+    `an address might be written; a project not appearing here does not mean the invoice is invalid. If you cannot confidently ` +
+    `tie the invoice to one specific listed project — even if it clearly mentions a real address or tenant name — set ` +
+    `project_number to "UNKNOWN" (and subproject_number to "NONE") rather than guessing the closest-sounding one. When you do ` +
+    `this, still use match_reasoning to record your best guess and why (e.g. "invoice is for '1105 Wellington - Old Bay'; not ` +
+    `on the list, but tenant/address details suggest it may belong to project 54 WHITE OAKS MALL — needs human confirmation") ` +
+    `so a person can quickly review and confirm it. Never guess just to fill the field, and never select a project that is ` +
+    `clearly a template, placeholder, or non-project entry.`;
 
   const payload = {
     contents: [{
@@ -114,6 +141,9 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows) {
   const parsed = JSON.parse(text);
   if (parsed.subproject_number === 'NONE') {
     parsed.subproject_number = '';
+  }
+  if (parsed.project_number === 'UNKNOWN') {
+    parsed.project_number = '';
   }
   return parsed;
 }
@@ -155,13 +185,17 @@ function fetchWithRetry_(url, options, maxRetries) {
  * The Drive Folder ID is resolved at the project level too — if the matched row doesn't carry one,
  * any sibling row of the same project that does is used.
  *
+ * Excludes CONFIG.EXCLUDE_PROJECT_NUMBERS (template/placeholder rows, e.g. "00 PROJECT TEMPLATE")
+ * itself — callers never need to remember to pre-filter referenceRows before calling this.
+ *
  * @return {Object|null} { projectNumber, projectName, subprojectNumber, subprojectName,
  *                         driveFolderId, exactSubproject } or null if the project number
- *                         doesn't exist in the reference data at all.
+ *                         doesn't exist in the (non-excluded) reference data at all.
  */
 function findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) {
   if (!projectNumber) return null;
-  const projectRows = referenceRows.filter(r => r.projectNumber === projectNumber);
+  const matchableRows = getMatchableReferenceRows_(referenceRows);
+  const projectRows = matchableRows.filter(r => r.projectNumber === projectNumber);
   if (projectRows.length === 0) return null;
 
   const sub = subprojectNumber || '';

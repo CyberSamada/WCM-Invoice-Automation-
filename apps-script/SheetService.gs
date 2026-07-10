@@ -34,11 +34,64 @@ function getReferenceData_() {
     }));
 }
 
+/**
+ * Rows from getReferenceData_() with CONFIG.EXCLUDE_PROJECT_NUMBERS (e.g. "00 PROJECT TEMPLATE")
+ * removed. Use this — not the raw reference rows — everywhere a project could actually be chosen
+ * or matched against (the Gemini schema, findReferenceMatch_/validateMatch_), so a placeholder
+ * template row can never become a filing destination even if something upstream returns its number.
+ */
+function getMatchableReferenceRows_(referenceRows) {
+  const excluded = (CONFIG.EXCLUDE_PROJECT_NUMBERS || []).map(normalizeNumberKey_);
+  return referenceRows.filter(r => excluded.indexOf(normalizeNumberKey_(r.projectNumber)) === -1);
+}
+
+/**
+ * Reads the optional "Project Aliases" tab: known alternate names/addresses that map straight to
+ * a project (e.g. a street address invoices use instead of the project's marketing name), for
+ * cases Gemini can't reliably infer from the Project Reference sheet alone. Returns [] if the tab
+ * doesn't exist — this feature is optional, not required for the automation to run.
+ */
+function getAliasData_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (!sheet) return [];
+  const values = sheet.getDataRange().getValues();
+  const header = values.shift() || [];
+  const idx = {
+    alias: header.indexOf('Alias'),
+    projectNumber: header.indexOf('Project Number'),
+    subprojectNumber: header.indexOf('Subproject Number')
+  };
+  if (idx.alias === -1 || idx.projectNumber === -1) return [];
+
+  return values
+    .filter(row => row[idx.alias] !== '' && row[idx.projectNumber] !== '')
+    .map(row => ({
+      alias: String(row[idx.alias]).trim(),
+      projectNumber: String(row[idx.projectNumber]).trim(),
+      subprojectNumber: idx.subprojectNumber === -1 ? '' : String(row[idx.subprojectNumber] || '').trim()
+    }));
+}
+
 /** Appends one row to the Invoice Log tab. `data` keys should match CONFIG.LOG_COLUMNS (case-insensitive, order-independent). */
 function logInvoiceRow_(data) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
   const row = CONFIG.LOG_COLUMNS.map(col => data[col] !== undefined ? data[col] : '');
   sheet.appendRow(row);
+}
+
+/**
+ * Adds any header names in `requiredHeaders` that aren't already present in `sheet`'s row 1,
+ * appending them as new columns at the end. Lets CONFIG.LOG_COLUMNS grow over time (e.g. the
+ * "Match Note" column) without anyone needing to manually edit an already-existing sheet.
+ */
+function ensureSheetHasColumns_(sheet, requiredHeaders) {
+  const lastCol = Math.max(sheet.getLastColumn(), 1);
+  const existing = sheet.getRange(1, 1, 1, lastCol).getValues()[0].map(h => String(h).trim());
+  const missing = requiredHeaders.filter(h => existing.indexOf(h) === -1);
+  if (missing.length) {
+    sheet.getRange(1, existing.length + 1, 1, missing.length).setValues([missing]);
+  }
 }
 
 /** Appends one row to the Errors tab. */

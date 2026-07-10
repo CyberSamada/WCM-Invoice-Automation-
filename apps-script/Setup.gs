@@ -16,6 +16,16 @@ function setup() {
     Logger.log(`Created "${CONFIG.SHEET_REFERENCE_TAB}" tab — now import project_reference.csv into it (File > Import > Insert new sheet, then copy the rows in), and add Drive Folder IDs per row.`);
   }
 
+  const aliasSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (!aliasSheet) {
+    const created = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
+    // Seeded with the known case that prompted this feature: invoices for "1105 Wellington -
+    // Old Bay" are actually White Oaks Mall (project 54), but that address doesn't appear
+    // anywhere in Project Reference, so Gemini had no way to find it on its own.
+    created.appendRow(['1105 Wellington - Old Bay', '54', '']);
+    Logger.log(`Created "${CONFIG.SHEET_ALIASES_TAB}" tab — add a row per alternate name/address an invoice might use instead of the project's listed name (e.g. a street address). Optional: leave blank and delete rows you don't need.`);
+  }
+
   Logger.log('Setup complete. Next: set the GEMINI_API_KEY script property, fill in the Project Reference tab, then create a time-driven trigger for processInvoices() — see SETUP.md.');
 }
 

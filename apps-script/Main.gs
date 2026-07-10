@@ -10,6 +10,7 @@ function processInvoices() {
   }
 
   const referenceRows = getReferenceData_();
+  const aliasRows = getAliasData_();
   let threads = getUnprocessedThreads_();
 
   Logger.log(`Found ${threads.length} unprocessed thread(s) under label "${CONFIG.GMAIL_LABEL}"` +
@@ -33,7 +34,7 @@ function processInvoices() {
 
     attachments.forEach(({ blob }) => {
       try {
-        processOneInvoice_(blob, referenceRows, threadLink);
+        processOneInvoice_(blob, referenceRows, aliasRows, threadLink);
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
       }
@@ -46,8 +47,8 @@ function processInvoices() {
   });
 }
 
-function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
-  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows);
+function processOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
+  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
@@ -92,6 +93,7 @@ function processOneInvoice_(pdfBlob, referenceRows, threadLink) {
     'Status': status,
     'Confidence': extracted.confidence,
     'Drive Link': driveLink,
-    'Gmail Link': threadLink
+    'Gmail Link': threadLink,
+    'Match Note': extracted.match_reasoning || ''
   });
 }

@@ -25,6 +25,7 @@ function testRun() {
   }
 
   const referenceRows = getReferenceData_();
+  const aliasRows = getAliasData_();
   // Excludes threads already handled for real, AND threads already covered by a previous test run.
   const query = `label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL} -label:${CONFIG.TEST_LABEL}`;
   let threads = GmailApp.search(query);
@@ -43,7 +44,7 @@ function testRun() {
         logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': 'No PDF attachment on this thread.', 'Gmail Link': threadLink });
       } else {
         attachments.forEach(({ blob }) => {
-          testOneInvoice_(blob, referenceRows, threadLink);
+          testOneInvoice_(blob, referenceRows, aliasRows, threadLink);
           // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
           // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
           Utilities.sleep(13000);
@@ -62,8 +63,8 @@ function testRun() {
   Logger.log('Test run complete — check the "Test Log" tab. Nothing here touched the real Invoice Log or any real project folder.');
 }
 
-function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
-  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows);
+function testOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
+  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
 
@@ -100,6 +101,11 @@ function testOneInvoice_(pdfBlob, referenceRows, threadLink) {
   if (matchedRef && !matchedRef.exactSubproject && extracted.subproject_number) {
     note = (note ? note + ' ' : '') +
       `Subproject "${extracted.subproject_number}" isn't listed under project ${matchedRef.projectNumber} — matched at the project level instead.`;
+  }
+  if (!matchedRef && extracted.match_reasoning) {
+    // Gemini declined to pick a project (project_number came back "UNKNOWN") — surface its
+    // reasoning/best-guess here so a human can review quickly instead of just seeing "no match".
+    note = (note ? note + ' ' : '') + `Gemini's notes: ${extracted.match_reasoning}`;
   }
 
   logTestRow_({

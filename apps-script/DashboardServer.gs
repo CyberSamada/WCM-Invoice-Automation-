@@ -61,7 +61,8 @@ function buildDashboardData_() {
         statusClass: statusToClass_(status),
         confidenceFormatted: formatConfidenceForDashboard_(r[idx['Confidence']]),
         driveLink: r[idx['Drive Link']] || '',
-        gmailLink: r[idx['Gmail Link']] || ''
+        gmailLink: r[idx['Gmail Link']] || '',
+        matchNote: (idx['Match Note'] > -1 && r[idx['Match Note']]) || ''
       };
     });
 
@@ -214,16 +215,21 @@ function isAutomationPaused_() {
 }
 
 /**
- * Whether the person viewing the dashboard may press Start/Pause. The web app runs as the owner
- * ("Execute as: Me"), so this compares the *viewer's* identity (Session.getActiveUser(), populated
- * for same-domain viewers) against the owner (Session.getEffectiveUser()). Both need the
- * userinfo.email scope in appsscript.json.
+ * Whether the person viewing the dashboard may press Start/Pause.
  *
- * Wrapped in try/catch on purpose: this runs during the initial page render, so if the identity
- * lookup ever fails (missing scope, outside-domain viewer, etc.) it must degrade to a read-only
- * dashboard, never throw and blank the whole page.
+ * By default (CONFIG.RESTRICT_DASHBOARD_CONTROLS = false) this is true for anyone who can open
+ * the dashboard at all — access to the dashboard itself is already gated by the Web App
+ * deployment's "Who has access" setting (SETUP.md section 7), so a second identity check here
+ * was redundant and, in practice, unreliable: Session.getActiveUser()/getEffectiveUser() only
+ * return an email when the Workspace domain shares viewer identity with the script, so the
+ * button was silently disappearing for legitimate owners on deployments where it doesn't.
+ *
+ * Set RESTRICT_DASHBOARD_CONTROLS to true to additionally require the viewer's email match the
+ * script owner or appear in DASHBOARD_CONTROL_EMAILS — wrapped in try/catch since that identity
+ * lookup needs the userinfo.email scope and must never be the reason the whole page fails to render.
  */
 function canControlAutomation_() {
+  if (!CONFIG.RESTRICT_DASHBOARD_CONTROLS) return true;
   try {
     const viewer = (Session.getActiveUser().getEmail() || '').toLowerCase();
     if (!viewer) return false;
@@ -247,7 +253,7 @@ function getAutomationStatus() {
 /** Called from Dashboard.html via google.script.run when Start/Pause is pressed. */
 function setAutomationPaused(paused) {
   if (!canControlAutomation_()) {
-    throw new Error('Only the automation owner can start or pause it. Ask them to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
+    throw new Error('You are not allowed to start or pause the automation. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
   }
   PropertiesService.getScriptProperties().setProperty(CONFIG.PAUSED_PROPERTY, paused ? 'true' : 'false');
   // Starting when no trigger has ever been created (fresh setup) — create it now so Start
@@ -259,41 +265,37 @@ function setAutomationPaused(paused) {
 }
 
 /**
- * Returns the WCM logo as a data: URI for the dashboard header, reading it from Drive at render
- * time so the logo bytes never live inside Dashboard.html (a 400KB base64 blob pasted into the
- * editor is easy to truncate by accident — a truncated PNG still reports its dimensions but
- * renders blank).
+ * Returns the WCM logo as a data: URI for the dashboard header, reading it directly from Drive at
+ * render time (CONFIG.DASHBOARD_LOGO_FILE_ID must point at a small, pre-cropped copy of the logo —
+ * see Config.gs — not the multi-megapixel original). Two earlier approaches both proved unreliable
+ * and were dropped: (1) pasting the base64 blob straight into Dashboard.html got silently
+ * truncated on copy/paste, and (2) fetching Drive's auto-generated thumbnail sometimes returned an
+ * HTML error page instead of image bytes (Drive couldn't render one), which got base64-encoded as
+ * if it were a valid image and rendered as a broken icon. Reading the small file directly avoids
+ * both: nothing is hand-pasted, and there is no separate thumbnail-generation step to fail.
  *
- * The source file is a 6584px original, so we prefer Drive's pre-scaled ~200px thumbnail and only
- * fall back to inlining the full-size file if the thumbnail isn't available. Cached for 6 hours.
- * Any failure returns '' and the header falls back to the text wordmark instead.
+ * Validates the PNG file signature before using the bytes, so a bad file (wrong ID, file deleted
+ * and ID now points at something else, Drive returning an error page) falls back to the text
+ * wordmark instead of rendering a broken image. Cached for 6 hours.
  */
 function getLogoDataUri_() {
   if (!CONFIG.DASHBOARD_LOGO_FILE_ID) return '';
   const cache = CacheService.getScriptCache();
-  const cached = cache.get('dashboardLogoDataUri');
+  // Cache key is versioned + includes the file ID: bumping either (as this fix does, v1 -> v2)
+  // guarantees a stale/broken value cached under the old logic can never be served here again.
+  const cacheKey = `dashboardLogoDataUri:v2:${CONFIG.DASHBOARD_LOGO_FILE_ID}`;
+  const cached = cache.get(cacheKey);
   if (cached) return cached;
   try {
-    let uri = '';
-    try {
-      const meta = JSON.parse(UrlFetchApp.fetch(
-        `https://www.googleapis.com/drive/v3/files/${CONFIG.DASHBOARD_LOGO_FILE_ID}?fields=thumbnailLink`,
-        { headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() }, muteHttpExceptions: true }
-      ).getContentText());
-      if (meta.thumbnailLink) {
-        // thumbnailLink ends in a size directive like "=s220" — ask for 200px tall instead.
-        const resp = UrlFetchApp.fetch(meta.thumbnailLink.replace(/=s\d+[^&]*$/, '=s200'), { muteHttpExceptions: true });
-        if (resp.getResponseCode() === 200) {
-          const blob = resp.getBlob();
-          uri = `data:${blob.getContentType()};base64,${Utilities.base64Encode(blob.getBytes())}`;
-        }
-      }
-    } catch (e) { /* thumbnail unavailable — inline the full-size file below */ }
-    if (!uri) {
-      const blob = DriveApp.getFileById(CONFIG.DASHBOARD_LOGO_FILE_ID).getBlob();
-      uri = `data:${blob.getContentType()};base64,${Utilities.base64Encode(blob.getBytes())}`;
-    }
-    if (uri.length < 95000) cache.put('dashboardLogoDataUri', uri, 21600); // CacheService caps values at 100KB
+    const blob = DriveApp.getFileById(CONFIG.DASHBOARD_LOGO_FILE_ID).getBlob();
+    const bytes = blob.getBytes();
+    // PNG file signature: 0x89 P N G \r \n 0x1A \n. Anything else (an HTML error page, an empty
+    // file, a non-image file accidentally linked) is rejected rather than rendered.
+    const PNG_SIGNATURE = [-119, 80, 78, 71, 13, 10, 26, 10];
+    const isPng = bytes.length > PNG_SIGNATURE.length && PNG_SIGNATURE.every((b, i) => bytes[i] === b);
+    if (!isPng) return '';
+    const uri = `data:image/png;base64,${Utilities.base64Encode(bytes)}`;
+    if (uri.length < 95000) cache.put(cacheKey, uri, 21600); // CacheService caps values at 100KB
     return uri;
   } catch (e) {
     return '';

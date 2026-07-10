@@ -18,6 +18,8 @@
 2. Run the `setup()` function once (select it in the function dropdown, click Run) — this creates the `Project Reference`, `Invoice Log`, and `Errors` tabs if they don't already exist, with the right headers.
 3. Rename/merge your imported CSV data into the `Project Reference` tab so its columns match: `Project Number | Project Name | Subproject Number | Subproject Name | Drive Folder ID`.
 4. Run `createInvoiceArchiveFolders()` (in `DriveSetup.gs`) once. It creates one subfolder per project under the Invoice Archive parent folder (`INVOICE_ARCHIVE_PARENT_FOLDER_ID` — currently the "Outputs" folder), and automatically fills in the **Drive Folder ID** column for every row. Safe to re-run — it reuses folders that already exist by name instead of duplicating them. No manual folder creation or ID copy-pasting needed.
+5. `setup()` also creates a `Project Aliases` tab (columns: `Alias | Project Number | Subproject Number`). This is for invoices that reference a project by a name or street address that doesn't appear anywhere in `Project Reference` — Gemini gets this list alongside the reference data and uses it as a direct lookup. It's seeded with one real example (`1105 Wellington - Old Bay` → project `54`, White Oaks Mall); add a row any time you notice Gemini flagging an invoice it couldn't place (see step 6 below) but you recognize the address. This tab is entirely optional — leave it empty (or delete extra rows) if you don't need it.
+6. Project number `00` (`PROJECT TEMPLATE`) is a placeholder row in `Project Reference`, not a real project — it's automatically excluded from anything Gemini or the matching logic can select (`CONFIG.EXCLUDE_PROJECT_NUMBERS` in `Config.gs`). If you add other non-project placeholder rows later, add their project numbers to that list too.
 
 ## 4. Authorize and test
 
@@ -53,13 +55,16 @@ Rather than a script-maintained second tab, add a new sheet tab with this formul
 
 ## 7. Optional: employee dashboard (no Sheet or Apps Script access needed)
 
-`DashboardServer.gs` + `Dashboard.html` serve a read-only web page — status counts, a "Needs Review" list, recent activity, totals by project — built entirely from live Sheet data, with no ability for a viewer to edit anything. Good for sharing with employees who shouldn't have Sheet or Apps Script editor access.
+`DashboardServer.gs` + `Dashboard.html` serve a read-only web page — status counts, a "Needs Review" list, recent activity, totals by project and subproject — built entirely from live Sheet data, with no ability for a viewer to edit anything. Good for sharing with employees who shouldn't have Sheet or Apps Script editor access. The Project filter is nested (a project, or drilled down to one specific subproject), and any row Gemini flagged with a note (see step 6 above) shows it as a tooltip on the status badge.
+
+The header also has **Start / Pause** buttons for the automation. Pause sets a flag that makes `processInvoices()` return immediately on its next scheduled run (the 15-minute trigger itself is untouched, so nothing needs to be recreated to resume) — Start clears it and creates the trigger if one doesn't exist yet. By default anyone who can open the dashboard can use these buttons, since access to the dashboard itself is already controlled by the "Who has access" setting below. To restrict Start/Pause further (e.g. only you and a controller), set `CONFIG.RESTRICT_DASHBOARD_CONTROLS = true` in `Config.gs` and list allowed emails in `DASHBOARD_CONTROL_EMAILS`.
 
 1. In the Apps Script editor: **Deploy** (top right) > **New deployment**.
 2. Click the gear icon next to "Select type" > **Web app**.
 3. Description: anything (e.g. "Invoice dashboard v1"). **Execute as:** `Me`. **Who has access:** `Anyone within [your Google Workspace domain]` — this keeps it viewable only by signed-in company accounts. Avoid "Anyone with the link" since invoice amounts/vendors would then be reachable by anyone who has the URL, not just your org.
 4. Click **Deploy**, authorize if prompted, then copy the **Web app URL** it gives you — that's what you share with employees (bookmark-able, no login prompts beyond their normal Google sign-in).
 5. **After any future change** to `DashboardServer.gs` or `Dashboard.html`: Deploy > **Manage deployments** > pencil/edit icon on the existing deployment > Version: **New version** > Deploy. The shared URL stays the same; this just pushes the update live. (A brand-new deployment would give employees a different URL to re-bookmark — avoid that unless you actually want to retire the old one.)
+6. The dashboard logo (`CONFIG.DASHBOARD_LOGO_FILE_ID` in `Config.gs`) must point at a small, already-cropped copy of the logo (tens of KB, not the multi-megapixel original) — the dashboard reads that file directly rather than asking Drive to generate a thumbnail, which proved unreliable. If you ever need to replace the logo, downsize the image first (a few hundred pixels tall is plenty for a 56px-tall header image), upload the small copy to Drive, and update the file ID.
 
 ## 8. Keeping Apps Script in sync with this repo (no more copy-pasting)
 
