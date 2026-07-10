@@ -6,9 +6,9 @@
 #   2. Run `clasp login` locally once, then save the contents of ~/.clasprc.json
 #      as a repository secret named CLASPRC_JSON (Settings > Secrets and variables > Actions).
 #
-# Note: this updates the script's code (like pressing Save in the editor). The dashboard web app
-# additionally needs its deployment bumped to a new version to serve the new code — either do that
-# manually (Deploy > Manage deployments > New version) or set DEPLOYMENT_ID below to automate it.
+# This pushes the script's code (like pressing Save in the editor) AND bumps the live dashboard
+# web app deployment to a new version, so the shared /exec URL always serves what's on `main` —
+# no separate manual "Deploy > New version" click needed.
 
 name: Deploy to Apps Script
 
@@ -46,10 +46,9 @@ jobs:
         working-directory: apps-script
         run: clasp push -f
 
-      # Optional: also publish a new version of the dashboard web app automatically.
-      # Fill in the deployment ID from Deploy > Manage deployments (starts with "AKfycb..."),
-      # then uncomment the step below.
-      #
-      # - name: Redeploy dashboard web app
-      #   working-directory: apps-script
-      #   run: clasp deploy --deploymentId YOUR_DEPLOYMENT_ID --description "Auto-deploy from GitHub"
+      # Bumps the live web app deployment (the one whose /exec URL is the actual shared dashboard
+      # link) to a new version, so it serves the code just pushed above. This is the deployment ID
+      # from `clasp deployments` — NOT the "@HEAD" one, which is never the production URL.
+      - name: Redeploy dashboard web app
+        working-directory: apps-script
+        run: clasp deploy --deploymentId AKfycbzGoslEdm989zlr9DXuTtxm9C71MCGQEbKqx5g0c4KbLBqnG4C4cLxG9Aetb8cB_mLg0Q --description "Auto-deploy from GitHub"
