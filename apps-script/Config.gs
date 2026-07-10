@@ -27,12 +27,9 @@ const CONFIG = {
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
 
-  // Dashboard branding — a small (~17KB, pre-cropped) copy of the WCM logo in Drive, embedded
-  // into the dashboard header at render time (DashboardServer.gs/getLogoDataUri_). Deliberately
-  // NOT the original multi-megapixel logo file — keep this pointed at a small dashboard-sized
-  // copy so rendering never depends on Drive's thumbnail service. Blank = fall back to the text
-  // wordmark.
-  DASHBOARD_LOGO_FILE_ID: '1jg5wPp1pvpMN1gisUXvOt5z9ZKwH84iv',
+  // Dashboard branding — the logo itself lives in LogoAsset.gs (WCM_LOGO_BASE64), embedded
+  // directly rather than read from Drive at render time, so there's nothing to configure here.
+  // See LogoAsset.gs to replace it.
 
   // Automation Start/Pause (dashboard header buttons — see DashboardServer.gs). While paused, the
   // 15-minute trigger still fires but processInvoices() returns immediately without doing anything.

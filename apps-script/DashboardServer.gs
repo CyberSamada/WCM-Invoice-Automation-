@@ -265,41 +265,13 @@ function setAutomationPaused(paused) {
 }
 
 /**
- * Returns the WCM logo as a data: URI for the dashboard header, reading it directly from Drive at
- * render time (CONFIG.DASHBOARD_LOGO_FILE_ID must point at a small, pre-cropped copy of the logo —
- * see Config.gs — not the multi-megapixel original). Two earlier approaches both proved unreliable
- * and were dropped: (1) pasting the base64 blob straight into Dashboard.html got silently
- * truncated on copy/paste, and (2) fetching Drive's auto-generated thumbnail sometimes returned an
- * HTML error page instead of image bytes (Drive couldn't render one), which got base64-encoded as
- * if it were a valid image and rendered as a broken icon. Reading the small file directly avoids
- * both: nothing is hand-pasted, and there is no separate thumbnail-generation step to fail.
- *
- * Validates the PNG file signature before using the bytes, so a bad file (wrong ID, file deleted
- * and ID now points at something else, Drive returning an error page) falls back to the text
- * wordmark instead of rendering a broken image. Cached for 6 hours.
+ * Returns the WCM logo as a data: URI for the dashboard header, from the constant embedded in
+ * LogoAsset.gs — see that file for why this replaced reading the logo from Drive at render time
+ * (three different Drive-dependent approaches each broke a different way; embedding removes the
+ * dependency on Drive access entirely).
  */
 function getLogoDataUri_() {
-  if (!CONFIG.DASHBOARD_LOGO_FILE_ID) return '';
-  const cache = CacheService.getScriptCache();
-  // Cache key is versioned + includes the file ID: bumping either (as this fix does, v1 -> v2)
-  // guarantees a stale/broken value cached under the old logic can never be served here again.
-  const cacheKey = `dashboardLogoDataUri:v2:${CONFIG.DASHBOARD_LOGO_FILE_ID}`;
-  const cached = cache.get(cacheKey);
-  if (cached) return cached;
-  try {
-    const blob = DriveApp.getFileById(CONFIG.DASHBOARD_LOGO_FILE_ID).getBlob();
-    const bytes = blob.getBytes();
-    // PNG file signature: 0x89 P N G \r \n 0x1A \n. Anything else (an HTML error page, an empty
-    // file, a non-image file accidentally linked) is rejected rather than rendered.
-    const PNG_SIGNATURE = [-119, 80, 78, 71, 13, 10, 26, 10];
-    const isPng = bytes.length > PNG_SIGNATURE.length && PNG_SIGNATURE.every((b, i) => bytes[i] === b);
-    if (!isPng) return '';
-    const uri = `data:image/png;base64,${Utilities.base64Encode(bytes)}`;
-    if (uri.length < 95000) cache.put(cacheKey, uri, 21600); // CacheService caps values at 100KB
-    return uri;
-  } catch (e) {
-    return '';
-  }
+  return WCM_LOGO_BASE64 ? `data:image/png;base64,${WCM_LOGO_BASE64}` : '';
 }
 
 /**
