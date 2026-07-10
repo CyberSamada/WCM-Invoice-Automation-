@@ -172,7 +172,15 @@ function buildDashboardData_() {
   const recordsJson = JSON.stringify(records).replace(/<\//g, '<\\/');
 
   // Embedded as JSON for the Start/Pause controls ("</" defused like recordsJson above).
-  const automationJson = JSON.stringify(getAutomationStatus()).replace(/<\//g, '<\\/');
+  // Defensive: the controls are a convenience, never a reason for the whole dashboard to fail
+  // to render — fall back to a read-only status if anything here throws.
+  let automationStatus;
+  try {
+    automationStatus = getAutomationStatus();
+  } catch (e) {
+    automationStatus = { paused: isAutomationPaused_(), hasTrigger: false, canControl: false };
+  }
+  const automationJson = JSON.stringify(automationStatus).replace(/<\//g, '<\\/');
 
   return {
     logoDataUri: getLogoDataUri_(),
@@ -207,14 +215,23 @@ function isAutomationPaused_() {
 
 /**
  * Whether the person viewing the dashboard may press Start/Pause. The web app runs as the owner
- * ("Execute as: Me"), so this checks the *viewer's* identity via Session.getActiveUser() — which
- * is populated for same-domain viewers. Outside-domain viewers (blank email) are read-only.
+ * ("Execute as: Me"), so this compares the *viewer's* identity (Session.getActiveUser(), populated
+ * for same-domain viewers) against the owner (Session.getEffectiveUser()). Both need the
+ * userinfo.email scope in appsscript.json.
+ *
+ * Wrapped in try/catch on purpose: this runs during the initial page render, so if the identity
+ * lookup ever fails (missing scope, outside-domain viewer, etc.) it must degrade to a read-only
+ * dashboard, never throw and blank the whole page.
  */
 function canControlAutomation_() {
-  const viewer = (Session.getActiveUser().getEmail() || '').toLowerCase();
-  if (!viewer) return false;
-  if (viewer === Session.getEffectiveUser().getEmail().toLowerCase()) return true;
-  return (CONFIG.DASHBOARD_CONTROL_EMAILS || []).some(e => e.toLowerCase() === viewer);
+  try {
+    const viewer = (Session.getActiveUser().getEmail() || '').toLowerCase();
+    if (!viewer) return false;
+    if (viewer === (Session.getEffectiveUser().getEmail() || '').toLowerCase()) return true;
+    return (CONFIG.DASHBOARD_CONTROL_EMAILS || []).some(e => e.toLowerCase() === viewer);
+  } catch (e) {
+    return false;
+  }
 }
 
 /** Called from Dashboard.html via google.script.run, and embedded in the page on load. */
