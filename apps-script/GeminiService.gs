@@ -13,6 +13,33 @@
  */
 
 /**
+ * How the confidence score is assigned (see the "confidence" schema field and the rubric baked
+ * into the prompt below):
+ *
+ * Gemini self-reports confidence — there's no separate calibration step — but it's steered with an
+ * explicit rubric rather than left to a vague "how sure are you" instruction, since an
+ * uncalibrated LLM asked that generically tends to cluster answers around "pretty sure" regardless
+ * of actual evidence. The rubric ties confidence to *what kind of evidence* was found:
+ *
+ *   0.90–1.00  Explicit: the invoice states the project name/number, or a listed alias, verbatim
+ *              or near-verbatim — e.g. "Project 43 - Hyland Centre" printed on the invoice itself.
+ *   0.75–0.89  Strong inference: a specific address or tenant name clearly matches exactly one
+ *              listed project/subproject, with no other listed project being a plausible fit.
+ *   0.50–0.74  Moderate: some supporting detail exists, but there's real ambiguity — e.g. it could
+ *              plausibly match more than one listed project, or the identifying detail is partial.
+ *   0.01–0.49  Weak: little concrete textual evidence ties the invoice to the specific project
+ *              chosen — mostly inference or vendor history. Should be rare; "UNKNOWN" usually fits
+ *              better at this point (see below).
+ *   0            Mandatory when project_number is "UNKNOWN" — there is no match to be confident in.
+ *
+ * This scale is intentionally calibrated against CONFIG.CONFIDENCE_THRESHOLD (0.75 by default,
+ * see Config.gs): only "Explicit" and "Strong inference" matches clear the bar to auto-file.
+ * "Moderate" and below always land in "Needs Review" — matches with real ambiguity are meant to
+ * get a human's eyes before money moves, not to slip through because the score happened to be
+ * "high enough." If you tune CONFIDENCE_THRESHOLD, keep it inside the 0.75–0.89 band (or adjust
+ * the rubric text below to match) so it still lines up with a tier boundary rather than splitting
+ * one.
+ *
  * @param {GoogleAppsScript.Base.Blob} pdfBlob
  * @param {Array<Object>} referenceRows - from getReferenceData_() (raw — may include excluded/template rows)
  * @param {Array<Object>} [aliasRows] - from getAliasData_(); optional, defaults to none
@@ -65,7 +92,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
       },
       confidence: {
         type: 'number', minimum: 0, maximum: 1,
-        description: 'Self-assessed confidence (0-1) that the project/subproject match is correct. 0 when project_number is "UNKNOWN". Treat as a rough signal, not a calibrated probability.'
+        description: 'Confidence (0-1) the project/subproject match is correct, using the evidence-based rubric given in the prompt (0.9+ explicit match, 0.75-0.89 strong inference, 0.5-0.74 moderate/ambiguous, below 0.5 weak, 0 when project_number is "UNKNOWN"). Base it on the strength of the evidence found, not general confidence in the answer.'
       }
     },
     required: ['is_invoice', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'match_reasoning', 'confidence']
@@ -103,7 +130,18 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
     `this, still use match_reasoning to record your best guess and why (e.g. "invoice is for '1105 Wellington - Old Bay'; not ` +
     `on the list, but tenant/address details suggest it may belong to project 54 WHITE OAKS MALL — needs human confirmation") ` +
     `so a person can quickly review and confirm it. Never guess just to fill the field, and never select a project that is ` +
-    `clearly a template, placeholder, or non-project entry.`;
+    `clearly a template, placeholder, or non-project entry.\n\n` +
+    `For confidence, score the STRENGTH OF THE EVIDENCE you found, not how sure you feel in general:\n` +
+    `- 0.90-1.00: the invoice states the project name/number, or a listed alias, explicitly (verbatim or near-verbatim).\n` +
+    `- 0.75-0.89: a specific address or tenant name clearly matches exactly one listed project/subproject, with no other ` +
+    `listed project also being a plausible fit.\n` +
+    `- 0.50-0.74: some supporting detail exists, but there is real ambiguity — it could plausibly match more than one ` +
+    `listed project, or the identifying detail is only partial.\n` +
+    `- Below 0.50: little concrete textual evidence ties the invoice to the specific project — this should be rare; if ` +
+    `the evidence is this thin, prefer "UNKNOWN" over a low-confidence guess.\n` +
+    `- Exactly 0: required whenever project_number is "UNKNOWN".\n` +
+    `Only scores of 0.75 and above are auto-filed without human review, so reserve that range for cases where you would ` +
+    `bet on the match, not merely lean toward it.`;
 
   const payload = {
     contents: [{

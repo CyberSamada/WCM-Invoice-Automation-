@@ -37,6 +37,24 @@ Before letting the real function loose on a backlog of real invoices, `testRun()
 4. Tested threads get an `AI-Test-Reviewed` label (not `Invoice-Processed`), so they're untouched from `processInvoices()`'s perspective and will still be picked up for real later. Read/unread status is restored automatically. Nothing needs to be manually undone.
 5. Run it again anytime — it always picks fresh, not-yet-tested threads.
 
+### How confidence scores decide auto-file vs. "Needs Review"
+
+Gemini reports a **confidence** score (0–1) alongside its project/subproject match, and that score — not just whether it found *a* match — is what decides whether an invoice gets auto-filed or routed to a human. `CONFIG.CONFIDENCE_THRESHOLD` in `Config.gs` (default **0.75**) is the cutoff: at or above it, an invoice is filed straight into the matched project's folder; below it, "Filed" never happens automatically — it lands in "Needs Review" (or that project's "Statements & Others" subfolder) instead, however plausible the guess looked.
+
+The score isn't a vague "how sure are you" — the prompt gives Gemini an explicit rubric tied to what kind of evidence it actually found on the invoice, seen below. This matters because an LLM asked generically "how confident are you" tends to answer "pretty confident" almost regardless of the evidence; grounding the score in evidence type keeps it meaningful and keeps it consistent invoice to invoice:
+
+| Score range | What it means | Auto-files? |
+|---|---|---|
+| 0.90 – 1.00 | The invoice states the project name/number, or a listed alias, explicitly. | Yes |
+| 0.75 – 0.89 | A specific address or tenant name clearly matches exactly one listed project — no other listed project is also a plausible fit. | Yes |
+| 0.50 – 0.74 | Some supporting detail exists, but there's real ambiguity (could plausibly match more than one project, or the detail is only partial). | No — Needs Review |
+| Below 0.50 | Little concrete evidence ties the invoice to the chosen project. Gemini is instructed to prefer `project_number = "UNKNOWN"` over guessing this low. | No — Needs Review |
+| 0 (exact) | `project_number` is `"UNKNOWN"` — no project could be confidently identified at all. | No — Needs Review / `_Unmatched` |
+
+Whenever Gemini can't confidently place an invoice, it still writes a **Match Note** (a new column in the `Invoice Log` tab, and shown as a tooltip on the status badge on the dashboard) explaining what it found and its best guess — e.g. *"invoice is for '1105 Wellington - Old Bay'; not on the list, but tenant/address details suggest it may belong to project 54 WHITE OAKS MALL — needs human confirmation."* That's how you catch cases worth adding to the `Project Aliases` tab (see step 5 above) so the same invoice matches automatically next time.
+
+If you tune `CONFIDENCE_THRESHOLD`, keep it inside the 0.75–0.89 band shown above (or edit the rubric text in `GeminiService.gs`'s prompt to match) so the cutoff still lines up with a tier boundary in the rubric rather than splitting one — otherwise the threshold and the instructions Gemini is actually following fall out of sync.
+
 ## 5. Turn on the recurring trigger
 
 Either:
