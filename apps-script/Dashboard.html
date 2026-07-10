@@ -32,10 +32,16 @@
       gap: 14px;
       flex-wrap: wrap;
     }
-    .brand-logo { height: 56px; width: auto; flex-shrink: 0; display: block; }
-    .brand-text { line-height: 1.1; }
-    .brand-wordmark { font-size: 21px; font-weight: 800; color: var(--wcm-grey-dark); letter-spacing: 1px; }
-    .brand-tagline { font-size: 9px; font-weight: 700; color: var(--wcm-blue); letter-spacing: 1.4px; margin-top: 3px; }
+    .brand-logo-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
+    .brand-logo { height: 56px; width: auto; max-width: 220px; object-fit: contain; flex-shrink: 0; display: block; }
+    .logo-controls { display: flex; align-items: center; gap: 8px; }
+    .logo-link {
+      font: inherit; font-size: 11px; font-weight: 600; color: var(--wcm-blue);
+      background: none; border: none; padding: 0; cursor: pointer;
+      text-decoration: underline; text-underline-offset: 2px;
+    }
+    .logo-link:hover { color: var(--wcm-blue-dark); }
+    .logo-status { font-size: 11px; color: #6b7280; }
     .brand-divider { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
 
     /* Automation Start/Pause (right side of the header) */
@@ -215,14 +221,15 @@
 <body>
   <div class="brand-header">
     <div class="brand-header-inner">
-      <? if (data.logoDataUri) { ?>
-      <img class="brand-logo" src="<?= data.logoDataUri ?>" alt="WCM Construction Management">
-      <? } else { ?>
-      <div class="brand-text">
-        <div class="brand-wordmark">WCM</div>
-        <div class="brand-tagline">CONSTRUCTION MANAGEMENT</div>
+      <div class="brand-logo-wrap">
+        <img class="brand-logo" id="brandLogo" src="<?= data.logoDataUri ?>" alt="WCM Construction Management">
+        <div class="logo-controls" id="logoControls" style="display:none">
+          <input type="file" id="logoFileInput" accept="image/*" style="display:none">
+          <button type="button" class="logo-link" id="changeLogoBtn">Change logo</button>
+          <button type="button" class="logo-link" id="resetLogoBtn" style="display:none">Reset to default</button>
+          <span class="logo-status" id="logoStatus"></span>
+        </div>
       </div>
-      <? } ?>
       <div class="brand-divider"></div>
       <div>
         <div class="page-title-main">Invoice Automation Dashboard</div>
@@ -374,6 +381,81 @@
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
     var AUTOMATION = <?!= data.automationJson ?>;
+    var BRANDING = <?!= data.brandingJson ?>;
+
+    function renderBranding(state) {
+      BRANDING = state;
+      document.getElementById('logoControls').style.display = state.canControl ? 'flex' : 'none';
+      document.getElementById('resetLogoBtn').style.display = state.hasCustomLogo ? '' : 'none';
+    }
+
+    // Downscales/re-encodes whatever image was chosen to a small PNG via <canvas> before it's sent
+    // to the server — this is what makes uploading a giant multi-megapixel photo a non-issue: the
+    // browser normalizes it locally first, so the base64 that ever leaves the page is always small.
+    function resizeImageForLogo(file) {
+      return new Promise(function (resolve, reject) {
+        var reader = new FileReader();
+        reader.onerror = function () { reject(new Error('Could not read that file.')); };
+        reader.onload = function (e) {
+          var img = new Image();
+          img.onerror = function () { reject(new Error('That file could not be read as an image.')); };
+          img.onload = function () {
+            var maxH = 160, maxW = 500;
+            var scale = Math.min(maxH / img.naturalHeight, maxW / img.naturalWidth, 1); // never upscale
+            var targetW = Math.max(1, Math.round(img.naturalWidth * scale));
+            var targetH = Math.max(1, Math.round(img.naturalHeight * scale));
+            var canvas = document.createElement('canvas');
+            canvas.width = targetW;
+            canvas.height = targetH;
+            canvas.getContext('2d').drawImage(img, 0, 0, targetW, targetH);
+            resolve(canvas.toDataURL('image/png').split(',')[1]);
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function handleLogoFileChosen() {
+      var input = document.getElementById('logoFileInput');
+      var file = input.files && input.files[0];
+      input.value = ''; // so choosing the same file again later still fires 'change'
+      if (!file) return;
+      if (!/^image\//.test(file.type)) { alert('Please choose an image file.'); return; }
+
+      var status = document.getElementById('logoStatus');
+      status.textContent = 'Uploading…';
+      resizeImageForLogo(file).then(function (base64) {
+        google.script.run
+          .withSuccessHandler(function (uri) {
+            document.getElementById('brandLogo').src = uri;
+            status.textContent = 'Logo updated.';
+            setTimeout(function () { status.textContent = ''; }, 4000);
+            renderBranding({ canControl: BRANDING.canControl, hasCustomLogo: true });
+          })
+          .withFailureHandler(function (err) {
+            status.textContent = '';
+            alert(err && err.message ? err.message : 'Could not upload the logo — try a different image.');
+          })
+          .uploadLogo_(base64);
+      }).catch(function (err) {
+        status.textContent = '';
+        alert(err.message || 'Could not process that image.');
+      });
+    }
+
+    function resetLogoToDefault() {
+      if (!confirm('Remove the custom logo and go back to the built-in WCM logo?')) return;
+      google.script.run
+        .withSuccessHandler(function (uri) {
+          document.getElementById('brandLogo').src = uri;
+          renderBranding({ canControl: BRANDING.canControl, hasCustomLogo: false });
+        })
+        .withFailureHandler(function (err) {
+          alert(err && err.message ? err.message : 'Could not reset the logo.');
+        })
+        .resetLogo_();
+    }
 
     function renderAutomation(state) {
       AUTOMATION = state;
@@ -610,6 +692,10 @@
     document.addEventListener('DOMContentLoaded', function () {
       renderAutomation(AUTOMATION);
       document.getElementById('autoToggleBtn').addEventListener('click', toggleAutomation);
+      renderBranding(BRANDING);
+      document.getElementById('changeLogoBtn').addEventListener('click', function () { document.getElementById('logoFileInput').click(); });
+      document.getElementById('logoFileInput').addEventListener('change', handleLogoFileChosen);
+      document.getElementById('resetLogoBtn').addEventListener('click', resetLogoToDefault);
       populateProjectFilter();
       document.getElementById('filterStatus').addEventListener('change', applyFilters);
       document.getElementById('filterProject').addEventListener('change', applyFilters);

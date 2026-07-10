@@ -183,9 +183,18 @@ function buildDashboardData_() {
   }
   const automationJson = JSON.stringify(automationStatus).replace(/<\//g, '<\\/');
 
+  let brandingStatus;
+  try {
+    brandingStatus = getBrandingStatus_();
+  } catch (e) {
+    brandingStatus = { hasCustomLogo: false, canControl: false };
+  }
+  const brandingJson = JSON.stringify(brandingStatus).replace(/<\//g, '<\\/');
+
   return {
     logoDataUri: getLogoDataUri_(),
     automationJson: automationJson,
+    brandingJson: brandingJson,
     generatedAtFormatted: formatDateForDashboard_(new Date(), timezone),
     totalProcessed: records.length,
     counts: counts,
@@ -265,13 +274,104 @@ function setAutomationPaused(paused) {
 }
 
 /**
- * Returns the WCM logo as a data: URI for the dashboard header, from the constant embedded in
- * LogoAsset.gs — see that file for why this replaced reading the logo from Drive at render time
- * (three different Drive-dependent approaches each broke a different way; embedding removes the
- * dependency on Drive access entirely).
+ * Self-service logo — a "Change logo" control in the dashboard header lets the owner replace the
+ * logo without touching code, after three earlier Drive-dependent approaches each broke a
+ * different way (see LogoAsset.gs for the history). The uploaded image is stored directly in
+ * Script Properties — chunked, since each property is capped at 9KB — so there is no Drive file,
+ * no external fetch, and nothing that depends on which Google account did the uploading. Until a
+ * custom logo is uploaded, getLogoDataUri_ falls back to the built-in WCM_LOGO_BASE64 constant in
+ * LogoAsset.gs — "keeps it there unless changed manually," as requested.
  */
+const CUSTOM_LOGO_META_PROPERTY = 'CUSTOM_LOGO_META'; // JSON: { mimeType, chunkCount }
+const CUSTOM_LOGO_CHUNK_PREFIX = 'CUSTOM_LOGO_CHUNK_';
+const CUSTOM_LOGO_CHUNK_SIZE = 8000; // chars/property — Script Properties cap each value at 9KB (9216 chars)
+const CUSTOM_LOGO_MAX_BASE64_LENGTH = 200000; // ~150KB raw; well under the 500KB total Script Properties budget
+
+/** Returns the active logo (custom upload if one exists, else the built-in default) as a data: URI. */
 function getLogoDataUri_() {
+  const custom = getCustomLogoDataUri_();
+  if (custom) return custom;
   return WCM_LOGO_BASE64 ? `data:image/png;base64,${WCM_LOGO_BASE64}` : '';
+}
+
+/** Reassembles a previously uploaded custom logo from its Script Property chunks, or '' if none. */
+function getCustomLogoDataUri_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const metaRaw = props.getProperty(CUSTOM_LOGO_META_PROPERTY);
+    if (!metaRaw) return '';
+    const meta = JSON.parse(metaRaw);
+    let base64 = '';
+    for (let i = 0; i < meta.chunkCount; i++) {
+      base64 += props.getProperty(CUSTOM_LOGO_CHUNK_PREFIX + i) || '';
+    }
+    return base64 ? `data:${meta.mimeType};base64,${base64}` : '';
+  } catch (e) {
+    return '';
+  }
+}
+
+/** Called from Dashboard.html via google.script.run, and embedded in the page on load. */
+function getBrandingStatus_() {
+  return {
+    hasCustomLogo: getCustomLogoDataUri_() !== '',
+    canControl: canControlAutomation_()
+  };
+}
+
+/**
+ * Called from Dashboard.html via google.script.run when a new logo file is chosen. The client
+ * already downscales/re-encodes the image to a small PNG via <canvas> before calling this (see
+ * resizeImageForLogo in Dashboard.html), but the type/size are re-validated here server-side too,
+ * since client-side checks can always be bypassed.
+ */
+function uploadLogo_(base64Data) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to change the dashboard logo.');
+  }
+  if (!base64Data || base64Data.length > CUSTOM_LOGO_MAX_BASE64_LENGTH) {
+    throw new Error('That image is too large. Try a smaller image — a simple logo a few hundred pixels tall is plenty.');
+  }
+
+  const bytes = Utilities.base64Decode(base64Data);
+  const PNG_SIGNATURE = [-119, 80, 78, 71, 13, 10, 26, 10];
+  const isPng = bytes.length > PNG_SIGNATURE.length && PNG_SIGNATURE.every((b, i) => bytes[i] === b);
+  const isJpeg = bytes.length > 3 && bytes[0] === -1 && bytes[1] === -40 && bytes[2] === -1;
+  if (!isPng && !isJpeg) {
+    throw new Error("That doesn't look like a valid image file.");
+  }
+  const mimeType = isPng ? 'image/png' : 'image/jpeg';
+
+  clearCustomLogoChunks_();
+  const props = PropertiesService.getScriptProperties();
+  const chunkCount = Math.ceil(base64Data.length / CUSTOM_LOGO_CHUNK_SIZE);
+  for (let i = 0; i < chunkCount; i++) {
+    props.setProperty(CUSTOM_LOGO_CHUNK_PREFIX + i, base64Data.slice(i * CUSTOM_LOGO_CHUNK_SIZE, (i + 1) * CUSTOM_LOGO_CHUNK_SIZE));
+  }
+  props.setProperty(CUSTOM_LOGO_META_PROPERTY, JSON.stringify({ mimeType: mimeType, chunkCount: chunkCount }));
+
+  return getLogoDataUri_();
+}
+
+/** Called from Dashboard.html via google.script.run to remove the custom logo and revert to the built-in one. */
+function resetLogo_() {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to change the dashboard logo.');
+  }
+  clearCustomLogoChunks_();
+  return getLogoDataUri_();
+}
+
+function clearCustomLogoChunks_() {
+  const props = PropertiesService.getScriptProperties();
+  const metaRaw = props.getProperty(CUSTOM_LOGO_META_PROPERTY);
+  if (metaRaw) {
+    try {
+      const meta = JSON.parse(metaRaw);
+      for (let i = 0; i < meta.chunkCount; i++) props.deleteProperty(CUSTOM_LOGO_CHUNK_PREFIX + i);
+    } catch (e) { /* malformed meta — fall through and delete it below anyway */ }
+  }
+  props.deleteProperty(CUSTOM_LOGO_META_PROPERTY);
 }
 
 /**
