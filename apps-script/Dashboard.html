@@ -37,6 +37,27 @@
     .brand-wordmark { font-size: 21px; font-weight: 800; color: var(--wcm-grey-dark); letter-spacing: 1px; }
     .brand-tagline { font-size: 9px; font-weight: 700; color: var(--wcm-blue); letter-spacing: 1.4px; margin-top: 3px; }
     .brand-divider { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
+
+    /* Automation Start/Pause (right side of the header) */
+    .automation-controls { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+    .auto-pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 12px; border-radius: 999px;
+      font-size: 12px; font-weight: 700;
+    }
+    .auto-pill::before { content: ''; width: 8px; height: 8px; border-radius: 50%; background: currentColor; }
+    .auto-pill.running { background: #e8f7ee; color: #1c6b45; }
+    .auto-pill.paused { background: #fff4e0; color: #8a5a00; }
+    .auto-pill.stopped { background: #eef0f2; color: #41474f; }
+    .auto-btn {
+      font-family: inherit; font-size: 13px; font-weight: 700;
+      padding: 8px 18px; border: none; border-radius: 7px; cursor: pointer;
+      color: #fff; background: var(--wcm-blue);
+    }
+    .auto-btn:hover { background: var(--wcm-blue-dark); }
+    .auto-btn.pause { background: #fff; color: var(--wcm-blue); border: 1px solid var(--wcm-blue); }
+    .auto-btn.pause:hover { background: #eef4fb; }
+    .auto-btn:disabled { opacity: 0.6; cursor: default; }
     .page-title-main { font-size: 16px; font-weight: 700; color: #1f2937; }
     .page-title-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
 
@@ -197,6 +218,10 @@
         <div class="page-title-main">Invoice Automation Dashboard</div>
         <div class="page-title-sub">Live data — generated <?= data.generatedAtFormatted ?>. Reload for the latest.</div>
       </div>
+      <div class="automation-controls">
+        <span class="auto-pill" id="autoPill">…</span>
+        <button class="auto-btn" id="autoToggleBtn" type="button" style="display:none"></button>
+      </div>
     </div>
   </div>
 
@@ -331,6 +356,46 @@
 
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
+    var AUTOMATION = <?!= data.automationJson ?>;
+
+    function renderAutomation(state) {
+      AUTOMATION = state;
+      var pill = document.getElementById('autoPill');
+      var btn = document.getElementById('autoToggleBtn');
+      if (state.paused) {
+        pill.className = 'auto-pill paused';
+        pill.textContent = 'Paused';
+      } else if (state.hasTrigger) {
+        pill.className = 'auto-pill running';
+        pill.textContent = 'Running';
+      } else {
+        pill.className = 'auto-pill stopped';
+        pill.textContent = 'Not scheduled';
+      }
+      if (state.canControl) {
+        var showStart = state.paused || !state.hasTrigger;
+        btn.style.display = '';
+        btn.disabled = false;
+        btn.textContent = showStart ? '▶ Start' : '⏸ Pause';
+        btn.className = showStart ? 'auto-btn' : 'auto-btn pause';
+      } else {
+        btn.style.display = 'none';
+      }
+    }
+
+    function toggleAutomation() {
+      var btn = document.getElementById('autoToggleBtn');
+      btn.disabled = true;
+      btn.textContent = 'Working…';
+      var wantPaused = !AUTOMATION.paused && AUTOMATION.hasTrigger;
+      google.script.run
+        .withSuccessHandler(renderAutomation)
+        .withFailureHandler(function (err) {
+          alert(err && err.message ? err.message : 'Could not update the automation — reload and try again.');
+          renderAutomation(AUTOMATION);
+        })
+        .setAutomationPaused(wantPaused);
+    }
 
     function escapeHtml(s) {
       return String(s == null ? '' : s).replace(/[&<>"']/g, function (c) {
@@ -454,6 +519,8 @@
     }
 
     document.addEventListener('DOMContentLoaded', function () {
+      renderAutomation(AUTOMATION);
+      document.getElementById('autoToggleBtn').addEventListener('click', toggleAutomation);
       populateProjectFilter();
       document.getElementById('filterStatus').addEventListener('change', applyFilters);
       document.getElementById('filterProject').addEventListener('change', applyFilters);

@@ -31,6 +31,11 @@ const CONFIG = {
   // render time (Dashboard.gs/getLogoDataUri_). Blank = fall back to the text wordmark.
   DASHBOARD_LOGO_FILE_ID: '14jr0ZlJjKKnLLaYgOqEYOtzXJqNPNRwM',
 
+  // Automation Start/Pause (dashboard header buttons — see Dashboard.gs). While paused, the
+  // 15-minute trigger still fires but processInvoices() returns immediately without doing anything.
+  PAUSED_PROPERTY: 'AUTOMATION_PAUSED', // Script Property that stores the paused state
+  DASHBOARD_CONTROL_EMAILS: [],          // extra emails allowed to press Start/Pause — the script owner always can. e.g. ['controller@wcmcon.com']
+
   // Spreadsheet tab names (all live in the Sheet this script is bound to)
   SHEET_LOG_TAB: 'Invoice Log',
   SHEET_ERRORS_TAB: 'Errors',

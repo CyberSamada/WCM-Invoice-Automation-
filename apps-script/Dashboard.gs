@@ -122,8 +122,12 @@ function buildDashboardData_() {
   // prematurely close the <script> tag it gets embedded in.
   const recordsJson = JSON.stringify(records).replace(/<\//g, '<\\/');
 
+  // Embedded as JSON for the Start/Pause controls ("</" defused like recordsJson above).
+  const automationJson = JSON.stringify(getAutomationStatus()).replace(/<\//g, '<\\/');
+
   return {
     logoDataUri: getLogoDataUri_(),
+    automationJson: automationJson,
     generatedAtFormatted: formatDateForDashboard_(new Date(), timezone),
     totalProcessed: records.length,
     counts: counts,
@@ -136,6 +140,56 @@ function buildDashboardData_() {
     errorCount: errorCount,
     recordsJson: recordsJson
   };
+}
+
+/**
+ * Automation Start/Pause — the dashboard header shows the current state to everyone, and shows
+ * Start/Pause buttons only to the script owner (plus any CONFIG.DASHBOARD_CONTROL_EMAILS).
+ *
+ * Pausing does NOT delete the 15-minute trigger — it sets a Script Property that makes
+ * processInvoices() return immediately (see Main.gs), so resuming is instant and nothing about
+ * the trigger setup can be lost. Pressing Start also creates the trigger if it doesn't exist yet.
+ */
+
+/** True while the dashboard Pause button is engaged. Checked at the top of processInvoices(). */
+function isAutomationPaused_() {
+  return PropertiesService.getScriptProperties().getProperty(CONFIG.PAUSED_PROPERTY) === 'true';
+}
+
+/**
+ * Whether the person viewing the dashboard may press Start/Pause. The web app runs as the owner
+ * ("Execute as: Me"), so this checks the *viewer's* identity via Session.getActiveUser() — which
+ * is populated for same-domain viewers. Outside-domain viewers (blank email) are read-only.
+ */
+function canControlAutomation_() {
+  const viewer = (Session.getActiveUser().getEmail() || '').toLowerCase();
+  if (!viewer) return false;
+  if (viewer === Session.getEffectiveUser().getEmail().toLowerCase()) return true;
+  return (CONFIG.DASHBOARD_CONTROL_EMAILS || []).some(e => e.toLowerCase() === viewer);
+}
+
+/** Called from Dashboard.html via google.script.run, and embedded in the page on load. */
+function getAutomationStatus() {
+  const hasTrigger = ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'processInvoices');
+  return {
+    paused: isAutomationPaused_(),
+    hasTrigger: hasTrigger,
+    canControl: canControlAutomation_()
+  };
+}
+
+/** Called from Dashboard.html via google.script.run when Start/Pause is pressed. */
+function setAutomationPaused(paused) {
+  if (!canControlAutomation_()) {
+    throw new Error('Only the automation owner can start or pause it. Ask them to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
+  }
+  PropertiesService.getScriptProperties().setProperty(CONFIG.PAUSED_PROPERTY, paused ? 'true' : 'false');
+  // Starting when no trigger has ever been created (fresh setup) — create it now so Start
+  // genuinely means "the automation is running", not "it would run if a trigger existed".
+  if (!paused && !ScriptApp.getProjectTriggers().some(t => t.getHandlerFunction() === 'processInvoices')) {
+    createTimeTrigger();
+  }
+  return getAutomationStatus();
 }
 
 /**

@@ -4,6 +4,11 @@
  */
 
 function processInvoices() {
+  if (isAutomationPaused_()) {
+    Logger.log('Automation is paused (dashboard Pause button). Skipping this run — press Start on the dashboard to resume.');
+    return;
+  }
+
   const referenceRows = getReferenceData_();
   let threads = getUnprocessedThreads_();
 
