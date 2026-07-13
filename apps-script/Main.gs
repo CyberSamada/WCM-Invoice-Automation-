@@ -9,6 +9,23 @@ function processInvoices() {
     return;
   }
 
+  // Prevent overlapping runs. Time-driven triggers can fire again before a slow run finishes; two
+  // runs at once would race to process (and label) the same threads, filing invoices and writing
+  // log rows twice, and could each create a duplicate month folder. tryLock(0) means: if another
+  // run already holds the lock, skip this one immediately — its threads get picked up next tick.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) {
+    Logger.log('Another processInvoices run is already in progress — skipping this run to avoid double-processing.');
+    return;
+  }
+  try {
+    processInvoicesInner_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function processInvoicesInner_() {
   const referenceRows = getReferenceData_();
   const aliasRows = getAliasData_();
   let threads = getUnprocessedThreads_();

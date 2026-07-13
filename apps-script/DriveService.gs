@@ -42,16 +42,26 @@ function getOrCreateNamedSubfolder_(parentFolderId, name) {
 
 /**
  * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the invoice
- * date (falls back to today if the invoice has no readable date), so filed invoices are grouped by
- * month under the project name folder. Returns the parent folder itself when
- * CONFIG.FILE_BY_MONTH is off.
+ * date, so filed invoices are grouped by month under the project name folder. Returns the parent
+ * folder itself when CONFIG.FILE_BY_MONTH is off.
  */
 function getMonthSubfolderId_(projectFolderId, invoiceDate) {
   if (!CONFIG.FILE_BY_MONTH) return projectFolderId;
-  let d = invoiceDate ? new Date(invoiceDate) : new Date();
-  if (isNaN(d.getTime())) d = new Date();
-  const name = Utilities.formatDate(d, CONFIG_TIMEZONE_(), 'yyyy-MM'); // e.g. "2026-07"
-  return getOrCreateNamedSubfolder_(projectFolderId, name).getId();
+  return getOrCreateNamedSubfolder_(projectFolderId, invoiceMonthKey_(invoiceDate)).getId();
+}
+
+/**
+ * The "YYYY-MM" folder name for an invoice. Reads the year+month straight off the invoice date
+ * STRING (which Gemini returns as "YYYY-MM-DD") rather than constructing a Date — a Date would be
+ * parsed as UTC midnight and then shifted by the script timezone, which pushes a 1st-of-month
+ * invoice into the previous month's folder. String slicing has no timezone and is deterministic,
+ * so the same date always maps to the same folder. Falls back to the current month only when the
+ * invoice has no usable date at all.
+ */
+function invoiceMonthKey_(invoiceDate) {
+  const m = /^\s*(\d{4})-(\d{2})/.exec(String(invoiceDate || ''));
+  if (m) return `${m[1]}-${m[2]}`;
+  return Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM');
 }
 
 /** Builds the standardized filename: YYYY-MM-DD_Vendor_InvoiceNumber.pdf */
