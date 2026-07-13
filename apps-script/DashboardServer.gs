@@ -325,7 +325,7 @@ function getBrandingStatus_() {
  * resizeImageForLogo in Dashboard.html), but the type/size are re-validated here server-side too,
  * since client-side checks can always be bypassed.
  */
-function uploadLogo_(base64Data) {
+function uploadLogo(base64Data) {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to change the dashboard logo.');
   }
@@ -354,7 +354,7 @@ function uploadLogo_(base64Data) {
 }
 
 /** Called from Dashboard.html via google.script.run to remove the custom logo and revert to the built-in one. */
-function resetLogo_() {
+function resetLogo() {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to change the dashboard logo.');
   }

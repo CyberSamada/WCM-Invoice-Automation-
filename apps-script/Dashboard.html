@@ -437,7 +437,7 @@
             status.textContent = '';
             alert(err && err.message ? err.message : 'Could not upload the logo — try a different image.');
           })
-          .uploadLogo_(base64);
+          .uploadLogo(base64);
       }).catch(function (err) {
         status.textContent = '';
         alert(err.message || 'Could not process that image.');
@@ -454,7 +454,7 @@
         .withFailureHandler(function (err) {
           alert(err && err.message ? err.message : 'Could not reset the logo.');
         })
-        .resetLogo_();
+        .resetLogo();
     }
 
     function renderAutomation(state) {
