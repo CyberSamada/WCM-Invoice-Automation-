@@ -60,7 +60,7 @@ const CONFIG = {
   LOG_COLUMNS: [
     'Date Processed', 'Invoice Date', 'Due Date', 'Vendor', 'Project Number', 'Project Name',
     'Subproject Number', 'Subproject Name', 'Amount', 'Currency', 'Status', 'Confidence',
-    'Drive Link', 'Gmail Link', 'Match Note'
+    'Drive Link', 'Gmail Link', 'Match Note', 'Review Note'
   ],
 
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)

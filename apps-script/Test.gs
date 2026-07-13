@@ -43,8 +43,8 @@ function testRun() {
       if (attachments.length === 0) {
         logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': 'No PDF attachment on this thread.', 'Gmail Link': threadLink });
       } else {
-        attachments.forEach(({ blob }) => {
-          testOneInvoice_(blob, referenceRows, aliasRows, threadLink);
+        attachments.forEach(({ blob, message }) => {
+          testOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
           // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
           // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
           Utilities.sleep(13000);
@@ -63,10 +63,11 @@ function testRun() {
   Logger.log('Test run complete — check the "Test Log" tab. Nothing here touched the real Invoice Log or any real project folder.');
 }
 
-function testOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
+function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
+  const invoicePredatesEmail = invoiceDatePrecedesEmail_(extracted.invoice_date, emailDate);
 
   const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
@@ -74,7 +75,7 @@ function testOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
     : '(no Drive Folder ID on file for this project/subproject yet)';
 
-  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence;
+  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !invoicePredatesEmail;
 
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
   let testDestFolder;
@@ -93,10 +94,13 @@ function testOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
   if (!extracted.is_invoice) {
     statusText = 'Test-Not an Invoice';
     note = 'Gemini determined this document is not an invoice/bill — extracted fields are best-guess only.';
-  } else if (passesRuleCheck && isHighConfidence) {
+  } else if (wouldAutoFile) {
     statusText = 'Test-OK (would auto-file)';
   } else {
     statusText = 'Test-Needs Review';
+  }
+  if (invoicePredatesEmail) {
+    note = (note ? note + ' ' : '') + 'Invoice date is before the email date — crams the pay period.';
   }
   if (matchedRef && !matchedRef.exactSubproject && extracted.subproject_number) {
     note = (note ? note + ' ' : '') +

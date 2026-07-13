@@ -62,7 +62,8 @@ function buildDashboardData_() {
         confidenceFormatted: formatConfidenceForDashboard_(r[idx['Confidence']]),
         driveLink: r[idx['Drive Link']] || '',
         gmailLink: r[idx['Gmail Link']] || '',
-        matchNote: (idx['Match Note'] > -1 && r[idx['Match Note']]) || ''
+        matchNote: (idx['Match Note'] > -1 && r[idx['Match Note']]) || '',
+        reviewNote: (idx['Review Note'] > -1 && r[idx['Review Note']]) || ''
       };
     });
 

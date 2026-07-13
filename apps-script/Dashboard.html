@@ -203,6 +203,10 @@
     a:hover { text-decoration: underline; }
 
     .status-note { border-bottom: 1px dotted #9ca3af; cursor: help; }
+    .links-cell { white-space: nowrap; }
+    .icon-link { display: inline-flex; align-items: center; color: var(--wcm-blue); vertical-align: middle; }
+    .icon-link + .icon-link { margin-left: 12px; }
+    .icon-link:hover { color: var(--wcm-blue-dark); }
     #filterProject option.sub-option { padding-left: 14px; }
 
     .note {
@@ -507,6 +511,11 @@
       return (currency || 'CAD') + ' $' + num.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
     }
 
+    // Inline SVG icons for the Links column (a page/document and an envelope), so the table shows
+    // recognizable icons instead of the words "File" / "Email" repeated on every row.
+    var ICON_FILE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
+    var ICON_EMAIL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>';
+
     // Strips leading zeros ("05" -> "5") so the same project/subproject logged under slightly
     // different number formats groups as one — mirrors normalizeNumberKey_ in DashboardServer.gs.
     function normalizeKey(v) {
@@ -657,19 +666,21 @@
       var html = '';
       list.forEach(function (r) {
         var statusBadge = '<span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span>';
+        // Prefer the short "why it's flagged" review note in the tooltip; fall back to Gemini's
+        // match reasoning. Show both when both exist.
+        var note = [r.reviewNote, r.matchNote].filter(function (n) { return n; }).join(' — ');
         html += '<tr>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.vendor) + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
-          '<td>' + (r.matchNote
-            ? '<span class="status-note" title="' + escapeHtml(r.matchNote) + '">' + statusBadge + '</span>'
+          '<td>' + (note
+            ? '<span class="status-note" title="' + escapeHtml(note) + '">' + statusBadge + '</span>'
             : statusBadge) + '</td>' +
-          '<td>' +
-            (r.driveLink ? '<a href="' + escapeHtml(r.driveLink) + '" target="_blank">File</a>' : '') +
-            (r.driveLink && r.gmailLink ? ' &middot; ' : '') +
-            (r.gmailLink ? '<a href="' + escapeHtml(r.gmailLink) + '" target="_blank">Email</a>' : '') +
+          '<td class="links-cell">' +
+            (r.driveLink ? '<a class="icon-link" href="' + escapeHtml(r.driveLink) + '" target="_blank" title="Open filed PDF" aria-label="Open filed PDF">' + ICON_FILE + '</a>' : '') +
+            (r.gmailLink ? '<a class="icon-link" href="' + escapeHtml(r.gmailLink) + '" target="_blank" title="Open email" aria-label="Open email">' + ICON_EMAIL + '</a>' : '') +
           '</td>' +
         '</tr>';
       });

@@ -32,9 +32,9 @@ function processInvoices() {
       return;
     }
 
-    attachments.forEach(({ blob }) => {
+    attachments.forEach(({ blob, message }) => {
       try {
-        processOneInvoice_(blob, referenceRows, aliasRows, threadLink);
+        processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
       }
@@ -47,13 +47,14 @@ function processInvoices() {
   });
 }
 
-function processOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
+function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
+  const invoicePredatesEmail = invoiceDatePrecedesEmail_(extracted.invoice_date, emailDate);
 
-  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold;
+  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold && !invoicePredatesEmail;
 
   const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
@@ -95,6 +96,42 @@ function processOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
     'Confidence': extracted.confidence,
     'Drive Link': driveLink,
     'Gmail Link': threadLink,
-    'Match Note': extracted.match_reasoning || ''
+    'Match Note': extracted.match_reasoning || '',
+    'Review Note': buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, invoicePredatesEmail })
   });
+}
+
+/**
+ * True only when the invoice's own date is strictly EARLIER (by calendar day) than the date the
+ * email carrying it was sent — meaning the vendor back-dated it, cramming our pay window. A later
+ * (or same-day) invoice date is fine. Returns false whenever either date is missing/unparseable,
+ * so a missing date never spuriously flags an invoice.
+ */
+function invoiceDatePrecedesEmail_(invoiceDateStr, emailDate) {
+  const inv = parseInvoiceDate_(invoiceDateStr);
+  if (!inv || !(emailDate instanceof Date) || isNaN(emailDate.getTime())) return false;
+  const emailDay = new Date(emailDate.getFullYear(), emailDate.getMonth(), emailDate.getDate());
+  return inv.getTime() < emailDay.getTime();
+}
+
+/** Parses a "YYYY-MM-DD" (or other Date-parseable) string to a local midnight Date, or null. */
+function parseInvoiceDate_(s) {
+  if (!s) return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(s).trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
+}
+
+/** One short line explaining why an item wasn't auto-filed, for the "Review Note" column. '' when Filed. */
+function buildReviewNote_(status, extracted, flags) {
+  if (status === 'Filed') return '';
+  if (!extracted.is_invoice) return 'Not recognized as an invoice or bill.';
+  const reasons = [];
+  if (!flags.passesRuleCheck) reasons.push('no matching project found');
+  else if (!flags.isHighConfidence) reasons.push(`low match confidence (${Math.round((Number(extracted.confidence) || 0) * 100)}%)`);
+  if (flags.invoicePredatesEmail) reasons.push('invoice date is before the email date, which crams the pay period');
+  if (flags.overDollarThreshold) reasons.push('amount is over the review threshold');
+  if (!reasons.length) return 'Flagged for manual review.';
+  return 'Needs review: ' + reasons.join('; ') + '.';
 }
