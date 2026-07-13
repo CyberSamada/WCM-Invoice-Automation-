@@ -27,6 +27,7 @@ const CONFIG = {
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
   FILE_BY_MONTH: true, // group auto-filed invoices into a "YYYY-MM" subfolder (by invoice date) under the project folder. false = file straight into the project folder.
+  DUE_SOON_DAYS: 7, // flag an invoice for review when its due date is this many days (or fewer) after the email arrived — a short window crams the pay period. Invoices with no due date are not flagged. Set to null to disable this check.
 
   // Dashboard branding — the logo itself lives in LogoAsset.gs (WCM_LOGO_BASE64), embedded
   // directly rather than read from Drive at render time, so there's nothing to configure here.

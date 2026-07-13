@@ -67,7 +67,7 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
-  const invoicePredatesEmail = invoiceDatePrecedesEmail_(extracted.invoice_date, emailDate);
+  const dueSoon = dueDateCramsPayPeriod_(extracted.due_date, emailDate);
 
   const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
@@ -75,7 +75,7 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
     : '(no Drive Folder ID on file for this project/subproject yet)';
 
-  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !invoicePredatesEmail;
+  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon;
 
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
   let testDestFolder;
@@ -99,8 +99,8 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   } else {
     statusText = 'Test-Needs Review';
   }
-  if (invoicePredatesEmail) {
-    note = (note ? note + ' ' : '') + 'Invoice date is before the email date — crams the pay period.';
+  if (dueSoon) {
+    note = (note ? note + ' ' : '') + `Due date is within ${CONFIG.DUE_SOON_DAYS} days of arrival — crams the pay period.`;
   }
   if (matchedRef && !matchedRef.exactSubproject && extracted.subproject_number) {
     note = (note ? note + ' ' : '') +
