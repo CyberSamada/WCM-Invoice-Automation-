@@ -63,7 +63,8 @@ function processOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
 
   if (matchedRef && matchedRef.driveFolderId) {
     if (shouldAutoFile) {
-      driveLink = fileInvoiceToDrive_(pdfBlob, matchedRef.driveFolderId, fileName);
+      const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, extracted.invoice_date);
+      driveLink = fileInvoiceToDrive_(pdfBlob, monthFolderId, fileName);
       status = 'Filed';
     } else {
       // Known project, but not confidently an invoice (statement, low-confidence match, over the

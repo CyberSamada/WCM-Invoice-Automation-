@@ -40,6 +40,20 @@ function getOrCreateNamedSubfolder_(parentFolderId, name) {
   return parent.createFolder(name);
 }
 
+/**
+ * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the invoice
+ * date (falls back to today if the invoice has no readable date), so filed invoices are grouped by
+ * month under the project name folder. Returns the parent folder itself when
+ * CONFIG.FILE_BY_MONTH is off.
+ */
+function getMonthSubfolderId_(projectFolderId, invoiceDate) {
+  if (!CONFIG.FILE_BY_MONTH) return projectFolderId;
+  let d = invoiceDate ? new Date(invoiceDate) : new Date();
+  if (isNaN(d.getTime())) d = new Date();
+  const name = Utilities.formatDate(d, CONFIG_TIMEZONE_(), 'yyyy-MM'); // e.g. "2026-07"
+  return getOrCreateNamedSubfolder_(projectFolderId, name).getId();
+}
+
 /** Builds the standardized filename: YYYY-MM-DD_Vendor_InvoiceNumber.pdf */
 function buildInvoiceFileName_(extracted) {
   const safeVendor = String(extracted.vendor_name || 'UnknownVendor').replace(/[\\/:*?"<>|]/g, '-');

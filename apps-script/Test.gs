@@ -81,7 +81,7 @@ function testOneInvoice_(pdfBlob, referenceRows, aliasRows, threadLink) {
   if (matchedRef) {
     const testProjectFolder = getOrCreateTestProjectFolder_(matchedRef.projectNumber, matchedRef.projectName);
     testDestFolder = wouldAutoFile
-      ? testProjectFolder
+      ? DriveApp.getFolderById(getMonthSubfolderId_(testProjectFolder.getId(), extracted.invoice_date))
       : getOrCreateNamedSubfolder_(testProjectFolder.getId(), CONFIG.STATEMENTS_SUBFOLDER_NAME);
   } else {
     testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);

@@ -26,6 +26,7 @@ const CONFIG = {
   // filed here instead of staying unfiled — see Main.gs/processOneInvoice_ and DriveService.gs.
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
+  FILE_BY_MONTH: true, // group auto-filed invoices into a "YYYY-MM" subfolder (by invoice date) under the project folder. false = file straight into the project folder.
 
   // Dashboard branding — the logo itself lives in LogoAsset.gs (WCM_LOGO_BASE64), embedded
   // directly rather than read from Drive at render time, so there's nothing to configure here.
