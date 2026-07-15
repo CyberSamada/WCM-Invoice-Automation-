@@ -13,6 +13,11 @@ const CONFIG = {
   // Volume controls — handy for initial testing with a big backlog, or just to cap Gemini usage per run.
   MAX_THREADS_PER_RUN: 5,   // process at most this many email threads per run. null = no limit. Leftover threads are simply picked up next run.
   LOOKBACK_DAYS: null,      // e.g. 30 to only consider mail from the last 30 days (uses Gmail's newer_than: search operator). null = no time limit, considers all mail under the label.
+  // Upper-bound cutoff — only process mail dated on or before this date ("YYYY-MM-DD"), inclusive.
+  // Useful for controlled backlog processing (work through everything up to a known point before
+  // turning on live processing of newer mail) — see GmailService.gs/dateRangeQuerySuffix_.
+  // null = no upper bound.
+  PROCESS_UNTIL_DATE: '2026-06-01',
 
   // Gemini
   GEMINI_MODEL: 'gemini-3.1-flash-lite', // less in-demand than gemini-3.5-flash on the free tier — swap back if quota/availability improves
