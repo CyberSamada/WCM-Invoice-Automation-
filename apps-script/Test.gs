@@ -110,7 +110,7 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   let note = '';
   if (!extracted.is_invoice) {
     statusText = 'Test-Not an Invoice';
-    note = 'Gemini determined this document is not an invoice/bill — extracted fields are best-guess only.';
+    note = notInvoiceNote_(extracted.document_type) + ' (extracted fields are best-guess only.)';
   } else if (wouldBePastDue) {
     statusText = 'Test-Past Due';
     note = `Past due: due date passed ${daysPastDue} day${daysPastDue === 1 ? '' : 's'} ago — needs urgent review/payment.`;

@@ -159,10 +159,25 @@ function parseYmdDate_(s) {
   return isNaN(d.getTime()) ? null : new Date(d.getFullYear(), d.getMonth(), d.getDate());
 }
 
+/**
+ * One short line explaining WHY a document was classified as not-an-invoice, based on Gemini's
+ * document_type — shared by Main.gs (Review Note) and Test.gs (test preview note) so a human sees
+ * exactly what kind of document was found instead of a generic "not an invoice" for every case.
+ */
+function notInvoiceNote_(documentType) {
+  if (documentType === 'purchase_order') {
+    return 'Recognized as a Purchase Order / Agreement, not an invoice requesting payment — sets terms/authorizes future billing rather than billing for it now.';
+  }
+  if (documentType === 'statement') {
+    return 'Recognized as an account statement summarizing multiple transactions, not a single invoice.';
+  }
+  return 'Not recognized as an invoice or bill.';
+}
+
 /** One short line explaining why an item wasn't auto-filed, for the "Review Note" column. '' when Filed. */
 function buildReviewNote_(status, extracted, flags) {
   if (status === 'Filed') return '';
-  if (!extracted.is_invoice) return 'Not recognized as an invoice or bill.';
+  if (!extracted.is_invoice) return notInvoiceNote_(extracted.document_type);
   if (status === 'Past Due') {
     return `Past due: due date passed ${flags.daysPastDue} day${flags.daysPastDue === 1 ? '' : 's'} ago — needs urgent review/payment.`;
   }
