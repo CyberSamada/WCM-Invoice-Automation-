@@ -290,6 +290,105 @@ function resolveNamedFolder_(parentFolder, existingFolderId, expectedName, label
   }
 }
 
+/** Strips a leading "- " (with any spacing) and collapses repeated whitespace, so rows that only
+ *  differ by stray formatting (e.g. a pasted "- Forest Edge Commons..." vs "Forest Edge Commons...")
+ *  are still recognized as the same subproject name when checking for exact duplicates. */
+function normalizeReferenceName_(name) {
+  return String(name || '').replace(/^\s*-\s*/, '').replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * One-time cleanup for "Project Reference": removes rows that are exact duplicates of an earlier
+ * row (same Project Number + Subproject Number + Subproject Name, ignoring stray dash/whitespace
+ * formatting, and the same or blank Drive Folder ID) — the kind of duplication a CSV/list pasted in
+ * more than once produces. Safe to re-run; a clean sheet is a no-op.
+ *
+ * Deliberately does NOT touch rows that share a Project+Subproject Number but disagree on name or
+ * Drive Folder ID (e.g. a unit that changed tenants) — those aren't safe to auto-resolve since
+ * picking one over the other could silently discard a real business fact. Those get logged as
+ * "CONFLICT" instead so a human decides, never deleted automatically.
+ */
+function dedupeProjectReference() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_REFERENCE_TAB);
+  if (!sheet) throw new Error(`Missing "${CONFIG.SHEET_REFERENCE_TAB}" tab.`);
+
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {
+    projectNumber: header.indexOf('Project Number'),
+    projectName: header.indexOf('Project Name'),
+    subprojectNumber: header.indexOf('Subproject Number'),
+    subprojectName: header.indexOf('Subproject Name'),
+    driveFolderId: header.indexOf('Drive Folder ID')
+  };
+  Object.keys(idx).forEach(k => {
+    if (idx[k] === -1) throw new Error(`"${CONFIG.SHEET_REFERENCE_TAB}" tab is missing a "${k}" column.`);
+  });
+
+  const keptByCombo = {}; // "num||sub" -> the kept row (array)
+  const seenExact = new Set(); // "num||sub||name||id" already kept, to detect exact repeats
+  const kept = [];
+  const conflicts = []; // rows that share a combo with a kept row but disagree on name/ID
+  let removed = 0;
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    const num = cellToString_(row[idx.projectNumber]);
+    if (!num) continue; // skip fully blank rows
+    const sub = cellToString_(row[idx.subprojectNumber]);
+    const name = normalizeReferenceName_(row[idx.subprojectName]);
+    const folderId = cellToString_(row[idx.driveFolderId]);
+    const comboKey = num + '||' + sub;
+    const exactKey = comboKey + '||' + name.toLowerCase() + '||' + folderId;
+
+    const existing = keptByCombo[comboKey];
+    if (!existing) {
+      keptByCombo[comboKey] = row;
+      seenExact.add(exactKey);
+      kept.push(row);
+      continue;
+    }
+
+    if (seenExact.has(exactKey)) {
+      removed++; // true duplicate of a row already kept
+      continue;
+    }
+
+    const existingName = normalizeReferenceName_(existing[idx.subprojectName]);
+    const existingId = cellToString_(existing[idx.driveFolderId]);
+    if (existingName.toLowerCase() === name.toLowerCase() && (!existingId || !folderId || existingId === folderId)) {
+      // Same name, and IDs agree or one side is just blank — same subproject, safe to treat as a
+      // duplicate. Merge in a Drive Folder ID if the kept row is missing one.
+      if (!existingId && folderId) existing[idx.driveFolderId] = folderId;
+      removed++;
+    } else {
+      // Disagreement on name or on two different non-blank IDs — don't guess, flag for a human.
+      conflicts.push(`Project ${num} / Subproject ${sub}: kept "${existingName}" (${existingId || 'no folder ID'}) — ` +
+        `also found "${name}" (${folderId || 'no folder ID'}) at row ${i + 1}.`);
+      seenExact.add(exactKey);
+      kept.push(row);
+    }
+  }
+
+  if (removed === 0 && conflicts.length === 0) {
+    Logger.log('No duplicate or conflicting rows found in "Project Reference" — nothing to clean up.');
+    return;
+  }
+
+  if (removed > 0) {
+    sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).clearContent();
+    if (kept.length) {
+      sheet.getRange(2, 1, kept.length, header.length).setValues(kept);
+    }
+  }
+
+  Logger.log(`Removed ${removed} duplicate row(s) from "Project Reference". ${kept.length} row(s) remain.`);
+  if (conflicts.length) {
+    Logger.log(`${conflicts.length} row(s) share a Project/Subproject Number but disagree on name or Drive Folder ID — ` +
+      `NOT auto-merged, left in the sheet for manual review:\n` + conflicts.join('\n'));
+  }
+}
+
 /** Optional: runs syncProjectReferenceFromDrive() automatically once a day, separate from the 15-minute invoice trigger. */
 function createSyncTrigger() {
   ScriptApp.getProjectTriggers()
