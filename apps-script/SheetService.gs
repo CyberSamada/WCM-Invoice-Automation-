@@ -96,6 +96,46 @@ function driveFileIdFromUrl_(url) {
   return m ? m[1] : '';
 }
 
+/**
+ * One-time migration: fills in 'Row ID' and 'Drive File ID' for any Invoice Log rows logged before
+ * those columns existed, so the dashboard's manual-edit feature (which looks up rows by Row ID)
+ * works on old invoices too, not just ones processed from now on. Safe to re-run — only touches
+ * blank cells. Run once from the function dropdown after deploying this update.
+ */
+function backfillLogRowIds() {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
+
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {
+    rowId: header.indexOf('Row ID'),
+    driveFileId: header.indexOf('Drive File ID'),
+    driveLink: header.indexOf('Drive Link')
+  };
+
+  let filled = 0;
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row.every(cell => cell === '')) continue; // skip fully blank rows
+    let touched = false;
+    if (!row[idx.rowId]) {
+      sheet.getRange(i + 1, idx.rowId + 1).setValue(Utilities.getUuid());
+      touched = true;
+    }
+    if (!row[idx.driveFileId] && row[idx.driveLink]) {
+      const fileId = driveFileIdFromUrl_(row[idx.driveLink]);
+      if (fileId) {
+        sheet.getRange(i + 1, idx.driveFileId + 1).setValue(fileId);
+        touched = true;
+      }
+    }
+    if (touched) filled++;
+  }
+
+  Logger.log(`Backfilled Row ID/Drive File ID on ${filled} existing Invoice Log row(s).`);
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);
