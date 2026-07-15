@@ -68,13 +68,19 @@ function invoiceMonthKey_(invoiceDate) {
  * Resolves the Drive folder a matched invoice should live in, given its status — the single source
  * of truth shared by automatic filing (Main.gs/processOneInvoice_) and the dashboard's manual
  * override (DashboardServer.gs/updateInvoiceRow), so the two paths can never disagree about where
- * something belongs. 'Filed' goes straight into the month folder; anything else (Needs Review, Not
- * an Invoice) goes into that month's "Statements & Others" subfolder — nested under the month, not
- * beside it, so a project's archive stays organized by month at a glance either way. No project
- * match at all falls back to the top-level "_Unmatched" folder.
+ * something belongs. 'Filed' goes straight into the month folder; 'Past Due' goes into a top-level
+ * "Past Due" subfolder directly under the project/subproject folder — a SIBLING of the month
+ * folders, not nested under one, so every overdue invoice for a project is visible in one place
+ * without digging through months. Anything else (Needs Review, Not an Invoice) goes into that
+ * month's "Statements & Others" subfolder — nested under the month, so a project's archive stays
+ * organized by month at a glance either way. No project match at all falls back to the top-level
+ * "_Unmatched" folder.
  */
 function resolveInvoiceDestinationFolderId_(matchedRef, status, invoiceDate) {
   if (matchedRef && matchedRef.driveFolderId) {
+    if (status === 'Past Due') {
+      return getOrCreateNamedSubfolder_(matchedRef.driveFolderId, CONFIG.PASTDUE_SUBFOLDER_NAME).getId();
+    }
     const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, invoiceDate);
     if (status === 'Filed') return monthFolderId;
     return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();

@@ -71,10 +71,12 @@ function buildDashboardData_() {
   const counts = {};
   let totalFiledAmount = 0;
   let totalNeedsReviewAmount = 0;
+  let totalPastDueAmount = 0;
   records.forEach(r => {
     counts[r.status] = (counts[r.status] || 0) + 1;
     if (r.status === 'Filed') totalFiledAmount += r.amount;
     if (r.status === 'Needs Review') totalNeedsReviewAmount += r.amount;
+    if (r.status === 'Past Due') totalPastDueAmount += r.amount;
   });
 
   // "Today" / "this week" (rolling 7 days) / "this month" (calendar month so far) — all relative
@@ -219,6 +221,7 @@ function buildDashboardData_() {
     countThisMonth: countThisMonth,
     totalFiledAmountFormatted: formatCurrencyForDashboard_(totalFiledAmount, 'CAD'),
     totalNeedsReviewAmountFormatted: formatCurrencyForDashboard_(totalNeedsReviewAmount, 'CAD'),
+    totalPastDueAmountFormatted: formatCurrencyForDashboard_(totalPastDueAmount, 'CAD'),
     byProject: byProject,
     errorCount: errorCount,
     recordsJson: recordsJson
@@ -338,7 +341,7 @@ function updateInvoiceRow(rowId, updates) {
   const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
 
-  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice'];
+  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Past Due'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
   }
@@ -543,6 +546,7 @@ function statusToClass_(status) {
   if (status === 'Filed') return 'filed';
   if (status === 'Needs Review') return 'review';
   if (status === 'Not an Invoice') return 'notinvoice';
+  if (status === 'Past Due') return 'pastdue';
   return 'other';
 }
 
