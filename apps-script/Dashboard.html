@@ -220,6 +220,42 @@
       .cards { grid-template-columns: repeat(2, 1fr); }
       .stat-strip { flex-direction: column; gap: 6px; }
     }
+
+    /* Manual-override edit modal */
+    .icon-btn { display: inline-flex; align-items: center; color: var(--wcm-blue); background: none; border: none; padding: 0; cursor: pointer; vertical-align: middle; }
+    .icon-btn:hover { color: var(--wcm-blue-dark); }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
+    .modal-box { background: #fff; border-radius: 10px; padding: 20px 24px; width: 420px; max-width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+    .modal-box h3 { margin: 0 0 4px; font-size: 15px; }
+    .modal-subtitle { font-size: 12px; color: #6b7280; margin: 0 0 14px; }
+    .modal-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+    .modal-field label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+    .modal-field select, .modal-field textarea {
+      font-family: inherit; font-size: 13px; padding: 7px 9px;
+      border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937;
+    }
+    .modal-error { color: #a4222c; font-size: 12.5px; margin: 2px 0 0; min-height: 16px; }
+    .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .btn-primary {
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      background: var(--wcm-blue); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    }
+    .btn-primary:hover { background: var(--wcm-blue-dark); }
+    .btn-primary:disabled { opacity: 0.6; cursor: default; }
+    .btn-secondary {
+      font-family: inherit; font-size: 13px; font-weight: 600;
+      background: #fff; color: #374151; border: 1px solid #d1d5db; padding: 8px 16px; border-radius: 6px; cursor: pointer;
+    }
+    .btn-secondary:hover { background: #f9fafb; }
+
+    /* Feedback */
+    .feedback-fab { position: fixed; bottom: 20px; right: 20px; z-index: 900; }
+    .feedback-btn {
+      font-family: inherit; font-size: 13px; font-weight: 700;
+      background: var(--wcm-blue); color: #fff; border: none; border-radius: 999px;
+      padding: 10px 18px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.18);
+    }
+    .feedback-btn:hover { background: var(--wcm-blue-dark); }
   </style>
 </head>
 <body>
@@ -346,10 +382,10 @@
 
       <table>
         <thead>
-          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th></tr>
+          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="7" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="8" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -382,10 +418,59 @@
     <p class="note">WCM Invoice Automation — automatically filed and logged from billing@wcmcon.com</p>
   </div>
 
+  <!-- Manual-override edit modal (populated/opened via JS; one shared instance, not per-row) -->
+  <div class="modal-overlay" id="editModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Edit invoice</h3>
+      <p class="modal-subtitle" id="editModalSubtitle"></p>
+      <div class="modal-field">
+        <label for="editProject">Project</label>
+        <select id="editProject"></select>
+      </div>
+      <div class="modal-field">
+        <label for="editSubproject">Subproject</label>
+        <select id="editSubproject"></select>
+      </div>
+      <div class="modal-field">
+        <label for="editStatus">Status</label>
+        <select id="editStatus">
+          <option value="Filed">Filed</option>
+          <option value="Needs Review">Needs Review</option>
+          <option value="Not an Invoice">Not an Invoice</option>
+        </select>
+      </div>
+      <p class="modal-error" id="editModalError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="editCancelBtn">Cancel</button>
+        <button type="button" class="btn-primary" id="editSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Feedback -->
+  <div class="feedback-fab">
+    <button type="button" class="feedback-btn" id="feedbackOpenBtn">Send feedback</button>
+  </div>
+  <div class="modal-overlay" id="feedbackModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Send feedback</h3>
+      <p class="modal-subtitle">A line or two is plenty — issues, ideas, anything worth flagging.</p>
+      <div class="modal-field">
+        <textarea id="feedbackText" rows="4" placeholder="What's on your mind?"></textarea>
+      </div>
+      <p class="modal-error" id="feedbackError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="feedbackCancelBtn">Cancel</button>
+        <button type="button" class="btn-primary" id="feedbackSendBtn">Send</button>
+      </div>
+    </div>
+  </div>
+
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
     var AUTOMATION = <?!= data.automationJson ?>;
     var BRANDING = <?!= data.brandingJson ?>;
+    var REFERENCE_OPTIONS = <?!= data.referenceOptionsJson ?>;
 
     function renderBranding(state) {
       BRANDING = state;
@@ -515,6 +600,7 @@
     // recognizable icons instead of the words "File" / "Email" repeated on every row.
     var ICON_FILE = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>';
     var ICON_EMAIL = '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/></svg>';
+    var ICON_EDIT = '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>';
 
     // Strips leading zeros ("05" -> "5") so the same project/subproject logged under slightly
     // different number formats groups as one — mirrors normalizeNumberKey_ in DashboardServer.gs.
@@ -659,7 +745,7 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No invoices match these filters.</td></tr>';
         return;
       }
 
@@ -682,9 +768,154 @@
             (r.driveLink ? '<a class="icon-link" href="' + escapeHtml(r.driveLink) + '" target="_blank" title="Open filed PDF" aria-label="Open filed PDF">' + ICON_FILE + '</a>' : '') +
             (r.gmailLink ? '<a class="icon-link" href="' + escapeHtml(r.gmailLink) + '" target="_blank" title="Open email" aria-label="Open email">' + ICON_EMAIL + '</a>' : '') +
           '</td>' +
+          '<td>' + (r.rowId
+            ? '<button type="button" class="icon-btn" data-row-id="' + escapeHtml(r.rowId) + '" title="Correct project/status" aria-label="Correct project/status">' + ICON_EDIT + '</button>'
+            : '') + '</td>' +
         '</tr>';
       });
       tbody.innerHTML = html;
+      tbody.querySelectorAll('[data-row-id]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openEditModal(btn.getAttribute('data-row-id')); });
+      });
+    }
+
+    // --- Manual-override edit modal ---------------------------------------------------------
+
+    var editingRowId = null;
+
+    // Groups the full reference list into project -> subprojects, for the two dependent selects.
+    function buildReferenceTree() {
+      var tree = {}; // normalized project number -> { number, label, subs: { normalized sub -> { number, label } } }
+      REFERENCE_OPTIONS.forEach(function (o) {
+        var pKey = normalizeKey(o.projectNumber);
+        if (!tree[pKey]) tree[pKey] = { number: o.projectNumber, label: o.projectName ? o.projectNumber + ' - ' + o.projectName : o.projectNumber, subs: {} };
+        if (o.subprojectNumber) {
+          var sKey = normalizeKey(o.subprojectNumber);
+          tree[pKey].subs[sKey] = { number: o.subprojectNumber, label: o.subprojectName ? o.subprojectNumber + ' - ' + o.subprojectName : o.subprojectNumber };
+        }
+      });
+      return tree;
+    }
+
+    function populateEditSubprojects(tree, projectKeyVal, selectedSubNumber) {
+      var select = document.getElementById('editSubproject');
+      select.innerHTML = '';
+      var none = document.createElement('option');
+      none.value = ''; none.textContent = '(no subproject)';
+      select.appendChild(none);
+      var proj = tree[projectKeyVal];
+      if (!proj) return;
+      Object.keys(proj.subs).sort(compareDotted).forEach(function (sKey) {
+        var opt = document.createElement('option');
+        opt.value = proj.subs[sKey].number;
+        opt.textContent = proj.subs[sKey].label;
+        select.appendChild(opt);
+      });
+      select.value = selectedSubNumber || '';
+    }
+
+    function openEditModal(rowId) {
+      var record = ALL_RECORDS.find(function (r) { return r.rowId === rowId; });
+      if (!record) return;
+      editingRowId = rowId;
+
+      document.getElementById('editModalSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
+      document.getElementById('editModalError').textContent = '';
+
+      var tree = buildReferenceTree();
+      var projectSelect = document.getElementById('editProject');
+      projectSelect.innerHTML = '';
+      var noneOpt = document.createElement('option');
+      noneOpt.value = ''; noneOpt.textContent = '(no project match)';
+      projectSelect.appendChild(noneOpt);
+      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
+        var opt = document.createElement('option');
+        opt.value = pKey;
+        opt.textContent = tree[pKey].label;
+        projectSelect.appendChild(opt);
+      });
+      var currentPKey = normalizeKey(record.projectNumber);
+      projectSelect.value = tree[currentPKey] ? currentPKey : '';
+      populateEditSubprojects(tree, projectSelect.value, record.subprojectNumber);
+
+      projectSelect.onchange = function () { populateEditSubprojects(tree, projectSelect.value, ''); };
+
+      document.getElementById('editStatus').value = record.status || 'Needs Review';
+      document.getElementById('editModalOverlay').style.display = 'flex';
+    }
+
+    function closeEditModal() {
+      document.getElementById('editModalOverlay').style.display = 'none';
+      editingRowId = null;
+    }
+
+    function saveEdit() {
+      if (!editingRowId) return;
+      var tree = buildReferenceTree();
+      var pKey = document.getElementById('editProject').value;
+      var projectNumber = pKey && tree[pKey] ? tree[pKey].number : '';
+      var subprojectNumber = document.getElementById('editSubproject').value;
+      var status = document.getElementById('editStatus').value;
+
+      var saveBtn = document.getElementById('editSaveBtn');
+      var errorEl = document.getElementById('editModalError');
+      errorEl.textContent = '';
+      saveBtn.disabled = true;
+      saveBtn.textContent = 'Saving…';
+
+      var rowId = editingRowId;
+      google.script.run
+        .withSuccessHandler(function (updated) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+          var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
+          if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
+          closeEditModal();
+          applyFilters();
+        })
+        .withFailureHandler(function (err) {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+          errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
+        })
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status });
+    }
+
+    // --- Feedback -----------------------------------------------------------------------------
+
+    function openFeedbackModal() {
+      document.getElementById('feedbackError').textContent = '';
+      document.getElementById('feedbackModalOverlay').style.display = 'flex';
+      document.getElementById('feedbackText').focus();
+    }
+
+    function closeFeedbackModal() {
+      document.getElementById('feedbackModalOverlay').style.display = 'none';
+    }
+
+    function sendFeedback() {
+      var text = document.getElementById('feedbackText').value.trim();
+      var errorEl = document.getElementById('feedbackError');
+      if (!text) { errorEl.textContent = 'Write something first.'; return; }
+
+      var sendBtn = document.getElementById('feedbackSendBtn');
+      errorEl.textContent = '';
+      sendBtn.disabled = true;
+      sendBtn.textContent = 'Sending…';
+
+      google.script.run
+        .withSuccessHandler(function () {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+          document.getElementById('feedbackText').value = '';
+          closeFeedbackModal();
+        })
+        .withFailureHandler(function (err) {
+          sendBtn.disabled = false;
+          sendBtn.textContent = 'Send';
+          errorEl.textContent = err && err.message ? err.message : 'Could not send — try again.';
+        })
+        .submitFeedback(text, location.href.split('#')[0]);
     }
 
     function resetFilters() {
@@ -717,6 +948,13 @@
       document.getElementById('filterDateStart').addEventListener('change', applyFilters);
       document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
       document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+      document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
+      document.getElementById('editSaveBtn').addEventListener('click', saveEdit);
+      document.getElementById('editModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeEditModal(); });
+      document.getElementById('feedbackOpenBtn').addEventListener('click', openFeedbackModal);
+      document.getElementById('feedbackCancelBtn').addEventListener('click', closeFeedbackModal);
+      document.getElementById('feedbackSendBtn').addEventListener('click', sendFeedback);
+      document.getElementById('feedbackModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeFeedbackModal(); });
       applyFilters();
     });
   </script>

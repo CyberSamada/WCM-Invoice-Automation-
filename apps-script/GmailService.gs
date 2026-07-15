@@ -14,17 +14,42 @@ function getUnprocessedThreads_() {
   return GmailApp.search(query);
 }
 
-/** Returns all PDF attachments (as Blobs) across every message in a thread. */
+/**
+ * Returns all PDF attachments (as Blobs) across every message in a thread.
+ *
+ * Matches by content type OR a ".pdf" filename, not content type alone — some senders' mail
+ * systems attach real PDFs under a generic type like "application/octet-stream" instead of
+ * "application/pdf" (this is what silently dropped valid PDFs before: they showed up as a normal
+ * attachment in Gmail, but the strict content-type check never counted them, logging a false "no
+ * PDF attachment" error). The extension check catches that without accepting non-PDF files.
+ */
 function getPdfAttachments_(thread) {
   const attachments = [];
   thread.getMessages().forEach(message => {
     message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
-      if (attachment.getContentType() === 'application/pdf') {
+      const isPdfType = attachment.getContentType() === 'application/pdf';
+      const isPdfName = /\.pdf$/i.test(attachment.getName() || '');
+      if (isPdfType || isPdfName) {
         attachments.push({ blob: attachment.copyBlob(), message: message });
       }
     });
   });
   return attachments;
+}
+
+/**
+ * Describes every attachment actually found on a thread (name + content type), for the "no PDF
+ * attachment" error message — so a genuine miss (an attachment Gmail shows but this code didn't
+ * recognize) is immediately diagnosable from the Errors tab instead of requiring a guess.
+ */
+function describeThreadAttachments_(thread) {
+  const found = [];
+  thread.getMessages().forEach(message => {
+    message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
+      found.push(`"${attachment.getName()}" (${attachment.getContentType()})`);
+    });
+  });
+  return found.length ? `Attachments found on this thread: ${found.join(', ')}.` : 'No attachments of any kind found on this thread.';
 }
 
 /** Labels a thread as processed so the next run skips it. Creates the label the first time it's needed. */

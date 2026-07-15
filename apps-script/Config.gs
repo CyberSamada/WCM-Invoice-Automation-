@@ -61,8 +61,13 @@ const CONFIG = {
   LOG_COLUMNS: [
     'Date Processed', 'Invoice Date', 'Due Date', 'Vendor', 'Project Number', 'Project Name',
     'Subproject Number', 'Subproject Name', 'Amount', 'Currency', 'Status', 'Confidence',
-    'Drive Link', 'Gmail Link', 'Match Note', 'Review Note'
+    'Drive Link', 'Gmail Link', 'Match Note', 'Review Note', 'Row ID', 'Drive File ID'
   ],
+
+  // "Feedback" tab — a free-text box on the dashboard, open to any viewer, for reporting issues or
+  // suggestions without needing Sheet/Apps Script access. See DashboardServer.gs/submitFeedback.
+  SHEET_FEEDBACK_TAB: 'Feedback',
+  FEEDBACK_COLUMNS: ['Timestamp', 'Message', 'Page Context'],
 
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
