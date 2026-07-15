@@ -70,18 +70,36 @@
     .container { max-width: 1200px; margin: 0 auto; padding: 24px; }
 
     /* Summary cards */
-    .cards { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 14px; }
+    .cards { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; margin-bottom: 14px; }
     .card {
       background: #ffffff;
       border: 1px solid var(--border);
       border-top: 3px solid var(--card-accent, var(--wcm-blue));
       border-radius: 10px;
-      padding: 14px;
+      padding: 10px 8px;
       text-align: center;
       box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
     }
-    .card-value { font-size: 24px; font-weight: 700; }
-    .card-label { font-size: 11.5px; color: #6b7280; margin-top: 2px; }
+    .card-value { font-size: 20px; font-weight: 700; }
+    .card-label { font-size: 10.5px; color: #6b7280; margin-top: 2px; }
+
+    .summary-timeframe-bar {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .summary-timeframe-bar label { font-size: 11px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+    .summary-timeframe-bar select {
+      font-family: inherit;
+      font-size: 13px;
+      padding: 5px 8px;
+      border: 1px solid #d1d5db;
+      border-radius: 6px;
+      background: #fff;
+      color: #1f2937;
+    }
     .card.total { --card-accent: var(--wcm-blue); }
     .card.total .card-value { color: var(--wcm-blue-dark); }
     .card.filed { --card-accent: #4caf7d; }
@@ -220,8 +238,11 @@
     }
 
     @media (max-width: 900px) {
-      .cards { grid-template-columns: repeat(2, 1fr); }
+      .cards { grid-template-columns: repeat(3, 1fr); }
       .stat-strip { flex-direction: column; gap: 6px; }
+    }
+    @media (max-width: 560px) {
+      .cards { grid-template-columns: repeat(2, 1fr); }
     }
 
     /* Manual-override edit modal */
@@ -287,29 +308,39 @@
 
   <div class="container">
 
+    <div class="summary-timeframe-bar">
+      <label for="summaryTimeframe">Summary time frame</label>
+      <select id="summaryTimeframe">
+        <option value="all">All time</option>
+        <option value="today">Today</option>
+        <option value="week">This week</option>
+        <option value="month">This month</option>
+      </select>
+    </div>
+
     <div class="cards">
       <div class="card total">
-        <div class="card-value"><?= data.totalProcessed ?></div>
+        <div class="card-value" id="cardTotal"><?= data.totalProcessed ?></div>
         <div class="card-label">Total Processed</div>
       </div>
       <div class="card filed">
-        <div class="card-value"><?= data.counts['Filed'] || 0 ?></div>
+        <div class="card-value" id="cardFiled"><?= data.counts['Filed'] || 0 ?></div>
         <div class="card-label">Filed</div>
       </div>
       <div class="card review">
-        <div class="card-value"><?= data.counts['Needs Review'] || 0 ?></div>
+        <div class="card-value" id="cardReview"><?= data.counts['Needs Review'] || 0 ?></div>
         <div class="card-label">Needs Review</div>
       </div>
       <div class="card notinvoice">
-        <div class="card-value"><?= data.counts['Not an Invoice'] || 0 ?></div>
+        <div class="card-value" id="cardNotInvoice"><?= data.counts['Not an Invoice'] || 0 ?></div>
         <div class="card-label">Not an Invoice</div>
       </div>
       <div class="card pastdue">
-        <div class="card-value"><?= data.counts['Past Due'] || 0 ?></div>
+        <div class="card-value" id="cardPastDue"><?= data.counts['Past Due'] || 0 ?></div>
         <div class="card-label">Past Due</div>
       </div>
       <div class="card error">
-        <div class="card-value"><?= data.errorCount ?></div>
+        <div class="card-value" id="cardErrors"><?= data.errorCount ?></div>
         <div class="card-label">Errors</div>
       </div>
     </div>
@@ -321,9 +352,9 @@
     </div>
 
     <div class="stat-strip">
-      <div>Total Filed: <strong><?= data.totalFiledAmountFormatted ?></strong></div>
-      <div>Total Needs Review: <strong><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
-      <div>Total Past Due: <strong><?= data.totalPastDueAmountFormatted ?></strong></div>
+      <div>Total Filed: <strong id="totalFiledAmount"><?= data.totalFiledAmountFormatted ?></strong></div>
+      <div>Total Needs Review: <strong id="totalReviewAmount"><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
+      <div>Total Past Due: <strong id="totalPastDueAmount"><?= data.totalPastDueAmountFormatted ?></strong></div>
     </div>
 
     <div class="section">
@@ -478,6 +509,7 @@
 
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
+    var ALL_ERROR_TIMESTAMPS = <?!= data.errorTimestampsJson ?>;
     var AUTOMATION = <?!= data.automationJson ?>;
     var BRANDING = <?!= data.brandingJson ?>;
     var REFERENCE_OPTIONS = <?!= data.referenceOptionsJson ?>;
@@ -701,6 +733,35 @@
       if (value === 'week') return startOfToday - 6 * 24 * 60 * 60 * 1000;
       if (value === 'month') return new Date(now.getFullYear(), now.getMonth(), 1).getTime();
       return null;
+    }
+
+    // Drives the top summary cards + dollar totals independently of the Invoices table's own
+    // filter bar below — picking "This week" here narrows what the cards count without touching
+    // which rows show in the table.
+    function updateSummaryCards() {
+      var tfStart = getTimeframeStart(document.getElementById('summaryTimeframe').value);
+      var records = tfStart === null ? ALL_RECORDS : ALL_RECORDS.filter(function (r) { return r.dateProcessedRaw >= tfStart; });
+      var errors = tfStart === null ? ALL_ERROR_TIMESTAMPS : ALL_ERROR_TIMESTAMPS.filter(function (t) { return t >= tfStart; });
+
+      var counts = {};
+      var totalFiled = 0, totalReview = 0, totalPastDue = 0;
+      records.forEach(function (r) {
+        counts[r.status] = (counts[r.status] || 0) + 1;
+        if (r.status === 'Filed') totalFiled += r.amount;
+        if (r.status === 'Needs Review') totalReview += r.amount;
+        if (r.status === 'Past Due') totalPastDue += r.amount;
+      });
+
+      document.getElementById('cardTotal').textContent = records.length;
+      document.getElementById('cardFiled').textContent = counts['Filed'] || 0;
+      document.getElementById('cardReview').textContent = counts['Needs Review'] || 0;
+      document.getElementById('cardNotInvoice').textContent = counts['Not an Invoice'] || 0;
+      document.getElementById('cardPastDue').textContent = counts['Past Due'] || 0;
+      document.getElementById('cardErrors').textContent = errors.length;
+
+      document.getElementById('totalFiledAmount').textContent = formatMoney(totalFiled, 'CAD');
+      document.getElementById('totalReviewAmount').textContent = formatMoney(totalReview, 'CAD');
+      document.getElementById('totalPastDueAmount').textContent = formatMoney(totalPastDue, 'CAD');
     }
 
     function toggleCustomDateInputs() {
@@ -965,6 +1026,8 @@
       document.getElementById('feedbackCancelBtn').addEventListener('click', closeFeedbackModal);
       document.getElementById('feedbackSendBtn').addEventListener('click', sendFeedback);
       document.getElementById('feedbackModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeFeedbackModal(); });
+      document.getElementById('summaryTimeframe').addEventListener('change', updateSummaryCards);
+      updateSummaryCards();
       applyFilters();
     });
   </script>
