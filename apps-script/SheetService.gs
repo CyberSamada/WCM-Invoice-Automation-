@@ -72,12 +72,34 @@ function getAliasData_() {
     }));
 }
 
-/** Appends one row to the Invoice Log tab. `data` keys should match CONFIG.LOG_COLUMNS (case-insensitive, order-independent). */
+/**
+ * Appends one row to the Invoice Log tab. `data` keys should match CONFIG.LOG_COLUMNS
+ * (case-insensitive, order-independent). Auto-fills two columns callers don't need to set
+ * themselves: 'Row ID' (a UUID — the stable key the dashboard's manual-edit feature uses to find
+ * this exact row later, since row *position* shifts as the sheet grows) and 'Drive File ID'
+ * (parsed from the Drive Link, so the edit feature can move the actual file without re-deriving
+ * its ID from the URL every time).
+ */
 function logInvoiceRow_(data) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
   ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
-  const row = CONFIG.LOG_COLUMNS.map(col => data[col] !== undefined ? data[col] : '');
+  const filled = Object.assign({}, data);
+  if (!filled['Row ID']) filled['Row ID'] = Utilities.getUuid();
+  if (!filled['Drive File ID']) filled['Drive File ID'] = driveFileIdFromUrl_(filled['Drive Link']);
+  const row = CONFIG.LOG_COLUMNS.map(col => filled[col] !== undefined ? filled[col] : '');
   sheet.appendRow(row);
+}
+
+/** Extracts the file ID from a standard Drive file URL ("...file/d/<ID>/view"), or '' if it doesn't match. */
+function driveFileIdFromUrl_(url) {
+  const m = /\/file\/d\/([^/]+)/.exec(String(url || ''));
+  return m ? m[1] : '';
+}
+
+/** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
+function logFeedback_(message, pageContext) {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);
+  sheet.appendRow([new Date(), message, pageContext || '']);
 }
 
 /**

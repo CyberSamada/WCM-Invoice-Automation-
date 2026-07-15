@@ -43,8 +43,10 @@ function processInvoicesInner_() {
     const attachments = getPdfAttachments_(thread);
 
     if (attachments.length === 0) {
-      // No PDF on this thread — mark processed so it's not rechecked every run, but flag it for a human.
-      logError_('No PDF attachment found', 'Thread matched the billing label but had no PDF attachment.', threadLink);
+      // No PDF on this thread — mark processed so it's not rechecked every run, but flag it for a
+      // human, with a diagnostic of what was actually found so a real miss is self-explanatory
+      // instead of needing a guess (see GmailService.gs/describeThreadAttachments_).
+      logError_('No PDF attachment found', describeThreadAttachments_(thread), threadLink);
       markThreadProcessed_(thread);
       return;
     }
@@ -65,7 +67,7 @@ function processInvoicesInner_() {
 }
 
 function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
-  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
+  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
@@ -76,27 +78,20 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
   const fileName = buildInvoiceFileName_(extracted);
-  let driveLink = '';
   let status = extracted.is_invoice ? 'Needs Review' : 'Not an Invoice';
+  // Only "Filed" when we're both confident enough to auto-file AND the matched project actually
+  // has an archive folder on record — a matched-but-unprovisioned project still needs a human,
+  // same as the original behavior (it lands in _Unmatched below via resolveInvoiceDestinationFolderId_).
+  if (shouldAutoFile && matchedRef && matchedRef.driveFolderId) status = 'Filed';
 
-  if (matchedRef && matchedRef.driveFolderId) {
-    if (shouldAutoFile) {
-      const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, extracted.invoice_date);
-      driveLink = fileInvoiceToDrive_(pdfBlob, monthFolderId, fileName);
-      status = 'Filed';
-    } else {
-      // Known project, but not confidently an invoice (statement, low-confidence match, over the
-      // dollar threshold, etc.) — file into that project's "Statements & Others" subfolder rather
-      // than leaving it unfiled, so it's never lost, only sitting one folder deeper awaiting review.
-      const reviewFolder = getOrCreateNamedSubfolder_(matchedRef.driveFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
-      driveLink = fileInvoiceToDrive_(pdfBlob, reviewFolder.getId(), fileName);
-    }
-  } else {
-    // No project match at all (or no archive folder on file yet for the matched project) — still
-    // capture it somewhere findable instead of relying solely on the Gmail Link.
-    const unmatchedFolder = getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
-    driveLink = fileInvoiceToDrive_(pdfBlob, unmatchedFolder.getId(), fileName);
-  }
+  // Known project but not confidently an invoice (statement, low-confidence match, over the dollar
+  // threshold, etc.) still gets filed — into that project's "Statements & Others" subfolder rather
+  // than left unfiled, so it's never lost, only sitting one folder deeper awaiting review. No
+  // project match at all falls back to the top-level "_Unmatched" folder. See
+  // DriveService.gs/resolveInvoiceDestinationFolderId_ — the same resolver the dashboard's manual
+  // override uses, so automatic and manual filing can never disagree about where something belongs.
+  const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, status, extracted.invoice_date);
+  const driveLink = fileInvoiceToDrive_(pdfBlob, destFolderId, fileName);
 
   logInvoiceRow_({
     'Date Processed': new Date(),

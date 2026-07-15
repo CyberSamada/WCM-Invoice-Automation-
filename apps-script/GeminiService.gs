@@ -43,9 +43,11 @@
  * @param {GoogleAppsScript.Base.Blob} pdfBlob
  * @param {Array<Object>} referenceRows - from getReferenceData_() (raw — may include excluded/template rows)
  * @param {Array<Object>} [aliasRows] - from getAliasData_(); optional, defaults to none
+ * @param {Date} [emailDate] - when the email carrying this PDF was sent; used only to disambiguate
+ *   an ambiguous numeric invoice date (see the prompt) — optional, degrades gracefully without it.
  * @return {Object} parsed extraction result, or throws on failure
  */
-function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
+function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   const apiKey = PropertiesService.getScriptProperties().getProperty(CONFIG.GEMINI_API_KEY_PROPERTY);
   if (!apiKey) {
     throw new Error(`Script Property "${CONFIG.GEMINI_API_KEY_PROPERTY}" is not set. Generate a key at aistudio.google.com/apikey and add it under Project Settings > Script Properties.`);
@@ -72,8 +74,8 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
       },
       vendor_name: { type: 'string', description: 'The vendor/company name that issued the invoice.' },
       invoice_number: { type: 'string', nullable: true, description: 'The invoice number, if present.' },
-      invoice_date: { type: 'string', format: 'date', description: 'Invoice date in YYYY-MM-DD format.' },
-      due_date: { type: 'string', format: 'date', nullable: true, description: 'Payment due date in YYYY-MM-DD format, if present.' },
+      invoice_date: { type: 'string', format: 'date', description: 'Invoice date in YYYY-MM-DD format. See the date-disambiguation instructions in the prompt for ambiguous numeric dates (e.g. 09/07/2026).' },
+      due_date: { type: 'string', format: 'date', nullable: true, description: 'Payment due date in YYYY-MM-DD format, if present. Same date-disambiguation rule applies.' },
       amount: { type: 'number', description: 'Total amount due on the invoice.' },
       currency: { type: 'string', description: 'ISO 4217 currency code, e.g. CAD, USD.' },
       project_number: {
@@ -106,7 +108,12 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
     `"${a.alias}" -> Project ${a.projectNumber}${a.subprojectNumber ? ' / Subproject ' + a.subprojectNumber : ''}`
   ).join('\n');
 
+  const emailDateIso = (emailDate instanceof Date && !isNaN(emailDate.getTime()))
+    ? Utilities.formatDate(emailDate, Session.getScriptTimeZone(), 'yyyy-MM-dd')
+    : '';
+
   const prompt = `You are matching a construction-company invoice PDF to the correct project and subproject.\n\n` +
+    (emailDateIso ? `This invoice was received by email on ${emailDateIso}.\n\n` : '') +
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
     (aliasListText
       ? `Known aliases — alternate names/addresses invoices sometimes use instead of the project's listed name ` +
@@ -141,7 +148,16 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows) {
     `the evidence is this thin, prefer "UNKNOWN" over a low-confidence guess.\n` +
     `- Exactly 0: required whenever project_number is "UNKNOWN".\n` +
     `Only scores of 0.75 and above are auto-filed without human review, so reserve that range for cases where you would ` +
-    `bet on the match, not merely lean toward it.`;
+    `bet on the match, not merely lean toward it.\n\n` +
+    (emailDateIso
+      ? `DATE FORMAT: some invoices print dates numerically in a way that's ambiguous between DD/MM and MM/DD ` +
+        `(e.g. "09/07/2026" could mean July 9 or September 7 — ambiguous whenever both the day and month ` +
+        `components could be a valid month, i.e. both are 12 or less). When you hit this ambiguity, resolve it using ` +
+        `the email date above: invoices are essentially always dated on or shortly before the day they're emailed, so ` +
+        `pick whichever interpretation is on or before ${emailDateIso} (and closer to it, if both qualify) rather than ` +
+        `one that would place the invoice in the future. If the date isn't ambiguous (a component over 12, or a ` +
+        `spelled-out month), just read it directly — this rule only matters for the ambiguous numeric case.`
+      : '');
 
   const payload = {
     contents: [{
@@ -220,8 +236,10 @@ function fetchWithRetry_(url, options, maxRetries) {
  * behavior (require both to match) is what left invoices in "_Unmatched"/"Needs Review" with a
  * blank Project Name even when the project number was correct.
  *
- * The Drive Folder ID is resolved at the project level too — if the matched row doesn't carry one,
- * any sibling row of the same project that does is used.
+ * The Drive Folder ID is resolved with subproject folders preferred over the project's own: when
+ * there's an exact subproject match and that row carries its own folder ID (its dedicated
+ * subfolder — see DriveSetup.gs/createInvoiceArchiveFolders), that's used; otherwise this falls
+ * back to the project-level (blank-subproject) row's folder, then to any sibling row that has one.
  *
  * Excludes CONFIG.EXCLUDE_PROJECT_NUMBERS (template/placeholder rows, e.g. "00 PROJECT TEMPLATE")
  * itself — callers never need to remember to pre-filter referenceRows before calling this.
@@ -240,14 +258,19 @@ function findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) {
   const exact = projectRows.find(r => (r.subprojectNumber || '') === sub);
   // Prefer the blank-subproject ("main") row as the fallback identity for the project.
   const base = exact || projectRows.find(r => !r.subprojectNumber) || projectRows[0];
-  const rowWithFolder = projectRows.find(r => r.driveFolderId);
+  const projectLevelRow = projectRows.find(r => !r.subprojectNumber && r.driveFolderId);
+  const anyRowWithFolder = projectRows.find(r => r.driveFolderId);
+  const driveFolderId = (exact && exact.driveFolderId) // the subproject's own dedicated subfolder, if provisioned
+    || (projectLevelRow && projectLevelRow.driveFolderId) // else the project's own folder
+    || (anyRowWithFolder && anyRowWithFolder.driveFolderId) // else whatever sibling row happens to have one
+    || '';
 
   return {
     projectNumber: projectNumber,
     projectName: base.projectName,
     subprojectNumber: exact ? (exact.subprojectNumber || '') : '',
     subprojectName: exact ? exact.subprojectName : '',
-    driveFolderId: (exact && exact.driveFolderId) || (rowWithFolder ? rowWithFolder.driveFolderId : ''),
+    driveFolderId: driveFolderId,
     exactSubproject: !!exact
   };
 }

@@ -41,7 +41,7 @@ function testRun() {
       const attachments = getPdfAttachments_(thread);
 
       if (attachments.length === 0) {
-        logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': 'No PDF attachment on this thread.', 'Gmail Link': threadLink });
+        logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': describeThreadAttachments_(thread), 'Gmail Link': threadLink });
       } else {
         attachments.forEach(({ blob, message }) => {
           testOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
@@ -64,7 +64,7 @@ function testRun() {
 }
 
 function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
-  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows);
+  const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const dueSoon = dueDateCramsPayPeriod_(extracted.due_date, emailDate);
@@ -75,15 +75,21 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
     : '(no Drive Folder ID on file for this project/subproject yet)';
 
-  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon;
+  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon && matchedRef && !!matchedRef.driveFolderId;
 
+  // Mirrors the real "<project> / <subproject>" nesting so a test run previews the real archive
+  // structure — see DriveSetup.gs/createInvoiceArchiveFolders and getOrCreateTestProjectFolder_.
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
   let testDestFolder;
   if (matchedRef) {
     const testProjectFolder = getOrCreateTestProjectFolder_(matchedRef.projectNumber, matchedRef.projectName);
+    const testMatchFolder = matchedRef.exactSubproject
+      ? getOrCreateNamedSubfolder_(testProjectFolder.getId(), `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`)
+      : testProjectFolder;
+    const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), extracted.invoice_date);
     testDestFolder = wouldAutoFile
-      ? DriveApp.getFolderById(getMonthSubfolderId_(testProjectFolder.getId(), extracted.invoice_date))
-      : getOrCreateNamedSubfolder_(testProjectFolder.getId(), CONFIG.STATEMENTS_SUBFOLDER_NAME);
+      ? DriveApp.getFolderById(testMonthFolderId)
+      : getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
   } else {
     testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
   }

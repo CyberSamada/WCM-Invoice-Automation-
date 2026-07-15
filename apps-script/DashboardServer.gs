@@ -63,7 +63,8 @@ function buildDashboardData_() {
         driveLink: r[idx['Drive Link']] || '',
         gmailLink: r[idx['Gmail Link']] || '',
         matchNote: (idx['Match Note'] > -1 && r[idx['Match Note']]) || '',
-        reviewNote: (idx['Review Note'] > -1 && r[idx['Review Note']]) || ''
+        reviewNote: (idx['Review Note'] > -1 && r[idx['Review Note']]) || '',
+        rowId: (idx['Row ID'] > -1 && r[idx['Row ID']]) || ''
       };
     });
 
@@ -192,10 +193,24 @@ function buildDashboardData_() {
   }
   const brandingJson = JSON.stringify(brandingStatus).replace(/<\//g, '<\\/');
 
+  // Project/subproject options for the dashboard's manual-override edit dropdowns — deliberately
+  // the FULL reference list (not just projects that already have logged invoices), so a row can be
+  // reassigned to any real project. Defensive: a broken/missing Reference tab must never block the
+  // rest of the dashboard from rendering.
+  let referenceOptions = [];
+  try {
+    referenceOptions = getMatchableReferenceRows_(getReferenceData_()).map(r => ({
+      projectNumber: r.projectNumber, projectName: r.projectName,
+      subprojectNumber: r.subprojectNumber, subprojectName: r.subprojectName
+    }));
+  } catch (e) { /* Reference tab missing — edit dropdowns just come up empty */ }
+  const referenceOptionsJson = JSON.stringify(referenceOptions).replace(/<\//g, '<\\/');
+
   return {
     logoDataUri: getLogoDataUri_(),
     automationJson: automationJson,
     brandingJson: brandingJson,
+    referenceOptionsJson: referenceOptionsJson,
     generatedAtFormatted: formatDateForDashboard_(new Date(), timezone),
     totalProcessed: records.length,
     counts: counts,
@@ -272,6 +287,126 @@ function setAutomationPaused(paused) {
     createTimeTrigger();
   }
   return getAutomationStatus();
+}
+
+/**
+ * Manual override — lets the dashboard owner correct a logged invoice's project/subproject/status
+ * after the fact (e.g. Gemini got it wrong, or a "Needs Review" item was checked and is actually
+ * fine), so the log reflects the true outcome instead of staying stuck at whatever the automatic
+ * pass decided. Called from Dashboard.html via google.script.run.
+ *
+ * Finds the row by its 'Row ID' (a UUID set once at logging time — see SheetService.gs/
+ * logInvoiceRow_), never by row position, since the sheet can grow/reorder between page loads.
+ * If the project/subproject or status actually changes, the already-filed Drive file is MOVED to
+ * wherever it now belongs (via the same resolveInvoiceDestinationFolderId_ automatic filing uses —
+ * see DriveService.gs — so this can never disagree with what a fresh automatic run would do).
+ *
+ * @param {string} rowId
+ * @param {{projectNumber:?string, subprojectNumber:?string, status:?string}} updates - any
+ *   subset; omitted (null/undefined) fields are left unchanged. subprojectNumber '' means "no
+ *   subproject" explicitly.
+ */
+function updateInvoiceRow(rowId, updates) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to edit invoice records.');
+  }
+  if (!rowId) throw new Error('Missing row ID.');
+  updates = updates || {};
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
+
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {};
+  CONFIG.LOG_COLUMNS.forEach(col => { idx[col] = header.indexOf(col); });
+  if (idx['Row ID'] === -1) throw new Error("This sheet doesn't have a Row ID column yet — reprocess an invoice first so it's created, then try again.");
+
+  let rowNum = -1;
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idx['Row ID']]) === String(rowId)) { rowNum = i + 1; break; }
+  }
+  if (rowNum === -1) throw new Error('Could not find that invoice row — the sheet may have changed since the page loaded. Reload and try again.');
+  const row = values[rowNum - 1];
+
+  const currentProjectNumber = String(row[idx['Project Number']] || '').trim();
+  const currentSubprojectNumber = String(row[idx['Subproject Number']] || '').trim();
+  const currentStatus = String(row[idx['Status']] || '').trim();
+
+  const newProjectNumber = updates.projectNumber != null ? String(updates.projectNumber).trim() : currentProjectNumber;
+  const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
+  const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
+
+  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice'];
+  if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
+    throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
+  }
+
+  let matchedRef = null;
+  if (newProjectNumber) {
+    matchedRef = findReferenceMatch_(getReferenceData_(), newProjectNumber, newSubprojectNumber);
+    if (!matchedRef) {
+      throw new Error(`Project "${newProjectNumber}" (with that subproject) wasn't found in the Project Reference sheet.`);
+    }
+  }
+
+  const projectChanged = newProjectNumber !== currentProjectNumber || newSubprojectNumber !== currentSubprojectNumber;
+  const statusChanged = newStatus !== currentStatus;
+  let newDriveLink = row[idx['Drive Link']];
+
+  if (projectChanged || statusChanged) {
+    const driveFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
+    if (driveFileId) {
+      try {
+        const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, newStatus, row[idx['Invoice Date']]);
+        const file = DriveApp.getFileById(driveFileId);
+        file.moveTo(DriveApp.getFolderById(destFolderId));
+        newDriveLink = file.getUrl();
+      } catch (err) {
+        throw new Error(`Saved the field changes, but couldn't move the file in Drive: ${err.message}`);
+      }
+    }
+  }
+
+  const stamp = Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd HH:mm');
+  const changeParts = [];
+  if (projectChanged) changeParts.push(`project set to ${newProjectNumber}${newSubprojectNumber ? '/' + newSubprojectNumber : ''}`);
+  if (statusChanged) changeParts.push(`status set to ${newStatus}`);
+  const overrideNote = `Manually updated ${stamp} — ${changeParts.join('; ') || 'no change'}.`;
+
+  const setCell = (col, value) => { if (idx[col] > -1) sheet.getRange(rowNum, idx[col] + 1).setValue(value); };
+  setCell('Project Number', newProjectNumber);
+  setCell('Project Name', matchedRef ? matchedRef.projectName : '');
+  setCell('Subproject Number', matchedRef ? matchedRef.subprojectNumber : '');
+  setCell('Subproject Name', matchedRef ? matchedRef.subprojectName : '');
+  setCell('Status', newStatus);
+  setCell('Drive Link', newDriveLink);
+  if (idx['Review Note'] > -1) {
+    const existingNote = String(row[idx['Review Note']] || '');
+    setCell('Review Note', existingNote ? existingNote + ' ' + overrideNote : overrideNote);
+  }
+
+  return {
+    rowId: rowId,
+    projectNumber: newProjectNumber,
+    projectName: matchedRef ? matchedRef.projectName : '',
+    subprojectNumber: matchedRef ? matchedRef.subprojectNumber : '',
+    subprojectName: matchedRef ? matchedRef.subprojectName : '',
+    status: newStatus,
+    statusClass: statusToClass_(newStatus),
+    driveLink: newDriveLink,
+    reviewNote: idx['Review Note'] > -1 ? String(sheet.getRange(rowNum, idx['Review Note'] + 1).getValue() || '') : ''
+  };
+}
+
+/** Called from Dashboard.html via google.script.run. Open to any viewer — feedback isn't gated. */
+function submitFeedback(message, pageContext) {
+  const text = String(message || '').trim();
+  if (!text) throw new Error('Feedback message is empty.');
+  if (text.length > 2000) throw new Error('That message is too long — please keep it to a couple of sentences.');
+  logFeedback_(text, pageContext || '');
+  return { ok: true };
 }
 
 /**

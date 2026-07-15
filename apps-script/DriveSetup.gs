@@ -139,9 +139,16 @@ function syncProjectReferenceFromDrive() {
 
 /**
  * Ensures every unique project number in "Project Reference" has an Invoice Archive subfolder,
- * and that the Drive Folder ID column is filled in for all its rows. ID-based idempotency: a
- * project that already has an ID on file keeps that exact ID (never re-derived from a folder-name
- * search), and its archive folder gets renamed to match the current project name if they've drifted.
+ * AND that every one of its subprojects has its own subfolder nested underneath — so invoices for
+ * subproject 43.5 file into "43 - HYLAND CENTRE/43.5 - 3F (3A - WCM)/", not the flat project
+ * folder. ID-based idempotency at both levels: a project or subproject that already has an ID on
+ * file keeps that exact ID, only its name is kept in sync (renamed if drifted).
+ *
+ * Migration note: rows logged before subproject folders existed have their Drive Folder ID set to
+ * the *project's* folder ID (the only kind that existed then). Resolving the project folder first
+ * lets this function recognize that case (a subproject row's "existing" ID that's actually just
+ * the shared project ID) and provision a real subfolder instead of mistakenly treating the project
+ * folder itself as if it were that subproject's folder.
  */
 function createInvoiceArchiveFolders() {
   const parentFolder = DriveApp.getFolderById(INVOICE_ARCHIVE_PARENT_FOLDER_ID);
@@ -156,81 +163,131 @@ function createInvoiceArchiveFolders() {
   const idx = {
     projectNumber: header.indexOf('Project Number'),
     projectName: header.indexOf('Project Name'),
+    subprojectNumber: header.indexOf('Subproject Number'),
+    subprojectName: header.indexOf('Subproject Name'),
     driveFolderId: header.indexOf('Drive Folder ID')
   };
   Object.keys(idx).forEach(k => {
     if (idx[k] === -1) throw new Error(`"${CONFIG.SHEET_REFERENCE_TAB}" tab is missing a "${k}" column.`);
   });
 
-  // Unique project number -> { name, existingFolderId } (first non-blank value seen for each).
+  // Unique project number -> { name, existingFolderId } — existingFolderId comes only from a
+  // blank-subproject ("main") row, so it's never accidentally seeded from a subproject row.
   const projects = {};
   for (let i = 1; i < values.length; i++) {
     const num = cellToString_(values[i][idx.projectNumber]);
     if (!num || IGNORED_PROJECT_NUMBERS.has(num)) continue;
     const name = cellToString_(values[i][idx.projectName]);
-    const fid = cellToString_(values[i][idx.driveFolderId]);
     if (!projects[num]) projects[num] = { name: '', existingFolderId: '' };
     if (name && !projects[num].name) projects[num].name = name;
-    if (fid && !projects[num].existingFolderId) projects[num].existingFolderId = fid;
+    if (!cellToString_(values[i][idx.subprojectNumber])) {
+      const fid = cellToString_(values[i][idx.driveFolderId]);
+      if (fid && !projects[num].existingFolderId) projects[num].existingFolderId = fid;
+    }
   }
 
-  const resolvedFolderId = {}; // projectNumber -> folder ID (existing or newly created)
+  const resolvedProjectFolderId = {}; // projectNumber -> folder ID
   let createdCount = 0, renamedCount = 0, reusedCount = 0;
 
   Object.keys(projects).sort().forEach(projectNumber => {
     const { name, existingFolderId } = projects[projectNumber];
     const expectedName = `${projectNumber} - ${name}`;
-
-    if (existingFolderId) {
-      // Already provisioned — reuse the ID as-is (unless it's been trashed), just keep the folder name in sync.
-      try {
-        const folder = DriveApp.getFolderById(existingFolderId);
-        if (folder.isTrashed()) {
-          // getFolderById() still resolves a trashed folder by ID — it doesn't throw — so a deleted
-          // archive folder would otherwise silently look "fine" here forever, and worse, invoices
-          // would keep quietly filing into an invisible trashed folder (see fileInvoiceToDrive_ in
-          // DriveService.gs, which now guards against this too). Treat trashed exactly like missing.
-          const newFolder = parentFolder.createFolder(expectedName);
-          resolvedFolderId[projectNumber] = newFolder.getId();
-          Logger.log(`Project ${projectNumber}'s folder (${existingFolderId}) was deleted (in Trash) — created a replacement: ${expectedName} -> ${newFolder.getId()}`);
-          createdCount++;
-        } else if (folder.getName() !== expectedName) {
-          const oldName = folder.getName();
-          folder.setName(expectedName);
-          Logger.log(`Renamed folder for project ${projectNumber}: "${oldName}" -> "${expectedName}"`);
-          renamedCount++;
-          resolvedFolderId[projectNumber] = existingFolderId;
-        } else {
-          reusedCount++;
-          resolvedFolderId[projectNumber] = existingFolderId;
-        }
-      } catch (err) {
-        Logger.log(`WARNING: project ${projectNumber} has Drive Folder ID "${existingFolderId}" on file, but it's not accessible (${err.message}). Not auto-replacing it — check manually.`);
-        resolvedFolderId[projectNumber] = existingFolderId;
-      }
-    } else {
-      // No ID on file yet — create a fresh folder. (Never matched by searching for an existing
-      // folder with this name — that's what caused mismatched/duplicate folders before.)
-      const newFolder = parentFolder.createFolder(expectedName);
-      resolvedFolderId[projectNumber] = newFolder.getId();
-      Logger.log(`Created: ${expectedName} -> ${newFolder.getId()}`);
-      createdCount++;
-    }
+    resolvedProjectFolderId[projectNumber] = resolveNamedFolder_(
+      parentFolder, existingFolderId, expectedName, projectNumber,
+      (c) => { if (c === 'created') createdCount++; else if (c === 'renamed') renamedCount++; else reusedCount++; }
+    );
   });
 
-  // Write/refresh the Drive Folder ID column for every row.
+  // Subproject folders, nested under their project's folder. existingFolderId for a subproject row
+  // is only trusted if it's NOT the same as the project's own folder ID — see migration note above.
+  const resolvedSubfolderId = {}; // "projectNumber||subprojectNumber" -> folder ID
+  let subCreated = 0, subRenamed = 0, subReused = 0;
+  for (let i = 1; i < values.length; i++) {
+    const num = cellToString_(values[i][idx.projectNumber]);
+    const sub = cellToString_(values[i][idx.subprojectNumber]);
+    if (!num || IGNORED_PROJECT_NUMBERS.has(num) || !sub) continue;
+    const comboKey = num + '||' + sub;
+    if (resolvedSubfolderId[comboKey]) continue; // already handled (a subproject can span multiple rows)
+
+    const projectFolderId = resolvedProjectFolderId[num];
+    if (!projectFolderId) continue; // shouldn't happen, but don't blow up the whole run over one bad row
+
+    const subName = cellToString_(values[i][idx.subprojectName]);
+    const rawExisting = cellToString_(values[i][idx.driveFolderId]);
+    const existingSubFolderId = (rawExisting && rawExisting !== projectFolderId) ? rawExisting : '';
+    const expectedSubName = `${sub} - ${subName}`;
+    const projectFolder = DriveApp.getFolderById(projectFolderId);
+
+    resolvedSubfolderId[comboKey] = resolveNamedFolder_(
+      projectFolder, existingSubFolderId, expectedSubName, comboKey,
+      (c) => { if (c === 'created') subCreated++; else if (c === 'renamed') subRenamed++; else subReused++; }
+    );
+  }
+
+  // Write/refresh the Drive Folder ID column for every row: subproject rows get their own
+  // subfolder's ID, blank-subproject rows get the project folder's ID.
   let updatedCount = 0;
   for (let i = 1; i < values.length; i++) {
     const num = cellToString_(values[i][idx.projectNumber]);
-    if (!num || !resolvedFolderId[num]) continue;
+    if (!num) continue;
+    const sub = cellToString_(values[i][idx.subprojectNumber]);
+    const target = sub ? resolvedSubfolderId[num + '||' + sub] : resolvedProjectFolderId[num];
+    if (!target) continue;
     const currentValue = cellToString_(values[i][idx.driveFolderId]);
-    if (currentValue !== resolvedFolderId[num]) {
-      sheet.getRange(i + 1, idx.driveFolderId + 1).setValue(resolvedFolderId[num]);
+    if (currentValue !== target) {
+      sheet.getRange(i + 1, idx.driveFolderId + 1).setValue(target);
       updatedCount++;
     }
   }
 
-  Logger.log(`Done. ${createdCount} folder(s) created, ${renamedCount} renamed, ${reusedCount} already up to date. ${updatedCount} row(s) had their Drive Folder ID written/refreshed.`);
+  Logger.log(`Projects: ${createdCount} created, ${renamedCount} renamed, ${reusedCount} up to date. ` +
+    `Subprojects: ${subCreated} created, ${subRenamed} renamed, ${subReused} up to date. ${updatedCount} row(s) had their Drive Folder ID written/refreshed.`);
+}
+
+/**
+ * Shared get-or-create-or-rename logic for one folder level (used for both the project folder and
+ * each subproject folder): reuse an existing ID as-is if it's valid, replace it if trashed, rename
+ * it if the expected name has drifted, or create it fresh if there's no ID on file yet. Never
+ * matches by searching for a same-named folder — that's what caused mismatched/duplicate folders
+ * before switching to ID-based tracking.
+ *
+ * @param {string} existingFolderId - '' if none on file yet.
+ * @param {function(string)} onOutcome - called with 'created' | 'renamed' | 'reused' for logging/counting.
+ * @return {string} the resolved folder ID.
+ */
+function resolveNamedFolder_(parentFolder, existingFolderId, expectedName, label, onOutcome) {
+  if (!existingFolderId) {
+    const newFolder = parentFolder.createFolder(expectedName);
+    Logger.log(`Created: ${expectedName} -> ${newFolder.getId()}`);
+    onOutcome('created');
+    return newFolder.getId();
+  }
+  try {
+    const folder = DriveApp.getFolderById(existingFolderId);
+    if (folder.isTrashed()) {
+      // getFolderById() still resolves a trashed folder by ID — it doesn't throw — so a deleted
+      // archive folder would otherwise silently look "fine" here forever, and worse, invoices
+      // would keep quietly filing into an invisible trashed folder (see fileInvoiceToDrive_ in
+      // DriveService.gs, which now guards against this too). Treat trashed exactly like missing.
+      const newFolder = parentFolder.createFolder(expectedName);
+      Logger.log(`${label}'s folder (${existingFolderId}) was deleted (in Trash) — created a replacement: ${expectedName} -> ${newFolder.getId()}`);
+      onOutcome('created');
+      return newFolder.getId();
+    }
+    if (folder.getName() !== expectedName) {
+      const oldName = folder.getName();
+      folder.setName(expectedName);
+      Logger.log(`Renamed folder for ${label}: "${oldName}" -> "${expectedName}"`);
+      onOutcome('renamed');
+      return existingFolderId;
+    }
+    onOutcome('reused');
+    return existingFolderId;
+  } catch (err) {
+    Logger.log(`WARNING: ${label} has Drive Folder ID "${existingFolderId}" on file, but it's not accessible (${err.message}). Not auto-replacing it — check manually.`);
+    onOutcome('reused');
+    return existingFolderId;
+  }
 }
 
 /** Optional: runs syncProjectReferenceFromDrive() automatically once a day, separate from the 15-minute invoice trigger. */
