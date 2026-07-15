@@ -68,9 +68,15 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   const schema = {
     type: 'object',
     properties: {
-      is_invoice: {
-        type: 'boolean',
-        description: 'True only if this document is a genuine invoice/bill requesting payment for goods or services (typically has an invoice number, amount due, and due date). False for anything else — payment/banking info updates, account statements, paid receipts, marketing or informational emails, etc.'
+      document_type: {
+        type: 'string',
+        enum: ['invoice', 'purchase_order', 'statement', 'other'],
+        description: 'Classify what kind of document this actually is — see the detailed rules in the prompt. ' +
+          '"invoice" = a genuine bill actively requesting payment now for goods/services already delivered. ' +
+          '"purchase_order" = a purchase order, agreement, work order, or contract that authorizes/sets terms ' +
+          'for future billing but is not itself a request for payment. "statement" = an account statement ' +
+          'summarizing multiple past transactions/balance, not one specific new bill. "other" = anything else ' +
+          '(banking/payment info updates, paid receipts, marketing or informational emails, etc).'
       },
       vendor_name: { type: 'string', description: 'The vendor/company name that issued the invoice.' },
       invoice_number: { type: 'string', nullable: true, description: 'The invoice number, if present.' },
@@ -97,7 +103,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
         description: 'Confidence (0-1) the project/subproject match is correct, using the evidence-based rubric given in the prompt (0.9+ explicit match, 0.75-0.89 strong inference, 0.5-0.74 moderate/ambiguous, below 0.5 weak, 0 when project_number is "UNKNOWN"). Base it on the strength of the evidence found, not general confidence in the answer.'
       }
     },
-    required: ['is_invoice', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'match_reasoning', 'confidence']
+    required: ['document_type', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'match_reasoning', 'confidence']
   };
 
   const referenceListText = matchableRows.map(r =>
@@ -119,10 +125,25 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
       ? `Known aliases — alternate names/addresses invoices sometimes use instead of the project's listed name ` +
         `(if the invoice mentions one of these, use the project/subproject it points to directly):\n${aliasListText}\n\n`
       : '') +
-    `First, determine whether this document is actually an invoice or bill requesting payment — as opposed to ` +
-    `something else like a banking/payment info update, an account statement, a paid receipt, or an informational ` +
-    `email — and set is_invoice accordingly. Then read the document and extract the requested fields regardless ` +
-    `(make your best guess for fields that don't clearly apply if it isn't an invoice). ` +
+    `First, classify what kind of document this actually is (document_type) — this distinction really matters, ` +
+    `since a Purchase Order or Agreement can look deceptively invoice-like (it may still show a $ total, taxes, ` +
+    `and project details) despite not being a request for payment:\n\n` +
+    `- "invoice": a genuine bill actively requesting payment NOW for goods/services already delivered. Usually has ` +
+    `an "Invoice #"/"Invoice Number" (not just a generic reference number), states an amount currently due for ` +
+    `THIS specific transaction, and is titled "Invoice" or similar.\n` +
+    `- "purchase_order": a purchase order, agreement, work order, or contract. These AUTHORIZE or set the TERMS ` +
+    `for future billing — they are not themselves a request for payment. Tell-tale signs: titled "Purchase Order", ` +
+    `"Agreement", "Work Order", or "Contract"; uses "REF #" or a PO number instead of an invoice number; has a ` +
+    `"Scope of Work" section describing work to be done (rather than work already billed); and often explicitly ` +
+    `says something like "Invoices to be sent prior to the 25th of each month" — that phrasing is a strong signal ` +
+    `this document is establishing how future invoices will work, not functioning as one itself. A $ total on a ` +
+    `Purchase Order is the agreed contract value/ceiling, not an amount due right now — do not treat it as an ` +
+    `invoice just because it has a total, subtotal, or tax breakdown.\n` +
+    `- "statement": an account statement summarizing multiple past transactions or an aging balance, not one ` +
+    `specific new bill.\n` +
+    `- "other": anything else — banking/payment info updates, paid receipts, marketing or informational emails, etc.\n\n` +
+    `Then read the document and extract the requested fields regardless of document_type ` +
+    `(make your best guess for fields that don't clearly apply when it isn't an invoice). ` +
     `For project_number and subproject_number, pick the single best match from the reference list (and alias list, if given) ` +
     `above based on any address, tenant name, or project reference mentioned in the invoice. If a project has no matching ` +
     `subproject, use "NONE" for subproject_number. ` +
@@ -199,6 +220,10 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   if (parsed.project_number === 'UNKNOWN') {
     parsed.project_number = '';
   }
+  // Derived, not asked of Gemini directly — keeps a single source of truth (document_type) instead
+  // of risking the two fields disagreeing. Everything downstream (Main.gs, Test.gs) still just
+  // reads is_invoice, so nothing else needs to change to support the new document_type field.
+  parsed.is_invoice = parsed.document_type === 'invoice';
   return parsed;
 }
 
