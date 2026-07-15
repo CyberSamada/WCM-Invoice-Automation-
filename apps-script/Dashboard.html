@@ -92,6 +92,8 @@
     .card.notinvoice .card-value { color: #41474f; }
     .card.error { --card-accent: #d64550; }
     .card.error .card-value { color: #a4222c; }
+    .card.pastdue { --card-accent: #b91c1c; }
+    .card.pastdue .card-value { color: #8f1414; }
 
     /* Stat strips (period counts, dollar totals) */
     .stat-strip {
@@ -197,6 +199,7 @@
     .badge-filed { background: #e8f7ee; color: #1c6b45; }
     .badge-review { background: #fff4e0; color: #8a5a00; }
     .badge-notinvoice { background: #eef0f2; color: #41474f; }
+    .badge-pastdue { background: #fdecec; color: #8f1414; }
     .badge-other { background: #eef2f7; color: #374151; }
 
     a { color: var(--wcm-blue); text-decoration: none; }
@@ -301,6 +304,10 @@
         <div class="card-value"><?= data.counts['Not an Invoice'] || 0 ?></div>
         <div class="card-label">Not an Invoice</div>
       </div>
+      <div class="card pastdue">
+        <div class="card-value"><?= data.counts['Past Due'] || 0 ?></div>
+        <div class="card-label">Past Due</div>
+      </div>
       <div class="card error">
         <div class="card-value"><?= data.errorCount ?></div>
         <div class="card-label">Errors</div>
@@ -316,6 +323,7 @@
     <div class="stat-strip">
       <div>Total Filed: <strong><?= data.totalFiledAmountFormatted ?></strong></div>
       <div>Total Needs Review: <strong><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
+      <div>Total Past Due: <strong><?= data.totalPastDueAmountFormatted ?></strong></div>
     </div>
 
     <div class="section">
@@ -329,6 +337,7 @@
             <option value="Filed">Filed</option>
             <option value="Needs Review">Needs Review</option>
             <option value="Not an Invoice">Not an Invoice</option>
+            <option value="Past Due">Past Due</option>
           </select>
         </div>
         <div class="filter-field">
@@ -437,6 +446,7 @@
           <option value="Filed">Filed</option>
           <option value="Needs Review">Needs Review</option>
           <option value="Not an Invoice">Not an Invoice</option>
+          <option value="Past Due">Past Due</option>
         </select>
       </div>
       <p class="modal-error" id="editModalError"></p>

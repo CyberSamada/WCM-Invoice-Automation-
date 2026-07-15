@@ -26,6 +26,10 @@ const CONFIG = {
   // filed here instead of staying unfiled — see Main.gs/processOneInvoice_ and DriveService.gs.
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
+  // Top-level subfolder (a sibling of the month folders, not nested under one) for invoices whose due
+  // date has already passed as of today — kept separate from Statements & Others so genuinely overdue
+  // invoices are visible in one place without digging through month folders. See isPastDue_ in Main.gs.
+  PASTDUE_SUBFOLDER_NAME: 'Past Due',
   FILE_BY_MONTH: true, // group auto-filed invoices into a "YYYY-MM" subfolder (by invoice date) under the project folder. false = file straight into the project folder.
   DUE_SOON_DAYS: 7, // flag an invoice for review when its due date is this many days (or fewer) after the email arrived — a short window crams the pay period. Invoices with no due date are not flagged. Set to null to disable this check.
 

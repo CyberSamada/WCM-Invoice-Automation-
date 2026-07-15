@@ -68,6 +68,8 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const dueSoon = dueDateCramsPayPeriod_(extracted.due_date, emailDate);
+  const daysPastDue = daysPastDue_(extracted.due_date);
+  const pastDue = daysPastDue !== null && daysPastDue > 0;
 
   const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
@@ -75,7 +77,8 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     ? `https://drive.google.com/drive/folders/${matchedRef.driveFolderId}`
     : '(no Drive Folder ID on file for this project/subproject yet)';
 
-  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon && matchedRef && !!matchedRef.driveFolderId;
+  const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon && !pastDue && matchedRef && !!matchedRef.driveFolderId;
+  const wouldBePastDue = extracted.is_invoice && pastDue && matchedRef && !!matchedRef.driveFolderId;
 
   // Mirrors the real "<project> / <subproject>" nesting so a test run previews the real archive
   // structure — see DriveSetup.gs/createInvoiceArchiveFolders and getOrCreateTestProjectFolder_.
@@ -86,10 +89,16 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     const testMatchFolder = matchedRef.exactSubproject
       ? getOrCreateNamedSubfolder_(testProjectFolder.getId(), `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`)
       : testProjectFolder;
-    const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), extracted.invoice_date);
-    testDestFolder = wouldAutoFile
-      ? DriveApp.getFolderById(testMonthFolderId)
-      : getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
+    if (wouldBePastDue) {
+      // Top-level under the project/subproject folder — a sibling of the month folders, not nested
+      // under one — matching resolveInvoiceDestinationFolderId_'s real "Past Due" placement.
+      testDestFolder = getOrCreateNamedSubfolder_(testMatchFolder.getId(), CONFIG.PASTDUE_SUBFOLDER_NAME);
+    } else {
+      const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), extracted.invoice_date);
+      testDestFolder = wouldAutoFile
+        ? DriveApp.getFolderById(testMonthFolderId)
+        : getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
+    }
   } else {
     testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
   }
@@ -100,12 +109,15 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   if (!extracted.is_invoice) {
     statusText = 'Test-Not an Invoice';
     note = 'Gemini determined this document is not an invoice/bill — extracted fields are best-guess only.';
+  } else if (wouldBePastDue) {
+    statusText = 'Test-Past Due';
+    note = `Past due: due date passed ${daysPastDue} day${daysPastDue === 1 ? '' : 's'} ago — needs urgent review/payment.`;
   } else if (wouldAutoFile) {
     statusText = 'Test-OK (would auto-file)';
   } else {
     statusText = 'Test-Needs Review';
   }
-  if (dueSoon) {
+  if (dueSoon && !wouldBePastDue) {
     note = (note ? note + ' ' : '') + `Due date is within ${CONFIG.DUE_SOON_DAYS} days of arrival — crams the pay period.`;
   }
   if (matchedRef && !matchedRef.exactSubproject && extracted.subproject_number) {
