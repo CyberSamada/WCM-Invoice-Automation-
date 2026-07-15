@@ -7,11 +7,32 @@
 
 /** Returns GmailThread objects under the billing label that haven't been marked processed yet. */
 function getUnprocessedThreads_() {
-  let query = `label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL}`;
+  return GmailApp.search(`label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL}` + dateRangeQuerySuffix_());
+}
+
+/**
+ * Builds the "newer_than:"/"before:" portion of a Gmail search query from CONFIG.LOOKBACK_DAYS and
+ * CONFIG.PROCESS_UNTIL_DATE — shared by the real run (above) and testRun() (Test.gs) so both
+ * respect the same date window instead of drifting apart. PROCESS_UNTIL_DATE is inclusive of the
+ * date itself; Gmail's before: operator is exclusive, so this searches "before" the following day
+ * to compensate.
+ */
+function dateRangeQuerySuffix_() {
+  let suffix = '';
   if (CONFIG.LOOKBACK_DAYS) {
-    query += ` newer_than:${CONFIG.LOOKBACK_DAYS}d`;
+    suffix += ` newer_than:${CONFIG.LOOKBACK_DAYS}d`;
   }
-  return GmailApp.search(query);
+  if (CONFIG.PROCESS_UNTIL_DATE) {
+    const cutoff = parseYmdDate_(CONFIG.PROCESS_UNTIL_DATE);
+    if (cutoff) {
+      const dayAfter = new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate() + 1);
+      const y = dayAfter.getFullYear();
+      const m = String(dayAfter.getMonth() + 1).padStart(2, '0');
+      const d = String(dayAfter.getDate()).padStart(2, '0');
+      suffix += ` before:${y}/${m}/${d}`;
+    }
+  }
+  return suffix;
 }
 
 /**

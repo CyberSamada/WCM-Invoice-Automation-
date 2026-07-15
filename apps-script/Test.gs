@@ -27,7 +27,9 @@ function testRun() {
   const referenceRows = getReferenceData_();
   const aliasRows = getAliasData_();
   // Excludes threads already handled for real, AND threads already covered by a previous test run.
-  const query = `label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL} -label:${CONFIG.TEST_LABEL}`;
+  // Shares dateRangeQuerySuffix_ (GmailService.gs) with the real run so both respect the same
+  // LOOKBACK_DAYS/PROCESS_UNTIL_DATE window instead of drifting apart.
+  const query = `label:${CONFIG.GMAIL_LABEL} -label:${CONFIG.PROCESSED_LABEL} -label:${CONFIG.TEST_LABEL}` + dateRangeQuerySuffix_();
   let threads = GmailApp.search(query);
 
   Logger.log(`Found ${threads.length} untested thread(s) under label "${CONFIG.GMAIL_LABEL}". Testing up to ${CONFIG.TEST_MAX_THREADS}.`);
