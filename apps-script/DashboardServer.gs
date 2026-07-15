@@ -169,8 +169,23 @@ function buildDashboardData_() {
     })
     .sort((a, b) => b.count - a.count);
 
+  // Error timestamps (epoch ms), not just a count — lets the dashboard's top Time Frame selector
+  // filter the Errors card the same way it filters the invoice-based cards, instead of Errors being
+  // stuck showing an all-time total no matter what frame is selected.
   const errSheet = ss.getSheetByName(CONFIG.SHEET_ERRORS_TAB);
-  const errorCount = errSheet ? Math.max(errSheet.getLastRow() - 1, 0) : 0;
+  let errorTimestamps = [];
+  if (errSheet && errSheet.getLastRow() > 1) {
+    const errHeader = errSheet.getRange(1, 1, 1, errSheet.getLastColumn()).getValues()[0];
+    const tsCol = errHeader.indexOf('Timestamp');
+    const errValues = errSheet.getRange(2, 1, errSheet.getLastRow() - 1, errSheet.getLastColumn()).getValues();
+    errorTimestamps = errValues.map(row => {
+      const v = tsCol > -1 ? row[tsCol] : null;
+      const d = (v instanceof Date) ? v : new Date(v);
+      return isNaN(d.getTime()) ? 0 : d.getTime();
+    });
+  }
+  const errorCount = errorTimestamps.length;
+  const errorTimestampsJson = JSON.stringify(errorTimestamps);
 
   // Embedded as JSON for client-side filtering (Dashboard.html) — "</" defused so it can't
   // prematurely close the <script> tag it gets embedded in.
@@ -224,6 +239,7 @@ function buildDashboardData_() {
     totalPastDueAmountFormatted: formatCurrencyForDashboard_(totalPastDueAmount, 'CAD'),
     byProject: byProject,
     errorCount: errorCount,
+    errorTimestampsJson: errorTimestampsJson,
     recordsJson: recordsJson
   };
 }
