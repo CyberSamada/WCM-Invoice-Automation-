@@ -26,6 +26,7 @@ Employees who want to check on invoice status don't need access to the Google Sh
 
 ## Contents
 
+- [`EMPLOYEE_GUIDE.md`](./EMPLOYEE_GUIDE.md) — plain-language guide to the dashboard for anyone checking on invoice status, fixing a misfiled invoice, or sending feedback. **Start here if you're not technical.**
 - [`WCM_Invoice_Automation_Plan.md`](./WCM_Invoice_Automation_Plan.md) — full plan: architecture, workflow steps, decisions log, feasibility validation, open questions. **Start here for technical detail.**
 - [`project_reference.csv`](./project_reference.csv) — the full list of WCM construction projects and subprojects (26 projects, from the `+ Properties - Const` shared drive), used as the ground truth for Gemini's project matching.
 - [`apps-script/`](./apps-script/) — the actual Apps Script code (Gmail, Gemini, Drive, Sheets services), [`DriveSetup.gs`](./apps-script/DriveSetup.gs) (one-time Invoice Archive folder creation), [`Dashboard.gs`](./apps-script/Dashboard.gs)/[`Dashboard.html`](./apps-script/Dashboard.html) (read-only employee dashboard), and [`SETUP.md`](./apps-script/SETUP.md) with deployment steps.
