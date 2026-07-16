@@ -68,7 +68,7 @@ const CONFIG = {
   // columns appended here are added to an EXISTING sheet automatically (see
   // SheetService.gs/ensureSheetHasColumns_), so adding one here is enough — no manual sheet edit.
   LOG_COLUMNS: [
-    'Date Processed', 'Invoice Date', 'Due Date', 'Vendor', 'Project Number', 'Project Name',
+    'Date Processed', 'Date Received', 'Invoice Date', 'Due Date', 'Vendor', 'Project Number', 'Project Name',
     'Subproject Number', 'Subproject Name', 'Amount', 'Currency', 'Status', 'Confidence',
     'Drive Link', 'Gmail Link', 'Match Note', 'Review Note', 'Row ID', 'Drive File ID'
   ],

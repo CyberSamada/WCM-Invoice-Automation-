@@ -422,10 +422,10 @@
 
       <table>
         <thead>
-          <tr><th>Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
+          <tr><th>Date Processed</th><th>Date Received</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="8" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="9" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -816,7 +816,7 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="8" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No invoices match these filters.</td></tr>';
         return;
       }
 
@@ -828,6 +828,7 @@
         var note = [r.reviewNote, r.matchNote].filter(function (n) { return n; }).join(' — ');
         html += '<tr>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
+          '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
           '<td>' + escapeHtml(r.vendor) + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
