@@ -47,9 +47,13 @@ function buildDashboardData_() {
       const currency = r[idx['Currency']] || 'CAD';
       const dateValue = r[idx['Date Processed']];
       const dateObj = (dateValue instanceof Date) ? dateValue : new Date(dateValue);
+      // Blank for rows logged before this column existed — formatDateForDashboard_ returns '' for
+      // any falsy value, so this degrades gracefully rather than showing "Invalid Date".
+      const receivedValue = idx['Date Received'] > -1 ? r[idx['Date Received']] : '';
       return {
         dateProcessedRaw: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(), // epoch ms — used for client-side filtering
         dateProcessedFormatted: formatDateForDashboard_(dateValue, timezone),
+        dateReceivedFormatted: formatDateForDashboard_(receivedValue, timezone),
         vendor: r[idx['Vendor']] || '(unknown vendor)',
         projectNumber: String(r[idx['Project Number']] == null ? '' : r[idx['Project Number']]).trim(),
         projectName: r[idx['Project Name']] || '',

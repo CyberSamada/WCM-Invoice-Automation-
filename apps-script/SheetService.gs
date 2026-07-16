@@ -136,6 +136,49 @@ function backfillLogRowIds() {
   Logger.log(`Backfilled Row ID/Drive File ID on ${filled} existing Invoice Log row(s).`);
 }
 
+/**
+ * One-time migration: fills in 'Date Received' for existing Invoice Log rows logged before that
+ * column existed, by re-fetching each row's thread from Gmail (via the thread ID embedded in its
+ * Gmail Link) and using the thread's first message date as an approximation. New rows going forward
+ * log the exact originating message's date directly (see Main.gs/processOneInvoice_) — this backfill
+ * is necessarily approximate for a thread where different attachments came from different messages,
+ * since that detail isn't recoverable from the sheet alone. Only touches blank cells; safe to re-run.
+ */
+function backfillDateReceived() {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
+
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {
+    dateReceived: header.indexOf('Date Received'),
+    gmailLink: header.indexOf('Gmail Link')
+  };
+
+  let filled = 0, skippedNoLink = 0, skippedNotFound = 0;
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row.every(cell => cell === '')) continue; // skip fully blank rows
+    if (row[idx.dateReceived]) continue; // already has a value
+
+    const link = String(row[idx.gmailLink] || '');
+    const m = /#all\/([^/?&]+)/.exec(link);
+    if (!m) { skippedNoLink++; continue; }
+
+    try {
+      const thread = GmailApp.getThreadById(m[1]);
+      const messages = thread ? thread.getMessages() : [];
+      if (!messages.length) { skippedNotFound++; continue; }
+      sheet.getRange(i + 1, idx.dateReceived + 1).setValue(messages[0].getDate());
+      filled++;
+    } catch (err) {
+      skippedNotFound++;
+    }
+  }
+
+  Logger.log(`Backfilled Date Received on ${filled} row(s). ${skippedNoLink} skipped (no usable Gmail Link), ${skippedNotFound} skipped (thread not found/inaccessible).`);
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);
