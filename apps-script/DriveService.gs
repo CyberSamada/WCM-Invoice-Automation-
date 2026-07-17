@@ -32,7 +32,13 @@ function fileInvoiceToDrive_(pdfBlob, folderId, fileName) {
  * into a predictable subfolder instead of leaving them unfiled — see Main.gs/processOneInvoice_.
  */
 function getOrCreateNamedSubfolder_(parentFolderId, name) {
-  const parent = DriveApp.getFolderById(parentFolderId);
+  const parent = DriveApp.getFolderById(parentFolderId); // resolves a trashed folder without throwing
+  if (parent.isTrashed()) {
+    // Without this check, a trashed parent would silently accept a new subfolder created inside it —
+    // invisible in normal Drive navigation until the parent is restored. Fail loudly instead (caught
+    // by the caller's try/catch, surfaces in the Errors tab) — matches fileInvoiceToDrive_'s same check.
+    throw new Error(`Drive Folder ID "${parentFolderId}" points to a folder that has been deleted (in Trash). Run createInvoiceArchiveFolders() to provision a replacement.`);
+  }
   const existing = parent.getFoldersByName(name);
   if (existing.hasNext()) {
     return existing.next();
