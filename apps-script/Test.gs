@@ -35,9 +35,24 @@ function testRun() {
   Logger.log(`Found ${threads.length} untested thread(s) under label "${CONFIG.GMAIL_LABEL}". Testing up to ${CONFIG.TEST_MAX_THREADS}.`);
   threads = threads.slice(0, CONFIG.TEST_MAX_THREADS);
 
-  threads.forEach(thread => {
+  // Same defensive time budget as processInvoicesInner_ (Main.gs) and for the same reason: Apps
+  // Script kills a run outright at its ~6-minute hard limit, and markTestLabel_() only runs after a
+  // thread's every attachment finishes — a run killed mid-thread would leave it unlabeled and get
+  // the exact same thread retested from scratch next time. See Main.gs for the full explanation.
+  const startTime = Date.now();
+  const MAX_RUN_MS = 2.5 * 60 * 1000;
+  let deferredCount = 0;
+
+  for (let t = 0; t < threads.length; t++) {
+    if (Date.now() - startTime > MAX_RUN_MS) {
+      deferredCount = threads.length - t;
+      break;
+    }
+
+    const thread = threads[t];
     const wasUnread = thread.isUnread();
     const threadLink = getThreadLink_(thread);
+    let timedOutMidThread = false;
 
     try {
       const attachments = getPdfAttachments_(thread);
@@ -45,22 +60,34 @@ function testRun() {
       if (attachments.length === 0) {
         logTestRow_({ 'Vendor': '(no PDF)', 'Status': 'Test-Error', 'Note': describeThreadAttachments_(thread), 'Gmail Link': threadLink });
       } else {
-        attachments.forEach(({ blob, message }) => {
+        for (let a = 0; a < attachments.length; a++) {
+          if (Date.now() - startTime > MAX_RUN_MS) {
+            timedOutMidThread = true;
+            deferredCount = threads.length - t;
+            break;
+          }
+          const { blob, message } = attachments[a];
           testOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
           // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
           // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
           Utilities.sleep(13000);
-        });
+        }
       }
 
-      markTestLabel_(thread);
+      if (!timedOutMidThread) markTestLabel_(thread);
     } catch (err) {
       logTestRow_({ 'Vendor': '(error)', 'Status': 'Test-Error', 'Note': err.message, 'Gmail Link': threadLink });
     } finally {
       // Restore original read state no matter what happened above.
       if (wasUnread) { thread.markUnread(); } else { thread.markRead(); }
     }
-  });
+
+    if (timedOutMidThread) break;
+  }
+
+  if (deferredCount > 0) {
+    Logger.log(`Stopped early to stay safely under Apps Script's execution time limit — ${deferredCount} thread(s) deferred to the next test run.`);
+  }
 
   Logger.log('Test run complete — check the "Test Log" tab. Nothing here touched the real Invoice Log or any real project folder.');
 }

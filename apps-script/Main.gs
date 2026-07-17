@@ -38,7 +38,28 @@ function processInvoicesInner_() {
     threads = threads.slice(0, CONFIG.MAX_THREADS_PER_RUN);
   }
 
-  threads.forEach(thread => {
+  // Apps Script kills a trigger execution outright at its ~6-minute hard limit — a forced stop, not
+  // a catchable exception. markThreadProcessed_() only ever runs AFTER a thread's every attachment
+  // finishes, so a run killed mid-thread never labels that thread at all: the next trigger run picks
+  // the EXACT SAME thread back up via getUnprocessedThreads_() and reprocesses it from scratch,
+  // forever, since it can never finish in time. This produced runaway duplicate rows against very
+  // few actually-labeled threads. Fix: never START a new unit of work (thread or attachment) once
+  // we're this deep into the run's budget — bail out cleanly first, leaving remaining work correctly
+  // UNLABELED for next run, instead of risking getting killed mid-flight. The 2.5-minute budget is
+  // conservative on purpose: a single attachment's worst case (13s sleep + up to 150s of Gemini
+  // retry backoff) is ~3 minutes, so this leaves real margin under the 6-minute ceiling even if one
+  // last call goes the distance right after the check passes.
+  const startTime = Date.now();
+  const MAX_RUN_MS = 2.5 * 60 * 1000;
+  let deferredCount = 0;
+
+  for (let t = 0; t < threads.length; t++) {
+    if (Date.now() - startTime > MAX_RUN_MS) {
+      deferredCount = threads.length - t;
+      break;
+    }
+
+    const thread = threads[t];
     const threadLink = getThreadLink_(thread);
     const attachments = getPdfAttachments_(thread);
 
@@ -48,10 +69,17 @@ function processInvoicesInner_() {
       // instead of needing a guess (see GmailService.gs/describeThreadAttachments_).
       logError_('No PDF attachment found', describeThreadAttachments_(thread), threadLink);
       markThreadProcessed_(thread);
-      return;
+      continue;
     }
 
-    attachments.forEach(({ blob, message }) => {
+    let timedOutMidThread = false;
+    for (let a = 0; a < attachments.length; a++) {
+      if (Date.now() - startTime > MAX_RUN_MS) {
+        timedOutMidThread = true;
+        deferredCount = threads.length - t; // this thread (incomplete) and everything after it
+        break;
+      }
+      const { blob, message } = attachments[a];
       try {
         processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
       } catch (err) {
@@ -60,10 +88,17 @@ function processInvoicesInner_() {
       // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
       // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
       Utilities.sleep(13000);
-    });
+    }
 
+    if (timedOutMidThread) break; // leave this thread unlabeled — its completed attachments will
+                                   // simply be reprocessed next run; better than losing the rest of
+                                   // the batch to an unpredictable mid-flight kill.
     markThreadProcessed_(thread);
-  });
+  }
+
+  if (deferredCount > 0) {
+    Logger.log(`Stopped early to stay safely under Apps Script's execution time limit — ${deferredCount} thread(s) deferred to the next run.`);
+  }
 }
 
 function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
