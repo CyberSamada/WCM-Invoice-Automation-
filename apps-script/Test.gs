@@ -171,6 +171,6 @@ function markTestLabel_(thread) {
 /** Appends one row to the Test Log tab (separate from the real Invoice Log — see SheetService.gs for getOrCreateSheet_). */
 function logTestRow_(data) {
   const sheet = getOrCreateSheet_(CONFIG.TEST_LOG_TAB, CONFIG.TEST_LOG_COLUMNS);
-  const row = CONFIG.TEST_LOG_COLUMNS.map(col => data[col] !== undefined ? data[col] : '');
-  sheet.appendRow(row);
+  // Header-based lookup, not positional array order — see SheetService.gs/buildRowByHeader_ for why.
+  sheet.appendRow(buildRowByHeader_(sheet, data));
 }

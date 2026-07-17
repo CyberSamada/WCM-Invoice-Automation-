@@ -86,8 +86,27 @@ function logInvoiceRow_(data) {
   const filled = Object.assign({}, data);
   if (!filled['Row ID']) filled['Row ID'] = Utilities.getUuid();
   if (!filled['Drive File ID']) filled['Drive File ID'] = driveFileIdFromUrl_(filled['Drive Link']);
-  const row = CONFIG.LOG_COLUMNS.map(col => filled[col] !== undefined ? filled[col] : '');
-  sheet.appendRow(row);
+  sheet.appendRow(buildRowByHeader_(sheet, filled));
+}
+
+/**
+ * Builds a row array by looking up each field's ACTUAL physical column position from the sheet's
+ * real header row — never by CONFIG.LOG_COLUMNS' declared array order. ensureSheetHasColumns_ only
+ * ever appends a brand-new column at the very END of the physical sheet, never inserting it to
+ * match wherever it happens to sit in the LOG_COLUMNS array. Writing positionally (mapping the
+ * array straight into appendRow) silently shifts every value after an inserted column into the
+ * wrong cell the moment LOG_COLUMNS is edited to insert something anywhere but the end — this is
+ * exactly what happened when 'Date Received' was added as the 2nd element (see
+ * repairShiftedInvoiceLogRows for the fix to already-corrupted rows). Header-based lookup is safe
+ * regardless of array order or when each column was physically appended.
+ */
+function buildRowByHeader_(sheet, filled) {
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const row = new Array(header.length).fill('');
+  header.forEach((colName, i) => {
+    if (filled[colName] !== undefined) row[i] = filled[colName];
+  });
+  return row;
 }
 
 /** Extracts the file ID from a standard Drive file URL ("...file/d/<ID>/view"), or '' if it doesn't match. */
@@ -134,6 +153,63 @@ function backfillLogRowIds() {
   }
 
   Logger.log(`Backfilled Row ID/Drive File ID on ${filled} existing Invoice Log row(s).`);
+}
+
+/**
+ * One-time repair for rows written by the buggy positional logInvoiceRow_ (fixed above — see
+ * buildRowByHeader_) between when 'Date Received' was added as the 2nd element of
+ * CONFIG.LOG_COLUMNS and when that fix went live. Every value from 'Vendor' onward silently landed
+ * one column off from its header for that window — e.g. the "Vendor" cell actually held the Due
+ * Date value, "Project Number" held the real vendor name, and so on all the way down the row.
+ *
+ * Detection: a correctly-written row's "Status" cell is always exactly one of the known status
+ * values. A shifted row's "Status" cell instead holds whatever 'Currency' would have been (a code
+ * like "CAD") — essentially never a false positive, so this is safe to run without manually
+ * flagging which rows are affected.
+ *
+ * Repair: reinterpret the row's physical values positionally as CONFIG.LOG_COLUMNS order (exactly
+ * how the buggy code wrote them), then rewrite them into their correct column via the same
+ * header-based lookup the fixed logInvoiceRow_ now uses. Only commits the fix if it actually
+ * produces a valid Status afterward — refuses to touch a row that doesn't match the expected shift
+ * pattern rather than risk corrupting it further. Never deletes or reprocesses anything.
+ */
+function repairShiftedInvoiceLogRows() {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
+  const VALID_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Past Due'];
+
+  const range = sheet.getDataRange();
+  const values = range.getValues();
+  const header = values[0];
+  const statusIdx = header.indexOf('Status');
+  if (statusIdx === -1) throw new Error('Missing "Status" column — nothing to repair against.');
+
+  let checked = 0, repaired = 0, unrepairable = 0;
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row.every(cell => cell === '')) continue;
+    checked++;
+
+    const currentStatus = String(row[statusIdx] || '').trim();
+    if (VALID_STATUSES.indexOf(currentStatus) !== -1) continue; // already correct, leave alone
+
+    const recovered = {};
+    CONFIG.LOG_COLUMNS.forEach((fieldName, idx) => {
+      if (idx < row.length) recovered[fieldName] = row[idx];
+    });
+    const correctedRow = buildRowByHeader_(sheet, recovered);
+
+    const newStatus = String(correctedRow[statusIdx] || '').trim();
+    if (VALID_STATUSES.indexOf(newStatus) === -1) {
+      unrepairable++;
+      continue; // doesn't match the expected shift pattern — leave untouched rather than guess
+    }
+
+    sheet.getRange(i + 1, 1, 1, correctedRow.length).setValues([correctedRow]);
+    repaired++;
+  }
+
+  Logger.log(`Checked ${checked} row(s). Repaired ${repaired} shifted row(s). ` +
+    `${unrepairable} row(s) had an invalid Status but didn't match the expected shift pattern — left untouched, review manually.`);
 }
 
 /**
