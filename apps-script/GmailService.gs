@@ -11,25 +11,27 @@ function getUnprocessedThreads_() {
 }
 
 /**
- * Builds the "newer_than:"/"before:" portion of a Gmail search query from CONFIG.LOOKBACK_DAYS and
- * CONFIG.PROCESS_UNTIL_DATE — shared by the real run (above) and testRun() (Test.gs) so both
- * respect the same date window instead of drifting apart. PROCESS_UNTIL_DATE is inclusive of the
- * date itself; Gmail's before: operator is exclusive, so this searches "before" the following day
- * to compensate.
+ * Builds the "newer_than:"/"after:" portion of a Gmail search query from CONFIG.LOOKBACK_DAYS and
+ * CONFIG.PROCESS_FROM_DATE — shared by the real run (above) and testRun() (Test.gs) so both
+ * respect the same date window instead of drifting apart.
+ *
+ * NOTE: an earlier version of this implemented the cutoff in the WRONG DIRECTION (a PROCESS_UNTIL
+ * upper bound via before:, processing everything back to 2025 and older) — the intended behavior
+ * was always "ignore the old backlog, only process mail from the fresh-start date onward". Gmail's
+ * after: operator means "from 00:00 of that date", so the configured date itself is included.
  */
 function dateRangeQuerySuffix_() {
   let suffix = '';
   if (CONFIG.LOOKBACK_DAYS) {
     suffix += ` newer_than:${CONFIG.LOOKBACK_DAYS}d`;
   }
-  if (CONFIG.PROCESS_UNTIL_DATE) {
-    const cutoff = parseYmdDate_(CONFIG.PROCESS_UNTIL_DATE);
-    if (cutoff) {
-      const dayAfter = new Date(cutoff.getFullYear(), cutoff.getMonth(), cutoff.getDate() + 1);
-      const y = dayAfter.getFullYear();
-      const m = String(dayAfter.getMonth() + 1).padStart(2, '0');
-      const d = String(dayAfter.getDate()).padStart(2, '0');
-      suffix += ` before:${y}/${m}/${d}`;
+  if (CONFIG.PROCESS_FROM_DATE) {
+    const from = parseYmdDate_(CONFIG.PROCESS_FROM_DATE);
+    if (from) {
+      const y = from.getFullYear();
+      const m = String(from.getMonth() + 1).padStart(2, '0');
+      const d = String(from.getDate()).padStart(2, '0');
+      suffix += ` after:${y}/${m}/${d}`;
     }
   }
   return suffix;

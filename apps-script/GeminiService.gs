@@ -241,6 +241,14 @@ function fetchWithRetry_(url, options, maxRetries) {
     if (code !== 429 && code !== 503) {
       return response; // success, or a non-retryable error — let the caller handle it
     }
+    // A 429 for the DAILY quota (…PerDay… in the violation's quotaId) is not transient — the
+    // allotment is spent until the daily reset, so 15-60s retries just burn ~2.5 minutes of the
+    // run's execution budget and fail anyway. Return immediately and let the caller's error
+    // handling see the PerDay marker (isDailyQuotaError_ in Main.gs stops the whole run on it).
+    if (code === 429 && response.getContentText().indexOf('PerDay') !== -1) {
+      Logger.log('Gemini daily free-tier quota is exhausted — not retrying (resets daily).');
+      return response;
+    }
     if (attempt < maxRetries) {
       const waitMs = 15000 * (attempt + 1); // 15s, 30s, 45s, 60s
       Logger.log(`Gemini API returned ${code}, retrying in ${waitMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`);
