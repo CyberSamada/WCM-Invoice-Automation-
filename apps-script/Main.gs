@@ -73,6 +73,8 @@ function processInvoicesInner_() {
     }
 
     let timedOutMidThread = false;
+    let threadHadTransientFailure = false;
+    let dailyQuotaExhausted = false;
     for (let a = 0; a < attachments.length; a++) {
       if (Date.now() - startTime > MAX_RUN_MS) {
         timedOutMidThread = true;
@@ -84,6 +86,12 @@ function processInvoicesInner_() {
         processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
+        // A rate-limit/overload failure (429/503) means THIS attachment never got extracted — the
+        // thread must stay unlabeled so it's genuinely retried later, not skipped forever. Only a
+        // non-transient error (bad PDF, etc.) still lets the thread be marked processed below,
+        // since retrying those every run would just repeat the same failure.
+        if (isTransientApiError_(err)) threadHadTransientFailure = true;
+        if (isDailyQuotaError_(err)) { dailyQuotaExhausted = true; break; }
       }
       // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
       // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
@@ -93,12 +101,30 @@ function processInvoicesInner_() {
     if (timedOutMidThread) break; // leave this thread unlabeled — its completed attachments will
                                    // simply be reprocessed next run; better than losing the rest of
                                    // the batch to an unpredictable mid-flight kill.
-    markThreadProcessed_(thread);
+    if (!threadHadTransientFailure) markThreadProcessed_(thread);
+
+    if (dailyQuotaExhausted) {
+      // Every further Gemini call today will fail the same way — stop burning execution time and
+      // let everything left (including this thread) get picked up after the daily quota resets.
+      Logger.log('Gemini daily quota exhausted — stopping this run. Remaining threads stay unprocessed and will be retried by later runs (quota resets daily).');
+      break;
+    }
   }
 
   if (deferredCount > 0) {
     Logger.log(`Stopped early to stay safely under Apps Script's execution time limit — ${deferredCount} thread(s) deferred to the next run.`);
   }
+}
+
+/** True for Gemini failures worth retrying on a later run (rate limit / temporary overload). */
+function isTransientApiError_(err) {
+  return /Gemini API returned (429|503)/.test(String(err && err.message || ''));
+}
+
+/** True specifically for the free tier's DAILY request cap ("…PerDay…" quota violation) — not per-minute. */
+function isDailyQuotaError_(err) {
+  const msg = String(err && err.message || '');
+  return msg.indexOf('429') !== -1 && msg.indexOf('PerDay') !== -1;
 }
 
 function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {

@@ -272,6 +272,25 @@
     }
     .btn-secondary:hover { background: #f9fafb; }
 
+    /* PDF preview modal — wider than the edit modal, sized for an embedded document */
+    .preview-box { width: 720px; max-width: 96vw; }
+    .preview-frame-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #f3f4f6; }
+    .preview-frame-wrap iframe { display: block; width: 100%; height: 62vh; border: none; }
+    .preview-location { font-size: 12px; color: #6b7280; margin: 10px 0 0; word-break: break-word; }
+    .preview-location strong { color: #374151; font-weight: 600; }
+
+    /* Bulk select/edit */
+    .bulk-bar {
+      display: none; align-items: center; gap: 12px;
+      background: #eef4fb; border: 1px solid #c8dcf2; border-radius: 8px;
+      padding: 8px 14px; margin: 0 0 10px; font-size: 13px;
+    }
+    .bulk-bar.active { display: flex; }
+    .bulk-bar .bulk-count { font-weight: 700; color: var(--wcm-blue-dark); }
+    .bulk-bar button { font-size: 12.5px; padding: 6px 12px; }
+    td.select-cell, th.select-cell { width: 28px; text-align: center; padding-left: 10px; padding-right: 4px; }
+    .select-cell input { cursor: pointer; }
+
     /* Feedback */
     .feedback-fab { position: fixed; bottom: 20px; right: 20px; z-index: 900; }
     .feedback-btn {
@@ -420,12 +439,18 @@
 
       <p class="results-count" id="resultsCount">Showing all invoices</p>
 
+      <div class="bulk-bar" id="bulkBar">
+        <span><span class="bulk-count" id="bulkCount">0</span> selected</span>
+        <button type="button" class="btn-primary" id="bulkEditBtn">Edit selected</button>
+        <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
+      </div>
+
       <table>
         <thead>
-          <tr><th>Date Processed</th><th>Date Received</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
+          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="9" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="10" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -488,6 +513,53 @@
     </div>
   </div>
 
+  <!-- PDF preview -->
+  <div class="modal-overlay" id="previewModalOverlay" style="display:none">
+    <div class="modal-box preview-box">
+      <h3 id="previewTitle">Invoice preview</h3>
+      <p class="modal-subtitle" id="previewSubtitle"></p>
+      <div class="preview-frame-wrap">
+        <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
+      </div>
+      <p class="preview-location" id="previewLocation">Looking up file location…</p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="previewCloseBtn">Close</button>
+        <button type="button" class="btn-primary" id="previewOpenDriveBtn">Open in Drive</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Bulk edit -->
+  <div class="modal-overlay" id="bulkModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Edit selected invoices</h3>
+      <p class="modal-subtitle" id="bulkModalSubtitle"></p>
+      <div class="modal-field">
+        <label for="bulkProject">Project</label>
+        <select id="bulkProject"></select>
+      </div>
+      <div class="modal-field">
+        <label for="bulkSubproject">Subproject</label>
+        <select id="bulkSubproject"></select>
+      </div>
+      <div class="modal-field">
+        <label for="bulkStatus">Status</label>
+        <select id="bulkStatus">
+          <option value="">(don't change)</option>
+          <option value="Filed">Filed</option>
+          <option value="Needs Review">Needs Review</option>
+          <option value="Not an Invoice">Not an Invoice</option>
+          <option value="Past Due">Past Due</option>
+        </select>
+      </div>
+      <p class="modal-error" id="bulkModalError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="bulkCancelBtn">Cancel</button>
+        <button type="button" class="btn-primary" id="bulkApplyBtn">Apply to selected</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Feedback -->
   <div class="feedback-fab">
     <button type="button" class="feedback-btn" id="feedbackOpenBtn">Send feedback</button>
@@ -510,6 +582,10 @@
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
     var ALL_ERROR_TIMESTAMPS = <?!= data.errorTimestampsJson ?>;
+    // Multi-select state: rowId -> true. Survives re-renders/filter changes, so a selection built
+    // across several filter views stays intact until cleared or applied.
+    var SELECTED_ROWIDS = {};
+    var LAST_RENDERED = []; // the records currently shown in the table (post-filter), for select-all
     var AUTOMATION = <?!= data.automationJson ?>;
     var BRANDING = <?!= data.brandingJson ?>;
     var REFERENCE_OPTIONS = <?!= data.referenceOptionsJson ?>;
@@ -816,7 +892,10 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="9" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">No invoices match these filters.</td></tr>';
+        LAST_RENDERED = [];
+        syncSelectAllBox();
+        updateBulkBar();
         return;
       }
 
@@ -827,6 +906,9 @@
         // match reasoning. Show both when both exist.
         var note = [r.reviewNote, r.matchNote].filter(function (n) { return n; }).join(' — ');
         html += '<tr>' +
+          '<td class="select-cell">' + (r.rowId
+            ? '<input type="checkbox" data-select-id="' + escapeHtml(r.rowId) + '"' + (SELECTED_ROWIDS[r.rowId] ? ' checked' : '') + '>'
+            : '') + '</td>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
           '<td>' + escapeHtml(r.vendor) + '</td>' +
@@ -837,7 +919,7 @@
             ? '<span class="status-note" title="' + escapeHtml(note) + '">' + statusBadge + '</span>'
             : statusBadge) + '</td>' +
           '<td class="links-cell">' +
-            (r.driveLink ? '<a class="icon-link" href="' + escapeHtml(r.driveLink) + '" target="_blank" title="Open filed PDF" aria-label="Open filed PDF">' + ICON_FILE + '</a>' : '') +
+            (r.driveLink ? '<button type="button" class="icon-btn icon-link" data-preview-id="' + escapeHtml(r.rowId) + '" title="Preview filed PDF" aria-label="Preview filed PDF">' + ICON_FILE + '</button>' : '') +
             (r.gmailLink ? '<a class="icon-link" href="' + escapeHtml(r.gmailLink) + '" target="_blank" title="Open email" aria-label="Open email">' + ICON_EMAIL + '</a>' : '') +
           '</td>' +
           '<td>' + (r.rowId
@@ -849,6 +931,19 @@
       tbody.querySelectorAll('[data-row-id]').forEach(function (btn) {
         btn.addEventListener('click', function () { openEditModal(btn.getAttribute('data-row-id')); });
       });
+      tbody.querySelectorAll('[data-preview-id]').forEach(function (btn) {
+        btn.addEventListener('click', function () { openPreviewModal(btn.getAttribute('data-preview-id')); });
+      });
+      tbody.querySelectorAll('[data-select-id]').forEach(function (box) {
+        box.addEventListener('change', function () {
+          var id = box.getAttribute('data-select-id');
+          if (box.checked) SELECTED_ROWIDS[id] = true; else delete SELECTED_ROWIDS[id];
+          updateBulkBar();
+        });
+      });
+      LAST_RENDERED = list;
+      syncSelectAllBox();
+      updateBulkBar();
     }
 
     // --- Manual-override edit modal ---------------------------------------------------------
@@ -953,6 +1048,187 @@
         .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status });
     }
 
+    // --- PDF preview modal --------------------------------------------------------------------
+
+    function drivePreviewUrl(driveLink) {
+      var m = /\/file\/d\/([^/]+)/.exec(String(driveLink || ''));
+      return m ? { fileId: m[1], url: 'https://drive.google.com/file/d/' + m[1] + '/preview' } : null;
+    }
+
+    var previewDriveLink = '';
+
+    function openPreviewModal(rowId) {
+      var record = ALL_RECORDS.find(function (r) { return r.rowId === rowId; });
+      if (!record || !record.driveLink) return;
+      var parsed = drivePreviewUrl(record.driveLink);
+      if (!parsed) { window.open(record.driveLink, '_blank'); return; } // unparseable link — old behavior as fallback
+
+      previewDriveLink = record.driveLink;
+      document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
+      document.getElementById('previewFrame').src = parsed.url;
+      document.getElementById('previewLocation').textContent = 'Looking up file location…';
+      document.getElementById('previewModalOverlay').style.display = 'flex';
+
+      google.script.run
+        .withSuccessHandler(function (info) {
+          document.getElementById('previewLocation').innerHTML =
+            '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
+            ' &nbsp;·&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+        })
+        .withFailureHandler(function () {
+          document.getElementById('previewLocation').textContent = 'Could not look up the file location — the preview and Open in Drive still work.';
+        })
+        .getInvoiceFileInfo(parsed.fileId);
+    }
+
+    function closePreviewModal() {
+      document.getElementById('previewModalOverlay').style.display = 'none';
+      document.getElementById('previewFrame').src = 'about:blank'; // stop the embedded viewer
+      previewDriveLink = '';
+    }
+
+    // --- Multi-select + bulk edit ---------------------------------------------------------------
+
+    function selectedIds() { return Object.keys(SELECTED_ROWIDS); }
+
+    function updateBulkBar() {
+      var n = selectedIds().length;
+      document.getElementById('bulkCount').textContent = n;
+      document.getElementById('bulkBar').className = n > 0 ? 'bulk-bar active' : 'bulk-bar';
+    }
+
+    function syncSelectAllBox() {
+      var box = document.getElementById('selectAllBox');
+      var selectable = LAST_RENDERED.filter(function (r) { return r.rowId; });
+      var checkedCount = selectable.filter(function (r) { return SELECTED_ROWIDS[r.rowId]; }).length;
+      box.checked = selectable.length > 0 && checkedCount === selectable.length;
+      box.indeterminate = checkedCount > 0 && checkedCount < selectable.length;
+    }
+
+    function toggleSelectAll() {
+      var box = document.getElementById('selectAllBox');
+      LAST_RENDERED.forEach(function (r) {
+        if (!r.rowId) return;
+        if (box.checked) SELECTED_ROWIDS[r.rowId] = true; else delete SELECTED_ROWIDS[r.rowId];
+      });
+      // Re-render so row checkboxes reflect the new state (selection map is the source of truth).
+      renderResults(LAST_RENDERED);
+    }
+
+    function clearSelection() {
+      SELECTED_ROWIDS = {};
+      renderResults(LAST_RENDERED);
+    }
+
+    function openBulkModal() {
+      var n = selectedIds().length;
+      if (!n) return;
+      document.getElementById('bulkModalSubtitle').textContent =
+        'Applying to ' + n + ' invoice' + (n === 1 ? '' : 's') + '. Fields left as "(don’t change)" keep each row’s current value.';
+      document.getElementById('bulkModalError').textContent = '';
+
+      var tree = buildReferenceTree();
+      var projectSelect = document.getElementById('bulkProject');
+      projectSelect.innerHTML = '';
+      var keep = document.createElement('option');
+      keep.value = '__keep__'; keep.textContent = "(don't change)";
+      projectSelect.appendChild(keep);
+      var noneOpt = document.createElement('option');
+      noneOpt.value = ''; noneOpt.textContent = '(no project match)';
+      projectSelect.appendChild(noneOpt);
+      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
+        var opt = document.createElement('option');
+        opt.value = pKey;
+        opt.textContent = tree[pKey].label;
+        projectSelect.appendChild(opt);
+      });
+      projectSelect.value = '__keep__';
+
+      var subSelect = document.getElementById('bulkSubproject');
+      function refreshBulkSubprojects() {
+        subSelect.innerHTML = '';
+        if (projectSelect.value === '__keep__' || projectSelect.value === '') {
+          var na = document.createElement('option');
+          na.value = ''; na.textContent = projectSelect.value === '' ? '(no subproject)' : '(keep with project)';
+          subSelect.appendChild(na);
+          subSelect.disabled = true;
+          return;
+        }
+        subSelect.disabled = false;
+        var none = document.createElement('option');
+        none.value = ''; none.textContent = '(no subproject)';
+        subSelect.appendChild(none);
+        var proj = tree[projectSelect.value];
+        if (proj) {
+          Object.keys(proj.subs).sort(compareDotted).forEach(function (sKey) {
+            var opt = document.createElement('option');
+            opt.value = proj.subs[sKey].number;
+            opt.textContent = proj.subs[sKey].label;
+            subSelect.appendChild(opt);
+          });
+        }
+      }
+      projectSelect.onchange = refreshBulkSubprojects;
+      refreshBulkSubprojects();
+
+      document.getElementById('bulkStatus').value = '';
+      document.getElementById('bulkModalOverlay').style.display = 'flex';
+    }
+
+    function closeBulkModal() {
+      document.getElementById('bulkModalOverlay').style.display = 'none';
+    }
+
+    function applyBulkEdit() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+
+      var tree = buildReferenceTree();
+      var pVal = document.getElementById('bulkProject').value;
+      var status = document.getElementById('bulkStatus').value;
+
+      // null = "leave this field as each row has it" — matches updateInvoiceRow's contract exactly.
+      var updates = { projectNumber: null, subprojectNumber: null, status: status || null };
+      if (pVal !== '__keep__') {
+        updates.projectNumber = pVal && tree[pVal] ? tree[pVal].number : '';
+        updates.subprojectNumber = document.getElementById('bulkSubproject').value;
+      }
+      if (updates.projectNumber === null && updates.status === null) {
+        document.getElementById('bulkModalError').textContent = 'Nothing to change — pick a project and/or a status first.';
+        return;
+      }
+
+      var applyBtn = document.getElementById('bulkApplyBtn');
+      var errorEl = document.getElementById('bulkModalError');
+      errorEl.textContent = '';
+      applyBtn.disabled = true;
+      applyBtn.textContent = 'Applying…';
+
+      google.script.run
+        .withSuccessHandler(function (result) {
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Apply to selected';
+          (result.updated || []).forEach(function (updated) {
+            var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === updated.rowId; });
+            if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
+            delete SELECTED_ROWIDS[updated.rowId]; // successfully edited rows leave the selection
+          });
+          if (result.errors && result.errors.length) {
+            errorEl.textContent = result.errors.length + ' row(s) failed and stay selected — first error: ' + result.errors[0].message;
+            applyFilters();
+          } else {
+            closeBulkModal();
+            applyFilters();
+          }
+        })
+        .withFailureHandler(function (err) {
+          applyBtn.disabled = false;
+          applyBtn.textContent = 'Apply to selected';
+          errorEl.textContent = err && err.message ? err.message : 'Could not apply — try again.';
+        })
+        .updateInvoiceRows(ids, updates);
+    }
+
     // --- Feedback -----------------------------------------------------------------------------
 
     function openFeedbackModal() {
@@ -1028,6 +1304,15 @@
       document.getElementById('feedbackSendBtn').addEventListener('click', sendFeedback);
       document.getElementById('feedbackModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeFeedbackModal(); });
       document.getElementById('summaryTimeframe').addEventListener('change', updateSummaryCards);
+      document.getElementById('selectAllBox').addEventListener('change', toggleSelectAll);
+      document.getElementById('bulkEditBtn').addEventListener('click', openBulkModal);
+      document.getElementById('bulkClearBtn').addEventListener('click', clearSelection);
+      document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
+      document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
+      document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
+      document.getElementById('previewCloseBtn').addEventListener('click', closePreviewModal);
+      document.getElementById('previewOpenDriveBtn').addEventListener('click', function () { if (previewDriveLink) window.open(previewDriveLink, '_blank'); });
+      document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();
       applyFilters();
     });

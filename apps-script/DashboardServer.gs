@@ -423,6 +423,66 @@ function updateInvoiceRow(rowId, updates) {
   };
 }
 
+/**
+ * Bulk manual override — applies the same subset of changes to several rows at once (the
+ * dashboard's multi-select edit). Reuses updateInvoiceRow per row so bulk and single edits can
+ * never behave differently; a failure on one row doesn't abort the rest, it's reported per-row.
+ * Called from Dashboard.html via google.script.run.
+ *
+ * @param {string[]} rowIds
+ * @param {{projectNumber:?string, subprojectNumber:?string, status:?string}} updates - only the
+ *   fields being changed; omitted (null/undefined) fields are left as each row currently has them.
+ * @return {{updated: Object[], errors: {rowId: string, message: string}[]}}
+ */
+function updateInvoiceRows(rowIds, updates) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to edit invoice records.');
+  }
+  if (!rowIds || !rowIds.length) throw new Error('No rows selected.');
+  if (rowIds.length > 100) throw new Error('Too many rows at once — select 100 or fewer.');
+
+  const updated = [];
+  const errors = [];
+  rowIds.forEach(rowId => {
+    try {
+      updated.push(updateInvoiceRow(rowId, updates));
+    } catch (err) {
+      errors.push({ rowId: rowId, message: err.message });
+    }
+  });
+  return { updated: updated, errors: errors };
+}
+
+/**
+ * Where a filed invoice PDF actually lives in Drive, as a human-readable folder path (walked up
+ * from the file to the Invoice Archive root) — for the dashboard's preview modal, so someone can
+ * see the filing location without leaving the page. Read-only, so open to any dashboard viewer,
+ * same as the rest of the page's data. Called lazily from Dashboard.html when a preview opens.
+ *
+ * @param {string} fileId
+ * @return {{fileName: string, folderPath: string}}
+ */
+function getInvoiceFileInfo(fileId) {
+  const id = String(fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) throw new Error('Invalid file ID.');
+
+  const file = DriveApp.getFileById(id);
+  const segments = [];
+  let parents = file.getParents();
+  // Drive files can technically have multiple parents; the archive only ever files into one, so
+  // follow the first chain. Cap the walk defensively — a cycle isn't possible in Drive, but a
+  // deeply shared path shouldn't loop forever either.
+  let folder = parents.hasNext() ? parents.next() : null;
+  let hops = 0;
+  while (folder && hops < 15) {
+    segments.unshift(folder.getName());
+    const up = folder.getParents();
+    folder = up.hasNext() ? up.next() : null;
+    hops++;
+  }
+  return { fileName: file.getName(), folderPath: segments.join(' / ') };
+}
+
 /** Called from Dashboard.html via google.script.run. Open to any viewer — feedback isn't gated. */
 function submitFeedback(message, pageContext) {
   const text = String(message || '').trim();
