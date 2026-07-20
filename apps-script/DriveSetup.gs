@@ -33,7 +33,7 @@
  * Drive cleanup needed.
  */
 
-const INVOICE_ARCHIVE_PARENT_FOLDER_ID = '17X2BqaT4GxhrqAUjAWbV-d_QnkpCAHfb'; // "Outputs" folder in Drive
+const INVOICE_ARCHIVE_PARENT_FOLDER_ID = '1YnKkKhNNElDpmkBCLPoadlD00MTuYaxh'; // Invoice Archive root in Drive (fresh root, July 2026 reset — replaced the original "Outputs" folder, which had accumulated duplicate project folders)
 const PROJECTS_ROOT_FOLDER_ID = '1Ci3WI0U7URbMsOg7ecJ4_7gxrnd8hFZ0'; // "+ Properties - Const" folder in Drive — needed only for syncProjectReferenceFromDrive()
 const IGNORED_PROJECT_NUMBERS = new Set(['00', '0']); // "00 - PROJECT TEMPLATE" is a template folder, not a real project — never gets a reference row or an Invoice Archive folder. ('0' included too in case the sheet cell is still numeric.)
 
@@ -151,6 +151,22 @@ function syncProjectReferenceFromDrive() {
  * folder itself as if it were that subproject's folder.
  */
 function createInvoiceArchiveFolders() {
+  // Concurrent runs (the daily sync trigger overlapping a manual run, or two manual runs) would
+  // each see "no folder ID on file" for the same project and BOTH create one — real duplicate
+  // folders observed in the archive. Same tryLock(0) pattern as processInvoices().
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) {
+    Logger.log('Another folder-provisioning run is already in progress — skipping this one.');
+    return;
+  }
+  try {
+    createInvoiceArchiveFoldersInner_();
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function createInvoiceArchiveFoldersInner_() {
   const parentFolder = DriveApp.getFolderById(INVOICE_ARCHIVE_PARENT_FOLDER_ID);
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_REFERENCE_TAB);
@@ -171,50 +187,71 @@ function createInvoiceArchiveFolders() {
     if (idx[k] === -1) throw new Error(`"${CONFIG.SHEET_REFERENCE_TAB}" tab is missing a "${k}" column.`);
   });
 
-  // Unique project number -> { name, existingFolderId } — existingFolderId comes only from a
-  // blank-subproject ("main") row, so it's never accidentally seeded from a subproject row.
+  // Unique project -> { number, name, existingFolderId, subRowFolderIds }, keyed by
+  // normalizeNumberKey_ so "05" and "5" (zero-padding lost to cell formatting on some rows) are ONE
+  // project, not two — they used to each get their own folder. The displayed number prefers the
+  // longer (zero-padded) form seen on any row. existingFolderId comes only from a blank-subproject
+  // ("main") row; subproject-row IDs are collected separately for the parent-derivation fallback.
   const projects = {};
   for (let i = 1; i < values.length; i++) {
-    const num = cellToString_(values[i][idx.projectNumber]);
-    if (!num || IGNORED_PROJECT_NUMBERS.has(num)) continue;
+    const rawNum = cellToString_(values[i][idx.projectNumber]);
+    if (!rawNum || IGNORED_PROJECT_NUMBERS.has(rawNum)) continue;
+    const key = normalizeNumberKey_(rawNum);
+    if (!projects[key]) projects[key] = { number: rawNum, name: '', existingFolderId: '', subRowFolderIds: [] };
+    if (rawNum.length > projects[key].number.length) projects[key].number = rawNum; // prefer "05" over "5"
     const name = cellToString_(values[i][idx.projectName]);
-    if (!projects[num]) projects[num] = { name: '', existingFolderId: '' };
-    if (name && !projects[num].name) projects[num].name = name;
+    if (name && !projects[key].name) projects[key].name = name;
+    const fid = cellToString_(values[i][idx.driveFolderId]);
     if (!cellToString_(values[i][idx.subprojectNumber])) {
-      const fid = cellToString_(values[i][idx.driveFolderId]);
-      if (fid && !projects[num].existingFolderId) projects[num].existingFolderId = fid;
+      if (fid && !projects[key].existingFolderId) projects[key].existingFolderId = fid;
+    } else if (fid) {
+      projects[key].subRowFolderIds.push(fid);
     }
   }
 
-  const resolvedProjectFolderId = {}; // projectNumber -> folder ID
+  const resolvedProjectFolderId = {}; // normalized project key -> folder ID
   let createdCount = 0, renamedCount = 0, reusedCount = 0;
 
-  Object.keys(projects).sort().forEach(projectNumber => {
-    const { name, existingFolderId } = projects[projectNumber];
-    const expectedName = `${projectNumber} - ${name}`;
-    resolvedProjectFolderId[projectNumber] = resolveNamedFolder_(
-      parentFolder, existingFolderId, expectedName, projectNumber,
+  Object.keys(projects).sort().forEach(key => {
+    const p = projects[key];
+    // A project with only subproject rows has no blank-subproject row to carry its folder ID, so
+    // "existing ID on file" alone can never see it — this is exactly what caused a fresh duplicate
+    // project folder on EVERY run (including the daily sync trigger). Derive it instead from where
+    // an existing subproject folder actually lives: its parent IS the project folder.
+    let existingFolderId = p.existingFolderId || deriveProjectFolderFromSubfolders_(p.subRowFolderIds);
+    // Only trust an ID that actually lives directly under the CURRENT archive root. This is what
+    // makes swapping INVOICE_ARCHIVE_PARENT_FOLDER_ID to a new root self-executing: every stale ID
+    // pointing into the old tree is ignored, so one run provisions everything fresh under the new
+    // root and rewrites the sheet — no manual clearing of the Drive Folder ID column needed.
+    if (existingFolderId && !isDirectChildOfArchiveRoot_(existingFolderId)) existingFolderId = '';
+    const expectedName = `${p.number} - ${p.name}`;
+    resolvedProjectFolderId[key] = resolveNamedFolder_(
+      parentFolder, existingFolderId, expectedName, p.number,
       (c) => { if (c === 'created') createdCount++; else if (c === 'renamed') renamedCount++; else reusedCount++; }
     );
   });
 
   // Subproject folders, nested under their project's folder. existingFolderId for a subproject row
   // is only trusted if it's NOT the same as the project's own folder ID — see migration note above.
-  const resolvedSubfolderId = {}; // "projectNumber||subprojectNumber" -> folder ID
+  const resolvedSubfolderId = {}; // "projectKey||subprojectNumber" -> folder ID
   let subCreated = 0, subRenamed = 0, subReused = 0;
   for (let i = 1; i < values.length; i++) {
     const num = cellToString_(values[i][idx.projectNumber]);
     const sub = cellToString_(values[i][idx.subprojectNumber]);
     if (!num || IGNORED_PROJECT_NUMBERS.has(num) || !sub) continue;
-    const comboKey = num + '||' + sub;
+    const comboKey = normalizeNumberKey_(num) + '||' + sub;
     if (resolvedSubfolderId[comboKey]) continue; // already handled (a subproject can span multiple rows)
 
-    const projectFolderId = resolvedProjectFolderId[num];
+    const projectFolderId = resolvedProjectFolderId[normalizeNumberKey_(num)];
     if (!projectFolderId) continue; // shouldn't happen, but don't blow up the whole run over one bad row
 
     const subName = cellToString_(values[i][idx.subprojectName]);
     const rawExisting = cellToString_(values[i][idx.driveFolderId]);
-    const existingSubFolderId = (rawExisting && rawExisting !== projectFolderId) ? rawExisting : '';
+    // Trust a subproject row's ID only if that folder actually sits inside THIS project's resolved
+    // folder — an ID from the old archive root (or the migration-era shared project ID) is ignored,
+    // so a fresh subfolder gets created in the right place instead of the old tree being reused.
+    const existingSubFolderId = (rawExisting && rawExisting !== projectFolderId && isDirectChildOf_(rawExisting, projectFolderId))
+      ? rawExisting : '';
     const expectedSubName = `${sub} - ${subName}`;
     const projectFolder = DriveApp.getFolderById(projectFolderId);
 
@@ -231,7 +268,7 @@ function createInvoiceArchiveFolders() {
     const num = cellToString_(values[i][idx.projectNumber]);
     if (!num) continue;
     const sub = cellToString_(values[i][idx.subprojectNumber]);
-    const target = sub ? resolvedSubfolderId[num + '||' + sub] : resolvedProjectFolderId[num];
+    const target = sub ? resolvedSubfolderId[normalizeNumberKey_(num) + '||' + sub] : resolvedProjectFolderId[normalizeNumberKey_(num)];
     if (!target) continue;
     const currentValue = cellToString_(values[i][idx.driveFolderId]);
     if (currentValue !== target) {
@@ -242,6 +279,49 @@ function createInvoiceArchiveFolders() {
 
   Logger.log(`Projects: ${createdCount} created, ${renamedCount} renamed, ${reusedCount} up to date. ` +
     `Subprojects: ${subCreated} created, ${subRenamed} renamed, ${subReused} up to date. ${updatedCount} row(s) had their Drive Folder ID written/refreshed.`);
+}
+
+/**
+ * Finds a project's archive folder via its existing subproject folders: each subproject folder
+ * lives directly inside the project folder, so the first healthy one's parent IS the project
+ * folder. Migration-era rows whose "subproject" ID is actually the project folder itself (a direct
+ * child of the archive root) are recognized and returned as-is. Returns '' if nothing usable —
+ * only then does the caller create a fresh project folder.
+ */
+function deriveProjectFolderFromSubfolders_(subRowFolderIds) {
+  for (let i = 0; i < subRowFolderIds.length; i++) {
+    try {
+      const folder = DriveApp.getFolderById(subRowFolderIds[i]);
+      if (folder.isTrashed()) continue;
+      const parents = folder.getParents();
+      if (!parents.hasNext()) continue;
+      const parent = parents.next();
+      if (parent.isTrashed()) continue;
+      // Direct child of the archive root = this "subproject" ID is really the project folder itself.
+      if (parent.getId() === INVOICE_ARCHIVE_PARENT_FOLDER_ID) return folder.getId();
+      // Otherwise the parent is the candidate project folder — but only if IT sits directly under
+      // the current archive root; a subfolder from the old (pre-reset) tree must not resurrect it.
+      if (isDirectChildOfArchiveRoot_(parent.getId())) return parent.getId();
+    } catch (err) { /* inaccessible ID — try the next row */ }
+  }
+  return '';
+}
+
+/** True if the folder's first parent is the current archive root (i.e. it's a top-level project folder in THIS archive). */
+function isDirectChildOfArchiveRoot_(folderId) {
+  return isDirectChildOf_(folderId, INVOICE_ARCHIVE_PARENT_FOLDER_ID);
+}
+
+/** True if `folderId` exists, isn't trashed, and its first parent is `parentId`. False on any error. */
+function isDirectChildOf_(folderId, parentId) {
+  try {
+    const folder = DriveApp.getFolderById(folderId);
+    if (folder.isTrashed()) return false;
+    const parents = folder.getParents();
+    return parents.hasNext() && parents.next().getId() === parentId;
+  } catch (err) {
+    return false;
+  }
 }
 
 /**
