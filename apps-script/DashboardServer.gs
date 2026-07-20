@@ -381,7 +381,11 @@ function updateInvoiceRow(rowId, updates) {
   const statusChanged = newStatus !== currentStatus;
   let newDriveLink = row[idx['Drive Link']];
 
-  if (projectChanged || statusChanged) {
+  // A "Duplicate" row is a bookkeeping notice, not a filed copy — its Drive File ID points at the
+  // ORIGINAL invoice's file (shared, not its own). So when a row is set to Duplicate, never move the
+  // Drive file: doing so would relocate the original invoice out of where it's correctly filed.
+  const shouldMoveFile = (projectChanged || statusChanged) && newStatus !== 'Duplicate';
+  if (shouldMoveFile) {
     const driveFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
     if (driveFileId) {
       try {
