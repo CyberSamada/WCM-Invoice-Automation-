@@ -18,27 +18,30 @@ You don't need any special access to check on invoices — just the dashboard li
 
 ## Reading the dashboard
 
-At the top you'll see five summary cards:
+At the top you'll see summary cards, with a **time-frame selector** (top right) to switch between today / this week / this month / all time:
 
 | Card | Meaning |
 |---|---|
-| **Total Processed** | All invoice emails handled so far |
+| **Total Processed** | All invoice emails handled |
 | **Filed** | Auto-filed with high confidence — no action needed |
 | **Needs Review** | The system wasn't sure, or it's a statement/non-invoice — take a look |
-| **Not an Invoice** | Recognized as something other than an invoice (statement, notice, etc.) |
+| **Not an Invoice** | Recognized as something other than an invoice (statement, Purchase Order, notice, etc.) |
+| **Past Due** | The due date has already passed — needs urgent attention |
 | **Errors** | Something went wrong processing it — see below |
 
 Below that, filters let you narrow the invoice list by status, project, vendor name, date range, or amount. Use these to find something specific — e.g. set Project to your building and Status to "Needs Review" to see just what's waiting on you.
 
-Each row in the table shows the invoice's date, vendor, project/subproject, amount, and status, plus two quick links:
-- 📄 the filed PDF in Google Drive
-- ✉️ the original email in Gmail
+Each row shows the invoice's processed date, received date, vendor (with its invoice number underneath), project/subproject, amount, and status, plus quick actions:
+- 📄 **Preview** the filed PDF right on the page (shows its Drive location, with an "Open in Drive" button)
+- ✉️ open the original email in Gmail
+- ✏️ **edit** the row (fix the project/subproject/status)
 
 ## What each status means
 
 - **Filed** — done, no action needed. Filed into the project's folder, organized by month.
 - **Needs Review** — the system filed a copy but wants a human to confirm the project/amount are right, or it just crammed the pay period (due date too soon after it arrived) and wants a second look before it's paid on autopilot. Check it and correct it if needed (see below).
-- **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a statement, a receipt, a "your account info changed" email, etc.). Worth a quick glance to confirm it agrees with you.
+- **Past Due** — the invoice's due date has already passed. It's filed into that project's **Past Due** folder and flagged so it gets urgent attention before it slips further.
+- **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a Purchase Order / Agreement, a statement, a receipt, a "your account info changed" email, etc.). Worth a quick glance to confirm it agrees with you.
 - **Errors** — something prevented processing (most often: the email matched the billing label but didn't actually have a PDF attached). Open the Gmail link to see the original email and handle it manually.
 
 ## Fixing a misfiled invoice
@@ -49,7 +52,15 @@ If an invoice landed under the wrong project, subproject, or status, you can fix
 2. A small window opens where you can change the **project**, **subproject**, and **status**.
 3. Click **Save**.
 
-This doesn't just update the log — it also moves the actual file in Google Drive to the correct folder, so the archive and the dashboard always agree.
+This doesn't just update the log — it also moves the actual file in Google Drive to the correct folder, so the archive and the dashboard always agree. The system also **remembers your correction**: next time that same vendor sends an invoice, it applies what it learned (and still shows it to you to confirm).
+
+### Fixing several at once
+
+If a batch of invoices all need the same fix (say, several from one vendor that all went to the wrong project):
+
+1. Tick the **checkboxes** on each row you want to change (or the checkbox in the header to select all shown).
+2. Click **Edit selected** in the bar that appears.
+3. Choose the project/subproject/status to apply, and Save. They're all re-filed at once.
 
 ## Where filed invoices live in Drive
 
@@ -59,10 +70,13 @@ Invoices are organized like this:
 Invoice Archive
 └── <Project Number> - <Project Name>
     └── <Subproject Number> - <Subproject Name>   (only if the invoice is tied to a subproject)
-        └── <Year-Month>                          (e.g. 2026-07)
-            ├── (auto-filed invoices go straight here)
-            └── Statements & Others                (needs-review items, statements, etc.)
+        ├── <Year-Month>                          (e.g. 2026-07)
+        │   ├── (auto-filed invoices go straight here)
+        │   └── Statements & Others               (needs-review items, statements, etc.)
+        └── Past Due                              (overdue invoices, kept in one place)
 ```
+
+Files are named consistently: **`YYMMDD - InvoiceNumber - Vendor.pdf`** (the date is when it was processed) — so a folder of invoices sorts and reads cleanly.
 
 If an invoice can't be matched to any known project at all, it goes into a top-level **_Unmatched** folder instead, so it's never lost — just flagged as needing a manual look.
 
