@@ -322,6 +322,58 @@ function canonicalizeVendorName_(rawName) {
   return raw;
 }
 
+/**
+ * Reads the Override Log into a per-vendor correction summary used by Main.gs/applyVendorMemory_.
+ * Keyed by vendorNormalizedKey_ (so spelling variants of one vendor pool together, but J-AAR Civil
+ * vs Structure stay separate). For each vendor, tallies which project its invoices were corrected
+ * TO, and marks a "dominant" project only when one project is the strict plurality AND meets
+ * CONFIG.VENDOR_MEMORY_MIN_CORRECTIONS — so a vendor split evenly across projects yields no
+ * dominant (memory stays silent rather than guessing). Returns {} if disabled or nothing logged.
+ *
+ * @return {Object} normalizedVendorKey -> { dominantProject: string|null, dominantCount: number }
+ */
+function buildVendorMemory_() {
+  const memory = {};
+  if (CONFIG.VENDOR_MEMORY_MIN_CORRECTIONS == null) return memory;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_OVERRIDE_LOG_TAB);
+  if (!sheet) return memory;
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return memory;
+  const header = values[0];
+  const vIdx = header.indexOf('Vendor');
+  const pIdx = header.indexOf('To Project');
+  if (vIdx === -1 || pIdx === -1) return memory;
+
+  const tally = {}; // vendorKey -> { normProj -> { count, raw } }
+  for (let i = 1; i < values.length; i++) {
+    const vendor = String(values[i][vIdx] == null ? '' : values[i][vIdx]).trim();
+    const rawProj = String(values[i][pIdx] == null ? '' : values[i][pIdx]).trim();
+    if (!vendor || !rawProj) continue; // only rows that actually set a project count as project corrections
+    const vKey = vendorNormalizedKey_(vendor);
+    if (!vKey) continue;
+    const pKey = normalizeNumberKey_(rawProj);
+    if (!tally[vKey]) tally[vKey] = {};
+    if (!tally[vKey][pKey]) tally[vKey][pKey] = { count: 0, raw: rawProj };
+    tally[vKey][pKey].count++;
+    tally[vKey][pKey].raw = rawProj; // keep a valid reference-style project number to match on later
+  }
+
+  Object.keys(tally).forEach(vKey => {
+    const projs = tally[vKey];
+    let bestRaw = null, bestN = 0, tie = false;
+    Object.keys(projs).forEach(pKey => {
+      const n = projs[pKey].count;
+      if (n > bestN) { bestRaw = projs[pKey].raw; bestN = n; tie = false; }
+      else if (n === bestN) { tie = true; }
+    });
+    memory[vKey] = {
+      dominantProject: (!tie && bestN >= CONFIG.VENDOR_MEMORY_MIN_CORRECTIONS) ? bestRaw : null,
+      dominantCount: bestN
+    };
+  });
+  return memory;
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);

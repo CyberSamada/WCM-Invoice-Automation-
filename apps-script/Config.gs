@@ -26,6 +26,11 @@ const CONFIG = {
   // Decision thresholds
   CONFIDENCE_THRESHOLD: 0.75,   // below this, route to "Needs Review" instead of auto-filing
   DOLLAR_THRESHOLD_FOR_REVIEW: null, // e.g. 5000 to force manual review above $5,000 regardless of confidence. null = disabled.
+  // Vendor memory: a vendor needs at least this many past manual corrections TO THE SAME project
+  // (recorded in the Override Log) before that history influences a new invoice from them. The
+  // influence is conservative — it only rescues an unmatched invoice or flags a contradiction, and
+  // always routes to human review, never auto-files. See Main.gs/applyVendorMemory_. null = disable.
+  VENDOR_MEMORY_MIN_CORRECTIONS: 2,
 
   // Anything that isn't auto-filed (statements, low-confidence matches, non-invoices) still gets
   // filed here instead of staying unfiled — see Main.gs/processOneInvoice_ and DriveService.gs.

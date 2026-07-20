@@ -28,6 +28,10 @@ function processInvoices() {
 function processInvoicesInner_() {
   const referenceRows = getReferenceData_();
   const aliasRows = getAliasData_();
+  // Per-vendor correction history, read ONCE per run from the Override Log — cheap, and lets each
+  // invoice consult only its own vendor's history after extraction (no prompt bloat). See
+  // SheetService.gs/buildVendorMemory_ and the memory check in processOneInvoice_.
+  const vendorMemory = buildVendorMemory_();
   let threads = getUnprocessedThreads_();
 
   Logger.log(`Found ${threads.length} unprocessed thread(s) under label "${CONFIG.GMAIL_LABEL}"` +
@@ -83,7 +87,7 @@ function processInvoicesInner_() {
       }
       const { blob, message } = attachments[a];
       try {
-        processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
+        processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink, vendorMemory);
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
         // A rate-limit/overload failure (429/503) means THIS attachment never got extracted — the
@@ -127,13 +131,21 @@ function isDailyQuotaError_(err) {
   return msg.indexOf('429') !== -1 && msg.indexOf('PerDay') !== -1;
 }
 
-function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
+function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink, vendorMemory) {
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate);
   // Standardize the vendor spelling to one canonical form (see SheetService.gs) before it's used
   // for the filename and the log, so the same company doesn't accrue multiple spellings — while
   // distinct divisions (J-AAR Civil vs J-AAR Structure) stay separate. Mutating extracted here
   // means both buildInvoiceFileName_ and logInvoiceRow_ below pick up the canonical name.
   extracted.vendor_name = canonicalizeVendorName_(extracted.vendor_name);
+
+  let matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
+
+  // Vendor memory: consult THIS invoice's vendor history only (no prompt bloat), applied after
+  // extraction. Fires only for a vendor with a consistent past correction record, and only ever
+  // routes to human review — never silently auto-files a guess. See applyVendorMemory_.
+  const memoryNote = applyVendorMemory_(extracted, matchedRef, referenceRows, vendorMemory, ref => { matchedRef = ref; });
+
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
@@ -141,9 +153,8 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   const daysPastDue = daysPastDue_(extracted.due_date);
   const pastDue = daysPastDue !== null && daysPastDue > 0;
 
-  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold && !dueSoon && !pastDue;
+  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold && !dueSoon && !pastDue && !memoryNote;
 
-  const matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
   const isFileable = matchedRef && matchedRef.driveFolderId;
 
   const fileName = buildInvoiceFileName_(extracted);
@@ -153,6 +164,7 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   // confidence. Only "Filed" when we're both confident enough to auto-file AND the matched project
   // actually has an archive folder on record — a matched-but-unprovisioned project still needs a
   // human, same as the original behavior (it lands in _Unmatched below via resolveInvoiceDestinationFolderId_).
+  // A memoryNote (vendor-history rescue or conflict) always forces review — never auto-file on memory.
   if (extracted.is_invoice && pastDue && isFileable) status = 'Past Due';
   else if (shouldAutoFile && isFileable) status = 'Filed';
 
@@ -184,8 +196,51 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
     'Drive Link': driveLink,
     'Gmail Link': threadLink,
     'Match Note': extracted.match_reasoning || '',
-    'Review Note': buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon, daysPastDue })
+    'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon, daysPastDue }), memoryNote)
   });
+}
+
+/** Joins two note strings with a separator, dropping empties — for stacking a memory note onto a review note. */
+function appendNote_(base, extra) {
+  return [base, extra].filter(n => n).join(' ');
+}
+
+/**
+ * Applies a vendor's past-correction history to the CURRENT invoice, if and only if that specific
+ * vendor has a consistent record (see buildVendorMemory_). Two conservative actions, both routing
+ * to human review — memory NEVER silently auto-files:
+ *   - Rescue: the extraction couldn't confidently match a project, but this vendor was repeatedly
+ *     corrected to one — adopt it (for a human to confirm) so the invoice isn't left unmatched.
+ *   - Conflict: the extraction matched a project that contradicts this vendor's strong history —
+ *     keep the match but flag it so a human checks which is right.
+ * Returns a note string to attach to the row (and whose mere presence forces review), or '' when
+ * memory doesn't apply. onMatch(ref) lets the caller swap in the rescued reference match.
+ *
+ * @param {function(Object):void} onMatch - called with the new matchedRef in the rescue case only.
+ * @return {string} note, or '' if nothing applied.
+ */
+function applyVendorMemory_(extracted, matchedRef, referenceRows, vendorMemory, onMatch) {
+  if (!extracted.is_invoice) return ''; // don't second-guess non-invoices with vendor history
+  if (!vendorMemory) return '';
+  const mem = vendorMemory[vendorNormalizedKey_(extracted.vendor_name)];
+  if (!mem || !mem.dominantProject) return '';
+
+  const memMatch = findReferenceMatch_(referenceRows, mem.dominantProject, '');
+  if (!memMatch) return ''; // the historical project isn't in the reference sheet anymore — ignore
+
+  const times = mem.dominantCount;
+  if (!matchedRef) {
+    // Rescue: extraction gave no confident project; adopt the vendor's historical one for review.
+    extracted.project_number = mem.dominantProject;
+    extracted.subproject_number = '';
+    onMatch(memMatch);
+    return `Vendor memory: no confident project match, but ${times} past correction(s) filed "${extracted.vendor_name}" to project ${mem.dominantProject} — applied for review, please confirm.`;
+  }
+  if (normalizeNumberKey_(matchedRef.projectNumber) !== normalizeNumberKey_(mem.dominantProject)) {
+    // Conflict: matched somewhere that disagrees with a strong history — keep it, flag it.
+    return `Vendor memory conflict: matched to project ${matchedRef.projectNumber}, but ${times} past correction(s) filed "${extracted.vendor_name}" to project ${mem.dominantProject} — please confirm which is right.`;
+  }
+  return ''; // agrees with history — nothing to flag
 }
 
 /**
