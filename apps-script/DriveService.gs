@@ -94,12 +94,24 @@ function resolveInvoiceDestinationFolderId_(matchedRef, status, invoiceDate) {
   return getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME).getId();
 }
 
-/** Builds the standardized filename: YYYY-MM-DD_Vendor_InvoiceNumber.pdf */
+/**
+ * Builds the standardized filename: "YYMMDD - InvoiceNumber - Vendor.pdf" — e.g. an invoice
+ * processed on 2026-07-15 becomes "260715 - 5205HB - JNF Concrete Ltd.pdf". The date is the
+ * PROCESSED date (when the automation handled it, i.e. now), not the invoice's printed date.
+ * extracted.vendor_name is expected to already be the canonical name (see
+ * SheetService.gs/canonicalizeVendorName_, applied in Main.gs before this is called) so filenames
+ * use one consistent spelling per vendor.
+ */
 function buildInvoiceFileName_(extracted) {
-  const safeVendor = String(extracted.vendor_name || 'UnknownVendor').replace(/[\\/:*?"<>|]/g, '-');
-  const safeInvoiceNumber = String(extracted.invoice_number || 'NoInvoiceNumber').replace(/[\\/:*?"<>|]/g, '-');
-  const date = extracted.invoice_date || Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd');
-  return `${date}_${safeVendor}_${safeInvoiceNumber}.pdf`;
+  const datePart = Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyMMdd');
+  const safeInvoiceNumber = sanitizeForFileName_(extracted.invoice_number || 'NoInvoiceNumber');
+  const safeVendor = sanitizeForFileName_(extracted.vendor_name || 'UnknownVendor');
+  return `${datePart} - ${safeInvoiceNumber} - ${safeVendor}.pdf`;
+}
+
+/** Strips characters Drive/most filesystems reject in names, and collapses whitespace. */
+function sanitizeForFileName_(value) {
+  return String(value).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
 }
 
 function CONFIG_TIMEZONE_() {
