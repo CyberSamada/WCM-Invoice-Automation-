@@ -102,9 +102,9 @@ function processInvoicesInner_() {
         if (isTransientApiError_(err)) threadHadTransientFailure = true;
         if (isDailyQuotaError_(err)) { dailyQuotaExhausted = true; break; }
       }
-      // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
-      // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
-      Utilities.sleep(13000);
+      // Pace calls to respect the Gemini free tier's 5 requests/minute limit. Tunable via
+      // CONFIG.GEMINI_PACING_MS — drop it once billing is enabled (see Config.gs) for more throughput.
+      if (CONFIG.GEMINI_PACING_MS > 0) Utilities.sleep(CONFIG.GEMINI_PACING_MS);
     }
 
     if (timedOutMidThread) break; // leave this thread unlabeled — its completed attachments will

@@ -68,9 +68,8 @@ function testRun() {
           }
           const { blob, message } = attachments[a];
           testOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink);
-          // Free-tier Gemini API keys cap at 5 requests/minute — space calls out to avoid
-          // burning through the quota in one burst (on top of the retry logic in fetchWithRetry_).
-          Utilities.sleep(13000);
+          // Pace calls per CONFIG.GEMINI_PACING_MS (free tier = 5/min). See Config.gs.
+          if (CONFIG.GEMINI_PACING_MS > 0) Utilities.sleep(CONFIG.GEMINI_PACING_MS);
         }
       }
 

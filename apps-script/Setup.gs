@@ -36,10 +36,11 @@ function createTimeTrigger() {
     .filter(t => t.getHandlerFunction() === 'processInvoices')
     .forEach(t => ScriptApp.deleteTrigger(t));
 
+  const mins = CONFIG.TRIGGER_INTERVAL_MINUTES || 15;
   ScriptApp.newTrigger('processInvoices')
     .timeBased()
-    .everyMinutes(15)
+    .everyMinutes(mins)
     .create();
 
-  Logger.log('Trigger created: processInvoices() will run every 15 minutes.');
+  Logger.log(`Trigger created: processInvoices() will run every ${mins} minutes.`);
 }
