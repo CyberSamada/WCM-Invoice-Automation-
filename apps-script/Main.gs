@@ -32,6 +32,11 @@ function processInvoicesInner_() {
   // invoice consult only its own vendor's history after extraction (no prompt bloat). See
   // SheetService.gs/buildVendorMemory_ and the memory check in processOneInvoice_.
   const vendorMemory = buildVendorMemory_();
+  // Identity keys of every invoice already logged — so we never file/log the same bill twice, no
+  // matter how it's seen again (a stale trigger reprocessing, the same PDF attached twice in a
+  // thread, a vendor re-sending). Read once here; processOneInvoice_ adds to it as it logs so
+  // within-run repeats are caught too. See SheetService.gs/invoiceIdentityKey_.
+  const seenInvoiceKeys = buildInvoiceKeySet_();
   let threads = getUnprocessedThreads_();
 
   Logger.log(`Found ${threads.length} unprocessed thread(s) under label "${CONFIG.GMAIL_LABEL}"` +
@@ -87,7 +92,7 @@ function processInvoicesInner_() {
       }
       const { blob, message } = attachments[a];
       try {
-        processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink, vendorMemory);
+        processOneInvoice_(blob, message.getDate(), referenceRows, aliasRows, threadLink, vendorMemory, seenInvoiceKeys);
       } catch (err) {
         logError_('processOneInvoice_ failed', err.message, threadLink);
         // A rate-limit/overload failure (429/503) means THIS attachment never got extracted — the
@@ -131,13 +136,30 @@ function isDailyQuotaError_(err) {
   return msg.indexOf('429') !== -1 && msg.indexOf('PerDay') !== -1;
 }
 
-function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink, vendorMemory) {
+function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink, vendorMemory, seenInvoiceKeys) {
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate);
   // Standardize the vendor spelling to one canonical form (see SheetService.gs) before it's used
   // for the filename and the log, so the same company doesn't accrue multiple spellings — while
   // distinct divisions (J-AAR Civil vs J-AAR Structure) stay separate. Mutating extracted here
   // means both buildInvoiceFileName_ and logInvoiceRow_ below pick up the canonical name.
   extracted.vendor_name = canonicalizeVendorName_(extracted.vendor_name);
+
+  // Duplicate guard: if this exact invoice (vendor + invoice number, or vendor + amount + date when
+  // there's no number) is already in the log, DON'T file or log a second copy. Instead log a single
+  // lightweight "Duplicate" row so a coordinator can see it was received again — pointing at where
+  // the original is already filed in Drive. Capped at one notice per invoice (entry.noticed), so a
+  // re-sending vendor or a misbehaving trigger can't spam duplicate rows.
+  const idKey = seenInvoiceKeys
+    ? invoiceIdentityKey_(extracted.vendor_name, extracted.invoice_number, extracted.amount, extracted.invoice_date)
+    : '';
+  if (idKey && seenInvoiceKeys[idKey]) {
+    const entry = seenInvoiceKeys[idKey];
+    if (!entry.noticed) {
+      logDuplicateRow_(extracted, emailDate, entry, threadLink);
+      entry.noticed = true;
+    }
+    return; // never double-file
+  }
 
   let matchedRef = findReferenceMatch_(referenceRows, extracted.project_number, extracted.subproject_number);
 
@@ -198,11 +220,43 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
     'Match Note': extracted.match_reasoning || '',
     'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon, daysPastDue }), memoryNote)
   });
+
+  // Register this now-filed invoice so a later copy (this run or a future one) is recognized as a
+  // duplicate and pointed back at THIS file rather than filed again.
+  if (idKey && seenInvoiceKeys) {
+    seenInvoiceKeys[idKey] = { noticed: false, driveLink: driveLink, driveFileId: driveFileIdFromUrl_(driveLink) };
+  }
 }
 
 /** Joins two note strings with a separator, dropping empties — for stacking a memory note onto a review note. */
 function appendNote_(base, extra) {
   return [base, extra].filter(n => n).join(' ');
+}
+
+/**
+ * Logs a single "Duplicate" row for an invoice we've already filed — so a coordinator sees it was
+ * received again, without creating a second Drive copy. The row points (Drive Link + File ID) at
+ * the ORIGINAL filed file, so the dashboard's preview / "Open in Drive" show where it already lives.
+ */
+function logDuplicateRow_(extracted, emailDate, originalEntry, threadLink) {
+  const receivedStr = (emailDate instanceof Date && !isNaN(emailDate.getTime()))
+    ? Utilities.formatDate(emailDate, CONFIG_TIMEZONE_(), 'yyyy-MM-dd') : '';
+  logInvoiceRow_({
+    'Date Processed': new Date(),
+    'Date Received': (emailDate instanceof Date && !isNaN(emailDate.getTime())) ? emailDate : '',
+    'Invoice Date': extracted.invoice_date || '',
+    'Invoice Number': extracted.invoice_number || '',
+    'Due Date': extracted.due_date || '',
+    'Vendor': extracted.vendor_name || '',
+    'Amount': extracted.amount || '',
+    'Currency': extracted.currency || '',
+    'Status': 'Duplicate',
+    'Confidence': extracted.confidence,
+    'Drive Link': originalEntry.driveLink || '',   // points at the ORIGINAL filed copy, not a new file
+    'Drive File ID': originalEntry.driveFileId || '',
+    'Gmail Link': threadLink,
+    'Review Note': `Received again${receivedStr ? ' on ' + receivedStr : ''} — already filed previously; not re-filed. The file link points to the original copy in Drive.`
+  });
 }
 
 /**

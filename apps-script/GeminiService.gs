@@ -144,8 +144,21 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
     `- "other": anything else — banking/payment info updates, paid receipts, marketing or informational emails, etc.\n\n` +
     `Then read the document and extract the requested fields regardless of document_type ` +
     `(make your best guess for fields that don't clearly apply when it isn't an invoice). ` +
+    ((CONFIG.OWN_BILLING_IDENTIFIERS && CONFIG.OWN_BILLING_IDENTIFIERS.length)
+      ? `CRITICAL — bill-to vs. project: these invoices are all addressed TO the construction company ` +
+        `itself (the buyer). The buyer's own name / office address will appear in the "Bill To", "Sold To", ` +
+        `or "Invoice To" block: ${CONFIG.OWN_BILLING_IDENTIFIERS.map(s => '"' + s + '"').join(', ')}. ` +
+        `That block is the RECIPIENT, NOT the project — never pick the project from it. In particular the ` +
+        `office address 1701 Richmond St is ALSO a real project (Hyland Centre), so it will appear as the ` +
+        `Bill To address on invoices that belong to completely different projects. Do NOT match Hyland ` +
+        `Centre (or any project) just because 1701 Richmond / the company's own name appears in the billing ` +
+        `block. Identify the project ONLY from the "Ship To" / job-site / delivery / project-reference / ` +
+        `"Re:" fields — the place the work or goods actually went. Match Hyland Centre only when the ` +
+        `ship-to / job-site itself is 1701 Richmond, not merely the bill-to.\n\n`
+      : '') +
     `For project_number and subproject_number, pick the single best match from the reference list (and alias list, if given) ` +
-    `above based on any address, tenant name, or project reference mentioned in the invoice. If a project has no matching ` +
+    `above based on the ship-to / job-site address, tenant name, or project reference mentioned in the invoice (NOT the ` +
+    `bill-to party). If a project has no matching ` +
     `subproject, use "NONE" for subproject_number. ` +
     `The reference list may be incomplete — it might not yet include every subproject that actually exists. If the ` +
     `invoice clearly belongs to a listed project but does NOT specifically and confidently match any listed subproject ` +

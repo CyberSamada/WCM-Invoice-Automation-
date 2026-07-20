@@ -374,6 +374,116 @@ function buildVendorMemory_() {
   return memory;
 }
 
+/**
+ * A stable identity key for an invoice, used to detect duplicates (the same bill filed more than
+ * once). Prefers canonical vendor + invoice number — the natural unique key for a bill. When there's
+ * no invoice number, falls back to vendor + amount + invoice date so a numberless statement/bill
+ * still dedupes sensibly without colliding across genuinely different documents. Returns '' when
+ * there's not even a vendor to key on (then the caller shouldn't dedupe — better to keep it than
+ * risk dropping a real invoice).
+ */
+function invoiceIdentityKey_(vendorName, invoiceNumber, amount, invoiceDate) {
+  const vKey = vendorNormalizedKey_(vendorName);
+  if (!vKey) return '';
+  const inv = String(invoiceNumber == null ? '' : invoiceNumber).replace(/\s+/g, '').toUpperCase();
+  if (inv) return vKey + '|#' + inv;
+  const amt = Number(amount) || 0;
+  const date = String(invoiceDate == null ? '' : invoiceDate).trim();
+  return vKey + '|$' + amt + '|' + date;
+}
+
+/**
+ * Builds a map of identity key -> { noticed, driveLink, driveFileId } for every invoice already in
+ * the Invoice Log, so a run can tell whether an invoice it just extracted has been filed before
+ * (across earlier runs too, not just within this one) AND point a duplicate notice at where the
+ * original was filed. `noticed` is true once a "Duplicate" marker row already exists for that key,
+ * so re-receipts don't stack endless notices. `driveLink`/`driveFileId` come from the original
+ * (non-Duplicate) row. Read once per run (see Main.gs/processInvoicesInner_).
+ */
+function buildInvoiceKeySet_() {
+  const map = {};
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) return map;
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return map;
+  const header = values[0];
+  const vIdx = header.indexOf('Vendor');
+  const iIdx = header.indexOf('Invoice Number');
+  const aIdx = header.indexOf('Amount');
+  const dIdx = header.indexOf('Invoice Date');
+  const sIdx = header.indexOf('Status');
+  const lIdx = header.indexOf('Drive Link');
+  const fIdx = header.indexOf('Drive File ID');
+  if (vIdx === -1) return map;
+  for (let r = 1; r < values.length; r++) {
+    const key = invoiceIdentityKey_(
+      values[r][vIdx], iIdx > -1 ? values[r][iIdx] : '',
+      aIdx > -1 ? values[r][aIdx] : '', dIdx > -1 ? values[r][dIdx] : '');
+    if (!key) continue;
+    if (!map[key]) map[key] = { noticed: false, driveLink: '', driveFileId: '' };
+    const status = sIdx > -1 ? String(values[r][sIdx] || '').trim() : '';
+    if (status === 'Duplicate') {
+      map[key].noticed = true; // a "received again" marker already exists — don't add another
+    } else if (!map[key].driveLink) {
+      map[key].driveLink = lIdx > -1 ? String(values[r][lIdx] || '') : '';
+      map[key].driveFileId = fIdx > -1 ? String(values[r][fIdx] || '') : '';
+    }
+  }
+  return map;
+}
+
+/**
+ * One-time cleanup: removes duplicate rows from the Invoice Log — same invoice identity
+ * (invoiceIdentityKey_) logged more than once — keeping the EARLIEST row (by sheet order) and
+ * trashing the redundant later copies' Drive files if they're a distinct file from the kept one.
+ * Trash is recoverable, and only exact-identity duplicates are touched. Safe to re-run.
+ */
+function dedupeInvoiceLog() {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) { Logger.log('Invoice Log has no data rows — nothing to dedupe.'); return; }
+  const header = values[0];
+  const idx = {};
+  ['Vendor', 'Invoice Number', 'Amount', 'Invoice Date', 'Drive File ID', 'Status'].forEach(c => { idx[c] = header.indexOf(c); });
+
+  const seen = {};            // identity key -> kept row's Drive File ID
+  const keptRows = [header];
+  const trashFileIds = [];    // distinct duplicate copies to trash
+  let removed = 0;
+
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    if (row.every(c => c === '')) continue;
+    // Leave intentional "Duplicate" marker rows alone — they're informational, not accidental dupes.
+    if (idx['Status'] > -1 && String(row[idx['Status']] || '').trim() === 'Duplicate') { keptRows.push(row); continue; }
+    const key = invoiceIdentityKey_(row[idx['Vendor']], idx['Invoice Number'] > -1 ? row[idx['Invoice Number']] : '',
+      idx['Amount'] > -1 ? row[idx['Amount']] : '', idx['Invoice Date'] > -1 ? row[idx['Invoice Date']] : '');
+    if (key && seen.hasOwnProperty(key)) {
+      removed++;
+      const dupFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
+      if (dupFileId && dupFileId !== seen[key]) trashFileIds.push(dupFileId); // a separate redundant copy
+      continue; // drop this duplicate row
+    }
+    if (key) seen[key] = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
+    keptRows.push(row);
+  }
+
+  if (removed === 0) { Logger.log('No duplicate invoice rows found.'); return; }
+
+  // Rewrite the sheet with duplicates removed.
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).clearContent();
+  if (keptRows.length > 1) sheet.getRange(2, 1, keptRows.length - 1, header.length).setValues(keptRows.slice(1));
+
+  // Trash the redundant Drive copies (recoverable). Best-effort — a missing/inaccessible file
+  // shouldn't stop the rest.
+  let trashed = 0;
+  trashFileIds.forEach(fid => {
+    try { DriveApp.getFileById(fid).setTrashed(true); trashed++; } catch (e) { /* already gone / no access */ }
+  });
+
+  Logger.log(`Removed ${removed} duplicate Invoice Log row(s); trashed ${trashed} redundant Drive file copy/copies (recoverable from Trash).`);
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);
