@@ -411,6 +411,27 @@ function updateInvoiceRow(rowId, updates) {
     setCell('Review Note', existingNote ? existingNote + ' ' + overrideNote : overrideNote);
   }
 
+  // Record the correction (what the automation had vs. what the human set it to) for the Override
+  // Log — the learning/audit trail. Only when something actually changed. Never let a logging
+  // hiccup fail the edit the user just made.
+  if (projectChanged || statusChanged) {
+    try {
+      logOverride_({
+        rowId: rowId,
+        vendor: row[idx['Vendor']],
+        invoiceNumber: idx['Invoice Number'] > -1 ? row[idx['Invoice Number']] : '',
+        amount: row[idx['Amount']],
+        fromProject: currentProjectNumber,
+        fromSubproject: currentSubprojectNumber,
+        fromStatus: currentStatus,
+        originalConfidence: idx['Confidence'] > -1 ? row[idx['Confidence']] : '',
+        toProject: newProjectNumber,
+        toSubproject: matchedRef ? matchedRef.subprojectNumber : '',
+        toStatus: newStatus
+      });
+    } catch (e) { /* audit logging is best-effort — the edit itself already succeeded */ }
+  }
+
   return {
     rowId: rowId,
     projectNumber: newProjectNumber,
