@@ -402,6 +402,13 @@
           <input type="text" id="filterVendor" placeholder="Search vendor...">
         </div>
         <div class="filter-field">
+          <label for="filterDateBasis">Filter dates by</label>
+          <select id="filterDateBasis">
+            <option value="processed">Processed date</option>
+            <option value="received">Received date</option>
+          </select>
+        </div>
+        <div class="filter-field">
           <label for="filterTimeframe">Time frame</label>
           <select id="filterTimeframe">
             <option value="all">All time</option>
@@ -851,10 +858,16 @@
       var project = document.getElementById('filterProject').value;
       var vendor = document.getElementById('filterVendor').value.trim().toLowerCase();
       var timeframe = document.getElementById('filterTimeframe').value;
+      var dateBasis = document.getElementById('filterDateBasis').value; // 'processed' | 'received'
       var amountMin = parseFloat(document.getElementById('filterAmountMin').value);
       var amountMax = parseFloat(document.getElementById('filterAmountMax').value);
       var customStart = document.getElementById('filterDateStart').value;
       var customEnd = document.getElementById('filterDateEnd').value;
+
+      // Which date the time-frame / custom-range filter applies to. A received date of 0 means the
+      // row has no received date on record (older rows) — such rows can't fall inside a bounded
+      // window, so they're excluded whenever a time frame is set, but still show under "All time".
+      var dateField = dateBasis === 'received' ? 'dateReceivedRaw' : 'dateProcessedRaw';
 
       var tfStart = null, tfEnd = null;
       if (timeframe === 'custom') {
@@ -863,6 +876,7 @@
       } else {
         tfStart = getTimeframeStart(timeframe);
       }
+      var bounded = (tfStart !== null || tfEnd !== null);
 
       var filtered = ALL_RECORDS.filter(function (r) {
         if (status !== 'all' && r.status !== status) return false;
@@ -876,14 +890,17 @@
           }
         }
         if (vendor && r.vendor.toLowerCase().indexOf(vendor) === -1) return false;
-        if (tfStart !== null && r.dateProcessedRaw < tfStart) return false;
-        if (tfEnd !== null && r.dateProcessedRaw > tfEnd) return false;
+        var when = r[dateField];
+        if (bounded && !when) return false; // no date on record for the chosen basis — can't place it in a window
+        if (tfStart !== null && when < tfStart) return false;
+        if (tfEnd !== null && when > tfEnd) return false;
         if (!isNaN(amountMin) && r.amount < amountMin) return false;
         if (!isNaN(amountMax) && r.amount > amountMax) return false;
         return true;
       });
 
-      filtered.sort(function (a, b) { return b.dateProcessedRaw - a.dateProcessedRaw; });
+      // Sort by the same date basis the user is filtering on, so the list reads in the order they expect.
+      filtered.sort(function (a, b) { return (b[dateField] || 0) - (a[dateField] || 0); });
 
       renderResults(filtered);
     }
@@ -1273,6 +1290,7 @@
       document.getElementById('filterProject').value = 'all';
       document.getElementById('filterVendor').value = '';
       document.getElementById('filterTimeframe').value = 'all';
+      document.getElementById('filterDateBasis').value = 'processed';
       document.getElementById('filterAmountMin').value = '';
       document.getElementById('filterAmountMax').value = '';
       document.getElementById('filterDateStart').value = '';
@@ -1293,6 +1311,7 @@
       document.getElementById('filterProject').addEventListener('change', applyFilters);
       document.getElementById('filterVendor').addEventListener('input', applyFilters);
       document.getElementById('filterTimeframe').addEventListener('change', function () { toggleCustomDateInputs(); applyFilters(); });
+      document.getElementById('filterDateBasis').addEventListener('change', applyFilters);
       document.getElementById('filterAmountMin').addEventListener('input', applyFilters);
       document.getElementById('filterAmountMax').addEventListener('input', applyFilters);
       document.getElementById('filterDateStart').addEventListener('change', applyFilters);

@@ -50,8 +50,10 @@ function buildDashboardData_() {
       // Blank for rows logged before this column existed — formatDateForDashboard_ returns '' for
       // any falsy value, so this degrades gracefully rather than showing "Invalid Date".
       const receivedValue = idx['Date Received'] > -1 ? r[idx['Date Received']] : '';
+      const receivedObj = receivedValue ? ((receivedValue instanceof Date) ? receivedValue : new Date(receivedValue)) : null;
       return {
         dateProcessedRaw: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(), // epoch ms — used for client-side filtering
+        dateReceivedRaw: (receivedObj && !isNaN(receivedObj.getTime())) ? receivedObj.getTime() : 0, // 0 = no received date (won't match a bounded window)
         dateProcessedFormatted: formatDateForDashboard_(dateValue, timezone),
         dateReceivedFormatted: formatDateForDashboard_(receivedValue, timezone),
         vendor: r[idx['Vendor']] || '(unknown vendor)',
