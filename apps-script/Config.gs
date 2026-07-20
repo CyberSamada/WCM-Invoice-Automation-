@@ -11,8 +11,16 @@ const CONFIG = {
   PROCESSED_LABEL: 'Invoice-Processed',  // applied once a thread has been handled, so it's never reprocessed
 
   // Volume controls — handy for initial testing with a big backlog, or just to cap Gemini usage per run.
-  MAX_THREADS_PER_RUN: 5,   // process at most this many email threads per run. null = no limit. Leftover threads are simply picked up next run.
+  MAX_THREADS_PER_RUN: null, // process at most this many email threads per run (null = no separate cap; the ~2.5-min run-time budget in Main.gs governs instead). Leftover threads are picked up next run.
   LOOKBACK_DAYS: null,      // e.g. 30 to only consider mail from the last 30 days (uses Gmail's newer_than: search operator). null = no time limit, considers all mail under the label.
+
+  // THROUGHPUT knobs. The whole pipeline is throttled by the Gemini FREE tier's 5-requests/minute
+  // limit — that's what GEMINI_PACING_MS exists for. Enabling billing on the API key removes both
+  // that per-minute limit AND the 500/day cap; only then should you lower the pacing.
+  //   Free tier (default):   GEMINI_PACING_MS: 13000  (≈4.6 calls/min, safely under 5/min)
+  //   Billing enabled:       GEMINI_PACING_MS: 1000   (or 0) — ~10x more invoices per run
+  GEMINI_PACING_MS: 13000,      // pause between Gemini calls. Lower ONLY after enabling billing.
+  TRIGGER_INTERVAL_MINUTES: 15, // how often processInvoices runs. Must be 1, 5, 10, 15, or 30 (Apps Script limit). 5 ≈ 3x more runs/hour. Re-run createTimeTrigger()/press Start after changing.
   // Start-date cutoff — only process mail dated on or AFTER this date ("YYYY-MM-DD", inclusive).
   // Anything older is ignored entirely (never processed, never labeled). Set when the June 2026
   // fresh-start reset was done, so the years-deep backlog before it stays untouched — see
