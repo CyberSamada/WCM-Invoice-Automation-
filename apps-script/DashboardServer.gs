@@ -364,7 +364,7 @@ function updateInvoiceRow(rowId, updates) {
   const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
 
-  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Past Due'];
+  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Past Due', 'Duplicate'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
   }
@@ -651,6 +651,7 @@ function statusToClass_(status) {
   if (status === 'Needs Review') return 'review';
   if (status === 'Not an Invoice') return 'notinvoice';
   if (status === 'Past Due') return 'pastdue';
+  if (status === 'Duplicate') return 'duplicate';
   return 'other';
 }
 

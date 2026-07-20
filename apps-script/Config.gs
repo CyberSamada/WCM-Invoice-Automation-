@@ -57,6 +57,16 @@ const CONFIG = {
   RESTRICT_DASHBOARD_CONTROLS: false,
   DASHBOARD_CONTROL_EMAILS: [],          // only consulted when RESTRICT_DASHBOARD_CONTROLS is true. e.g. ['controller@wcmcon.com']
 
+  // WCM's own company names and billing/office address(es). On a vendor invoice these appear as the
+  // "Bill To" / "Sold To" party — the RECIPIENT (WCM), NOT the project. This matters because WCM's
+  // office at 1701 Richmond St IS also a project (43 - Hyland Centre): invoices for OTHER projects
+  // still print "1701 Richmond" in the Bill To block, and Gemini kept mis-reading that as the
+  // project. Listing them here lets the prompt tell Gemini to ignore these when identifying the
+  // project and read the ship-to / job-site / project reference instead. [] = no such steering.
+  OWN_BILLING_IDENTIFIERS: [
+    'WCM', 'WCM Construction Management', 'WCM Ltd', 'Westdell', 'Westdell Corp', '1701 Richmond'
+  ],
+
   // Project numbers that must never be treated as a real filing destination — e.g. "00" is a
   // template/placeholder row in Project Reference, not an actual project. Gemini is never offered
   // these as options, and even if one somehow came back it would still be rejected by

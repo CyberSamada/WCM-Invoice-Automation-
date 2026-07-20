@@ -139,12 +139,12 @@
     }
     .empty, .empty-cell { color: #6b7280; font-size: 13px; }
 
-    /* Filter bar */
+    /* Filter bar — an even, self-wrapping grid so fields line up in tidy columns at any width */
     .filter-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: flex-end;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px 16px;
+      align-items: end;
       background: #ffffff;
       border: 1px solid var(--border);
       border-radius: 10px;
@@ -152,7 +152,7 @@
       margin-bottom: 14px;
       box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
     }
-    .filter-field { display: flex; flex-direction: column; gap: 4px; }
+    .filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .filter-field label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
     .filter-field select, .filter-field input {
       font-family: inherit;
@@ -162,13 +162,19 @@
       border-radius: 6px;
       background: #fff;
       color: #1f2937;
+      width: 100%;
+      box-sizing: border-box;
     }
-    .filter-field input[type="number"] { width: 100px; }
-    .filter-field input[type="date"] { width: 140px; }
+    /* Project select can hold long names — let it span two columns when there's room */
+    .filter-field.wide { grid-column: span 2; }
     .amount-range { display: flex; gap: 6px; align-items: center; }
-    #customDateRange { display: none; gap: 12px; }
-    .date-input-group { display: flex; flex-direction: column; gap: 3px; }
+    .amount-range input { width: 100%; }
+    #customDateRange { display: none; }
+    #customDateRange.shown { display: flex; flex-direction: column; }
+    .date-input-group { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+    .date-input-group input { width: 100%; box-sizing: border-box; }
     .date-input-label { font-size: 9.5px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+    .filter-actions { display: flex; align-items: flex-end; }
     .reset-btn {
       font-family: inherit;
       font-size: 13px;
@@ -179,6 +185,7 @@
       background: #fff;
       border-radius: 6px;
       cursor: pointer;
+      width: 100%;
     }
     .reset-btn:hover { background: #eef4fb; }
     .results-count { font-size: 12px; color: #6b7280; margin: 0 0 8px 0; }
@@ -219,7 +226,15 @@
     .vendor-invnum { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     .badge-notinvoice { background: #eef0f2; color: #41474f; }
     .badge-pastdue { background: #fdecec; color: #8f1414; }
+    .badge-duplicate { background: #ede9fe; color: #5b3fa6; }
     .badge-other { background: #eef2f7; color: #374151; }
+
+    /* Searchable-select: a filter box sitting above a native <select> in the edit/bulk modals */
+    .select-search {
+      width: 100%; box-sizing: border-box; margin-bottom: 4px;
+      font-family: inherit; font-size: 13px; padding: 6px 8px;
+      border: 1px solid #d1d5db; border-radius: 6px; color: #1f2937;
+    }
 
     a { color: var(--wcm-blue); text-decoration: none; }
     a:hover { text-decoration: underline; }
@@ -389,9 +404,10 @@
             <option value="Needs Review">Needs Review</option>
             <option value="Not an Invoice">Not an Invoice</option>
             <option value="Past Due">Past Due</option>
+            <option value="Duplicate">Duplicate</option>
           </select>
         </div>
-        <div class="filter-field">
+        <div class="filter-field wide">
           <label for="filterProject">Project</label>
           <select id="filterProject">
             <option value="all">All Projects</option>
@@ -399,7 +415,11 @@
         </div>
         <div class="filter-field">
           <label for="filterVendor">Vendor</label>
-          <input type="text" id="filterVendor" placeholder="Search vendor...">
+          <input type="text" id="filterVendor" placeholder="Search vendor…">
+        </div>
+        <div class="filter-field">
+          <label for="filterInvoiceNumber">Invoice #</label>
+          <input type="text" id="filterInvoiceNumber" placeholder="Search invoice #…">
         </div>
         <div class="filter-field">
           <label for="filterDateBasis">Filter dates by</label>
@@ -418,7 +438,7 @@
             <option value="custom">Custom range</option>
           </select>
         </div>
-        <div class="filter-field" id="customDateRange">
+        <div class="filter-field wide" id="customDateRange">
           <label>Date range</label>
           <div class="amount-range">
             <div class="date-input-group">
@@ -439,8 +459,7 @@
             <input type="number" id="filterAmountMax" placeholder="Max">
           </div>
         </div>
-        <div class="filter-field">
-          <label>&nbsp;</label>
+        <div class="filter-field filter-actions">
           <button class="reset-btn" id="resetFiltersBtn" type="button">Reset filters</button>
         </div>
       </div>
@@ -498,7 +517,8 @@
       <p class="modal-subtitle" id="editModalSubtitle"></p>
       <div class="modal-field">
         <label for="editProject">Project</label>
-        <select id="editProject"></select>
+        <input type="text" class="select-search" id="editProjectSearch" placeholder="Type to search projects…">
+        <select id="editProject" size="8"></select>
       </div>
       <div class="modal-field">
         <label for="editSubproject">Subproject</label>
@@ -544,7 +564,8 @@
       <p class="modal-subtitle" id="bulkModalSubtitle"></p>
       <div class="modal-field">
         <label for="bulkProject">Project</label>
-        <select id="bulkProject"></select>
+        <input type="text" class="select-search" id="bulkProjectSearch" placeholder="Type to search projects…">
+        <select id="bulkProject" size="8"></select>
       </div>
       <div class="modal-field">
         <label for="bulkSubproject">Subproject</label>
@@ -851,13 +872,14 @@
 
     function toggleCustomDateInputs() {
       var isCustom = document.getElementById('filterTimeframe').value === 'custom';
-      document.getElementById('customDateRange').style.display = isCustom ? 'flex' : 'none';
+      document.getElementById('customDateRange').classList.toggle('shown', isCustom);
     }
 
     function applyFilters() {
       var status = document.getElementById('filterStatus').value;
       var project = document.getElementById('filterProject').value;
       var vendor = document.getElementById('filterVendor').value.trim().toLowerCase();
+      var invNum = document.getElementById('filterInvoiceNumber').value.trim().toLowerCase();
       var timeframe = document.getElementById('filterTimeframe').value;
       var dateBasis = document.getElementById('filterDateBasis').value; // 'processed' | 'received'
       var amountMin = parseFloat(document.getElementById('filterAmountMin').value);
@@ -891,6 +913,7 @@
           }
         }
         if (vendor && r.vendor.toLowerCase().indexOf(vendor) === -1) return false;
+        if (invNum && String(r.invoiceNumber || '').toLowerCase().indexOf(invNum) === -1) return false;
         var when = r[dateField];
         if (bounded && !when) return false; // no date on record for the chosen basis — can't place it in a window
         if (tfStart !== null && when < tfStart) return false;
@@ -1001,6 +1024,18 @@
       return tree;
     }
 
+    // Filters a project <select>'s options by typed text (the modal project pickers are long).
+    // Placeholder options and the current selection always stay visible so the value can't hide.
+    function filterSelectByText(selectEl, query) {
+      var q = String(query || '').trim().toLowerCase();
+      var opts = selectEl.options;
+      for (var i = 0; i < opts.length; i++) {
+        var o = opts[i];
+        if (o.value === '' || o.value === '__keep__' || o.selected) { o.hidden = false; continue; }
+        o.hidden = !!q && o.textContent.toLowerCase().indexOf(q) === -1;
+      }
+    }
+
     function populateEditSubprojects(tree, projectKeyVal, selectedSubNumber) {
       var select = document.getElementById('editSubproject');
       select.innerHTML = '';
@@ -1045,6 +1080,9 @@
       projectSelect.onchange = function () { populateEditSubprojects(tree, projectSelect.value, ''); };
 
       document.getElementById('editStatus').value = record.status || 'Needs Review';
+      var editSearch = document.getElementById('editProjectSearch');
+      editSearch.value = '';
+      filterSelectByText(projectSelect, ''); // reset any prior filtering
       document.getElementById('editModalOverlay').style.display = 'flex';
     }
 
@@ -1209,6 +1247,9 @@
       refreshBulkSubprojects();
 
       document.getElementById('bulkStatus').value = '';
+      var bulkSearch = document.getElementById('bulkProjectSearch');
+      bulkSearch.value = '';
+      filterSelectByText(projectSelect, '');
       document.getElementById('bulkModalOverlay').style.display = 'flex';
     }
 
@@ -1307,6 +1348,7 @@
       document.getElementById('filterStatus').value = 'all';
       document.getElementById('filterProject').value = 'all';
       document.getElementById('filterVendor').value = '';
+      document.getElementById('filterInvoiceNumber').value = '';
       document.getElementById('filterTimeframe').value = 'all';
       document.getElementById('filterDateBasis').value = 'processed';
       document.getElementById('filterAmountMin').value = '';
@@ -1328,6 +1370,7 @@
       document.getElementById('filterStatus').addEventListener('change', applyFilters);
       document.getElementById('filterProject').addEventListener('change', applyFilters);
       document.getElementById('filterVendor').addEventListener('input', applyFilters);
+      document.getElementById('filterInvoiceNumber').addEventListener('input', applyFilters);
       document.getElementById('filterTimeframe').addEventListener('change', function () { toggleCustomDateInputs(); applyFilters(); });
       document.getElementById('filterDateBasis').addEventListener('change', applyFilters);
       document.getElementById('filterAmountMin').addEventListener('input', applyFilters);
@@ -1335,6 +1378,8 @@
       document.getElementById('filterDateStart').addEventListener('change', applyFilters);
       document.getElementById('filterDateEnd').addEventListener('change', applyFilters);
       document.getElementById('resetFiltersBtn').addEventListener('click', resetFilters);
+      document.getElementById('editProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('editProject'), this.value); });
+      document.getElementById('bulkProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('bulkProject'), this.value); });
       document.getElementById('editCancelBtn').addEventListener('click', closeEditModal);
       document.getElementById('editSaveBtn').addEventListener('click', saveEdit);
       document.getElementById('editModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeEditModal(); });
