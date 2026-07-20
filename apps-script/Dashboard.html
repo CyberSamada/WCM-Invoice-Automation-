@@ -594,6 +594,7 @@
     // across several filter views stays intact until cleared or applied.
     var SELECTED_ROWIDS = {};
     var LAST_RENDERED = []; // the records currently shown in the table (post-filter), for select-all
+    var lastSelectedIdx = -1; // index (into the current render's checkboxes) of the last one clicked, for shift-range select
     var AUTOMATION = <?!= data.automationJson ?>;
     var BRANDING = <?!= data.brandingJson ?>;
     var REFERENCE_OPTIONS = <?!= data.referenceOptionsJson ?>;
@@ -953,13 +954,30 @@
       tbody.querySelectorAll('[data-preview-id]').forEach(function (btn) {
         btn.addEventListener('click', function () { openPreviewModal(btn.getAttribute('data-preview-id')); });
       });
-      tbody.querySelectorAll('[data-select-id]').forEach(function (box) {
-        box.addEventListener('change', function () {
-          var id = box.getAttribute('data-select-id');
-          if (box.checked) SELECTED_ROWIDS[id] = true; else delete SELECTED_ROWIDS[id];
+      // Checkbox selection, with shift-click range support. Using 'click' (not 'change') so we can
+      // read e.shiftKey; click fires for both mouse and keyboard (space) activation. The index is
+      // into THIS render's checkbox order, so a range only spans rows currently shown.
+      var selectBoxes = Array.prototype.slice.call(tbody.querySelectorAll('[data-select-id]'));
+      selectBoxes.forEach(function (box, idx) {
+        box.addEventListener('click', function (e) {
+          var makeChecked = box.checked; // checkbox has already toggled by the time click fires
+          var lo = idx, hi = idx;
+          if (e.shiftKey && lastSelectedIdx > -1 && lastSelectedIdx < selectBoxes.length) {
+            lo = Math.min(idx, lastSelectedIdx);
+            hi = Math.max(idx, lastSelectedIdx);
+          }
+          for (var k = lo; k <= hi; k++) {
+            var b = selectBoxes[k];
+            b.checked = makeChecked;
+            var id = b.getAttribute('data-select-id');
+            if (makeChecked) SELECTED_ROWIDS[id] = true; else delete SELECTED_ROWIDS[id];
+          }
+          lastSelectedIdx = idx;
+          syncSelectAllBox();
           updateBulkBar();
         });
       });
+      lastSelectedIdx = -1; // reset the range anchor whenever the list re-renders (filter/edit changed what's shown)
       LAST_RENDERED = list;
       syncSelectAllBox();
       updateBulkBar();
