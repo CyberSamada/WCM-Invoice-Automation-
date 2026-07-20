@@ -44,3 +44,22 @@ function createTimeTrigger() {
 
   Logger.log(`Trigger created: processInvoices() will run every ${mins} minutes.`);
 }
+
+/**
+ * Optional: runs the rolling Invoice Log auto-archive (SheetService.gs/archiveOldInvoiceLogRows)
+ * once a month, so the active log never grows unbounded. Run this ONCE to set it up. Idempotent —
+ * re-running replaces the existing archive trigger rather than stacking a duplicate.
+ */
+function createArchiveTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'archiveOldInvoiceLogRows')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('archiveOldInvoiceLogRows')
+    .timeBased()
+    .onMonthDay(1)
+    .atHour(4)
+    .create();
+
+  Logger.log('Archive trigger created: archiveOldInvoiceLogRows() runs monthly on the 1st, ~4am.');
+}

@@ -83,6 +83,12 @@ const CONFIG = {
 
   // Spreadsheet tab names (all live in the Sheet this script is bound to)
   SHEET_LOG_TAB: 'Invoice Log',
+  SHEET_LOG_ARCHIVE_TAB: 'Invoice Log Archive', // old rows roll here automatically — see SheetService.gs/archiveOldInvoiceLogRows
+  // Auto-archive: Invoice Log rows older than this many months (by Date Processed) are moved to the
+  // archive tab on a monthly trigger, so the active log — which the dashboard and every run read in
+  // full — stays small and fast no matter how many years the system runs. Nothing is deleted; it's
+  // just relocated within the same spreadsheet. null = never archive (log grows forever).
+  ARCHIVE_AFTER_MONTHS: 12,
   SHEET_ERRORS_TAB: 'Errors',
   SHEET_REFERENCE_TAB: 'Project Reference', // import project_reference.csv here, then add a "Drive Folder ID" column
   SHEET_ALIASES_TAB: 'Project Aliases', // optional — known alternate names/addresses that map straight to a project (see SheetService.gs/getAliasData_)

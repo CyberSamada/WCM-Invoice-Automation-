@@ -484,6 +484,70 @@ function dedupeInvoiceLog() {
   Logger.log(`Removed ${removed} duplicate Invoice Log row(s); trashed ${trashed} redundant Drive file copy/copies (recoverable from Trash).`);
 }
 
+/**
+ * Rolling auto-archive: moves Invoice Log rows older than CONFIG.ARCHIVE_AFTER_MONTHS (by Date
+ * Processed) into the "Invoice Log Archive" tab, so the active log the dashboard and every run read
+ * in full stays small and fast indefinitely — no yearly manual reset. Nothing is deleted; rows are
+ * relocated within the same spreadsheet. Meant for a monthly trigger (createArchiveTrigger in
+ * Setup.gs), and safe to run manually any time.
+ *
+ * Takes the same script lock as processInvoices so it can't interleave with a run that's appending
+ * new rows (which would risk dropping them during the rewrite). Undated rows are kept (never
+ * archived on ambiguous data).
+ */
+function archiveOldInvoiceLogRows() {
+  if (CONFIG.ARCHIVE_AFTER_MONTHS == null) { Logger.log('Archiving disabled (CONFIG.ARCHIVE_AFTER_MONTHS = null).'); return; }
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) { Logger.log('Archive: another run holds the script lock — skipping this time.'); return; }
+  try { archiveOldInvoiceLogRowsInner_(); } finally { lock.releaseLock(); }
+}
+
+function archiveOldInvoiceLogRowsInner_() {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) return;
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) { Logger.log('Invoice Log has no data rows — nothing to archive.'); return; }
+  const header = values[0];
+  const dpIdx = header.indexOf('Date Processed');
+  if (dpIdx === -1) { Logger.log('Invoice Log has no "Date Processed" column — cannot archive by age.'); return; }
+
+  const cutoff = new Date();
+  cutoff.setMonth(cutoff.getMonth() - CONFIG.ARCHIVE_AFTER_MONTHS);
+
+  const keep = [];
+  const toArchive = [];
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (row.every(c => c === '')) continue;
+    const v = row[dpIdx];
+    const d = (v instanceof Date) ? v : new Date(v);
+    if (!isNaN(d.getTime()) && d < cutoff) toArchive.push(row);
+    else keep.push(row); // recent, or undated — keep in the active log
+  }
+
+  if (!toArchive.length) {
+    Logger.log(`No Invoice Log rows older than ${CONFIG.ARCHIVE_AFTER_MONTHS} months — nothing to archive.`);
+    return;
+  }
+
+  // Append to the archive tab, mapping by header name so it works even if the archive tab's column
+  // order ever differs from the active log's.
+  const archive = getOrCreateSheet_(CONFIG.SHEET_LOG_ARCHIVE_TAB, CONFIG.LOG_COLUMNS);
+  ensureSheetHasColumns_(archive, CONFIG.LOG_COLUMNS);
+  const archiveHeader = archive.getRange(1, 1, 1, archive.getLastColumn()).getValues()[0];
+  const mapped = toArchive.map(row => archiveHeader.map(col => {
+    const srcIdx = header.indexOf(col);
+    return srcIdx > -1 ? row[srcIdx] : '';
+  }));
+  archive.getRange(archive.getLastRow() + 1, 1, mapped.length, archiveHeader.length).setValues(mapped);
+
+  // Rewrite the active log with only the kept rows.
+  sheet.getRange(2, 1, sheet.getLastRow() - 1, header.length).clearContent();
+  if (keep.length) sheet.getRange(2, 1, keep.length, header.length).setValues(keep);
+
+  Logger.log(`Archived ${toArchive.length} row(s) older than ${CONFIG.ARCHIVE_AFTER_MONTHS} months to "${CONFIG.SHEET_LOG_ARCHIVE_TAB}". ${keep.length} row(s) remain active.`);
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);
