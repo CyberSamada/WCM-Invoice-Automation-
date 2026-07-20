@@ -216,6 +216,7 @@
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
     .badge-filed { background: #e8f7ee; color: #1c6b45; }
     .badge-review { background: #fff4e0; color: #8a5a00; }
+    .vendor-invnum { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     .badge-notinvoice { background: #eef0f2; color: #41474f; }
     .badge-pastdue { background: #fdecec; color: #8f1414; }
     .badge-other { background: #eef2f7; color: #374151; }
@@ -911,7 +912,8 @@
             : '') + '</td>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
-          '<td>' + escapeHtml(r.vendor) + '</td>' +
+          '<td>' + escapeHtml(r.vendor) +
+            (r.invoiceNumber ? '<div class="vendor-invnum">Inv# ' + escapeHtml(r.invoiceNumber) + '</div>' : '') + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +

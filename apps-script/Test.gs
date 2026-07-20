@@ -162,6 +162,7 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
   logTestRow_({
     'Date Tested': new Date(),
     'Invoice Date': extracted.invoice_date || '',
+    'Invoice Number': extracted.invoice_number || '',
     'Due Date': extracted.due_date || '',
     'Vendor': extracted.vendor_name || '',
     'Matched Project Number': extracted.project_number || '',
