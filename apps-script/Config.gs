@@ -88,6 +88,17 @@ const CONFIG = {
   SHEET_VENDOR_DIRECTORY_TAB: 'Vendor Directory',
   VENDOR_DIRECTORY_COLUMNS: ['Canonical Name', 'Normalized Key', 'First Seen', 'Times Seen', 'Variants Seen'],
 
+  // "Override Log" tab — every manual correction made on the dashboard is recorded here (what the
+  // automation originally chose vs. what a human changed it to). This is the learning/audit record:
+  // it makes miscategorization patterns visible ("vendor X keeps getting sent to the wrong project")
+  // and is the dataset any future auto-learning would draw on. See DashboardServer.gs/logOverride_.
+  SHEET_OVERRIDE_LOG_TAB: 'Override Log',
+  OVERRIDE_LOG_COLUMNS: [
+    'Timestamp', 'Row ID', 'Vendor', 'Invoice Number', 'Amount',
+    'From Project', 'From Subproject', 'From Status', 'Original Confidence',
+    'To Project', 'To Subproject', 'To Status'
+  ],
+
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
     'Project Number', 'Project Name', 'Subproject Number', 'Subproject Name', 'Drive Folder ID'

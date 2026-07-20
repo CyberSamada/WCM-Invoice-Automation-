@@ -329,6 +329,32 @@ function logFeedback_(message, pageContext) {
 }
 
 /**
+ * Records one manual correction to the "Override Log" tab — the automation's original values vs.
+ * what a human changed them to. This is the correction dataset the system "remembers": patterns
+ * here (e.g. a vendor repeatedly re-assigned to the same project) are what any future auto-learning
+ * would act on, and it's an immediate audit trail regardless. Header-keyed write so column order
+ * can evolve safely (see buildRowByHeader_).
+ */
+function logOverride_(o) {
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_OVERRIDE_LOG_TAB, CONFIG.OVERRIDE_LOG_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.OVERRIDE_LOG_COLUMNS);
+  sheet.appendRow(buildRowByHeader_(sheet, {
+    'Timestamp': new Date(),
+    'Row ID': o.rowId || '',
+    'Vendor': o.vendor || '',
+    'Invoice Number': o.invoiceNumber || '',
+    'Amount': o.amount || '',
+    'From Project': o.fromProject || '',
+    'From Subproject': o.fromSubproject || '',
+    'From Status': o.fromStatus || '',
+    'Original Confidence': o.originalConfidence || '',
+    'To Project': o.toProject || '',
+    'To Subproject': o.toSubproject || '',
+    'To Status': o.toStatus || ''
+  }));
+}
+
+/**
  * Adds any header names in `requiredHeaders` that aren't already present in `sheet`'s row 1,
  * appending them as new columns at the end. Lets CONFIG.LOG_COLUMNS grow over time (e.g. the
  * "Match Note" column) without anyone needing to manually edit an already-existing sheet.
