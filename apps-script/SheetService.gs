@@ -414,19 +414,30 @@ function buildInvoiceKeySet_() {
   const sIdx = header.indexOf('Status');
   const lIdx = header.indexOf('Drive Link');
   const fIdx = header.indexOf('Drive File ID');
+  const pnIdx = header.indexOf('Project Number');
+  const pmIdx = header.indexOf('Project Name');
+  const snIdx = header.indexOf('Subproject Number');
+  const smIdx = header.indexOf('Subproject Name');
   if (vIdx === -1) return map;
+  const cell = (row, i) => (i > -1 ? String(values[row][i] == null ? '' : values[row][i]) : '');
   for (let r = 1; r < values.length; r++) {
     const key = invoiceIdentityKey_(
       values[r][vIdx], iIdx > -1 ? values[r][iIdx] : '',
       aIdx > -1 ? values[r][aIdx] : '', dIdx > -1 ? values[r][dIdx] : '');
     if (!key) continue;
-    if (!map[key]) map[key] = { noticed: false, driveLink: '', driveFileId: '' };
+    if (!map[key]) map[key] = { noticed: false, driveLink: '', driveFileId: '', projectNumber: '', projectName: '', subprojectNumber: '', subprojectName: '' };
     const status = sIdx > -1 ? String(values[r][sIdx] || '').trim() : '';
     if (status === 'Duplicate') {
       map[key].noticed = true; // a "received again" marker already exists — don't add another
     } else if (!map[key].driveLink) {
-      map[key].driveLink = lIdx > -1 ? String(values[r][lIdx] || '') : '';
-      map[key].driveFileId = fIdx > -1 ? String(values[r][fIdx] || '') : '';
+      // Capture the ORIGINAL row's filing so a duplicate notice inherits the same project/subproject
+      // and points at the same Drive file.
+      map[key].driveLink = cell(r, lIdx);
+      map[key].driveFileId = cell(r, fIdx);
+      map[key].projectNumber = cell(r, pnIdx);
+      map[key].projectName = cell(r, pmIdx);
+      map[key].subprojectNumber = cell(r, snIdx);
+      map[key].subprojectName = cell(r, smIdx);
     }
   }
   return map;

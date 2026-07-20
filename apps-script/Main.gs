@@ -224,7 +224,15 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   // Register this now-filed invoice so a later copy (this run or a future one) is recognized as a
   // duplicate and pointed back at THIS file rather than filed again.
   if (idKey && seenInvoiceKeys) {
-    seenInvoiceKeys[idKey] = { noticed: false, driveLink: driveLink, driveFileId: driveFileIdFromUrl_(driveLink) };
+    seenInvoiceKeys[idKey] = {
+      noticed: false,
+      driveLink: driveLink,
+      driveFileId: driveFileIdFromUrl_(driveLink),
+      projectNumber: extracted.project_number || '',
+      projectName: matchedRef ? matchedRef.projectName : '',
+      subprojectNumber: extracted.subproject_number || '',
+      subprojectName: matchedRef ? matchedRef.subprojectName : ''
+    };
   }
 }
 
@@ -248,6 +256,12 @@ function logDuplicateRow_(extracted, emailDate, originalEntry, threadLink) {
     'Invoice Number': extracted.invoice_number || '',
     'Due Date': extracted.due_date || '',
     'Vendor': extracted.vendor_name || '',
+    // Carry the ORIGINAL invoice's project/subproject onto the duplicate notice, so it reads as
+    // clearly belonging to the same job — not as a blank, seemingly-unfiled row.
+    'Project Number': originalEntry.projectNumber || '',
+    'Project Name': originalEntry.projectName || '',
+    'Subproject Number': originalEntry.subprojectNumber || '',
+    'Subproject Name': originalEntry.subprojectName || '',
     'Amount': extracted.amount || '',
     'Currency': extracted.currency || '',
     'Status': 'Duplicate',
