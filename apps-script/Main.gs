@@ -129,6 +129,11 @@ function isDailyQuotaError_(err) {
 
 function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLink) {
   const extracted = extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate);
+  // Standardize the vendor spelling to one canonical form (see SheetService.gs) before it's used
+  // for the filename and the log, so the same company doesn't accrue multiple spellings — while
+  // distinct divisions (J-AAR Civil vs J-AAR Structure) stay separate. Mutating extracted here
+  // means both buildInvoiceFileName_ and logInvoiceRow_ below pick up the canonical name.
+  extracted.vendor_name = canonicalizeVendorName_(extracted.vendor_name);
   const passesRuleCheck = validateMatch_(extracted, referenceRows);
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;

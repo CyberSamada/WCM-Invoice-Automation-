@@ -255,6 +255,73 @@ function backfillDateReceived() {
   Logger.log(`Backfilled Date Received on ${filled} row(s). ${skippedNoLink} skipped (no usable Gmail Link), ${skippedNotFound} skipped (thread not found/inaccessible).`);
 }
 
+/**
+ * A case/punctuation/legal-suffix-insensitive key for a vendor name, used to decide whether two
+ * spellings are the SAME vendor. "Copp's Buildall", "COPPS BUILDALL", "Copps Buildall Ltd." all
+ * collapse to "COPPSBUILDALL". Crucially, distinguishing words are kept, so "J-AAR Civil" ->
+ * "JAARCIVIL" and "J-AAR Structure" -> "JAARSTRUCTURE" stay DIFFERENT — the exact separation the
+ * user asked to preserve. Returns '' for an effectively empty name.
+ */
+function vendorNormalizedKey_(name) {
+  let s = String(name == null ? '' : name).toUpperCase();
+  // Drop trailing legal-entity suffixes as whole words so "... LTD"/"... INC" match the bare name.
+  s = s.replace(/\b(LTD|INC|LIMITED|INCORPORATED|CORP|CORPORATION|LLC|LLP|LP|ULC|CO|COMPANY)\b/g, ' ');
+  return s.replace(/[^A-Z0-9]/g, ''); // keep only letters/digits — kills spaces, hyphens, apostrophes, dots
+}
+
+/**
+ * Resolves a raw extracted vendor name to ONE canonical spelling, maintaining the "Vendor
+ * Directory" tab as it goes. Same normalized key -> reuse the existing canonical name (and record
+ * the new variant + bump the count); new key -> the raw name becomes the canonical entry. Keeps
+ * logged vendor names and filenames from drifting across spellings of the same company, while
+ * genuinely different vendors/divisions (different key) get their own row. Real-run only — callers
+ * in Test.gs deliberately don't invoke this, so previews never write to the directory.
+ *
+ * @param {string} rawName - Gemini's extracted vendor_name
+ * @return {string} the canonical display name to use for logging and filing
+ */
+function canonicalizeVendorName_(rawName) {
+  const raw = String(rawName == null ? '' : rawName).replace(/\s+/g, ' ').trim();
+  if (!raw) return 'UnknownVendor';
+  const key = vendorNormalizedKey_(raw);
+  if (!key) return raw; // nothing normalizable (e.g. all punctuation) — don't pollute the directory
+
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_VENDOR_DIRECTORY_TAB, CONFIG.VENDOR_DIRECTORY_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.VENDOR_DIRECTORY_COLUMNS);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {
+    canonical: header.indexOf('Canonical Name'),
+    key: header.indexOf('Normalized Key'),
+    times: header.indexOf('Times Seen'),
+    variants: header.indexOf('Variants Seen')
+  };
+
+  for (let i = 1; i < values.length; i++) {
+    if (String(values[i][idx.key]) === key) {
+      const canonical = String(values[i][idx.canonical] || '').trim() || raw;
+      if (idx.times > -1) sheet.getRange(i + 1, idx.times + 1).setValue((Number(values[i][idx.times]) || 0) + 1);
+      // Record this spelling as a seen variant if it differs from the canonical one (audit trail;
+      // also makes it obvious if two spellings SHOULD have been separate vendors but got merged).
+      if (idx.variants > -1 && raw !== canonical) {
+        const seen = String(values[i][idx.variants] || '');
+        const list = seen ? seen.split(' | ') : [];
+        if (list.indexOf(raw) === -1) {
+          list.push(raw);
+          sheet.getRange(i + 1, idx.variants + 1).setValue(list.join(' | '));
+        }
+      }
+      return canonical;
+    }
+  }
+
+  // First time we've seen this vendor — its current spelling becomes the canonical one.
+  sheet.appendRow(buildRowByHeader_(sheet, {
+    'Canonical Name': raw, 'Normalized Key': key, 'First Seen': new Date(), 'Times Seen': 1, 'Variants Seen': ''
+  }));
+  return raw;
+}
+
 /** Appends one row to the "Feedback" tab. Called from the dashboard — open to any viewer, not gated. */
 function logFeedback_(message, pageContext) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_FEEDBACK_TAB, CONFIG.FEEDBACK_COLUMNS);

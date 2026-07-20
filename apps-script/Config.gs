@@ -78,6 +78,16 @@ const CONFIG = {
   SHEET_FEEDBACK_TAB: 'Feedback',
   FEEDBACK_COLUMNS: ['Timestamp', 'Message', 'Page Context'],
 
+  // "Vendor Directory" tab — one canonical spelling per vendor, so the log/filenames don't drift
+  // into "Copp's Buildall" vs "COPPS BUILDALL" for the same company. Matching is by Normalized Key
+  // (case/punctuation/legal-suffix-insensitive), NOT by the display name — so distinct divisions
+  // like "J-AAR Civil" and "J-AAR Structure" keep separate rows (their key differs), while pure
+  // spelling variants collapse. The FIRST spelling seen becomes canonical; edit the Canonical Name
+  // cell to rename a vendor everywhere going forward without breaking matching. See
+  // SheetService.gs/canonicalizeVendorName_.
+  SHEET_VENDOR_DIRECTORY_TAB: 'Vendor Directory',
+  VENDOR_DIRECTORY_COLUMNS: ['Canonical Name', 'Normalized Key', 'First Seen', 'Times Seen', 'Variants Seen'],
+
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
     'Project Number', 'Project Name', 'Subproject Number', 'Subproject Name', 'Drive Folder ID'
