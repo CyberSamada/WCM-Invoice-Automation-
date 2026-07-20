@@ -165,6 +165,7 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
     'Date Processed': new Date(),
     'Date Received': emailDate instanceof Date && !isNaN(emailDate.getTime()) ? emailDate : '', // actual email arrival date — distinct from Date Processed (when the trigger got around to it) and Invoice Date (the date printed on the PDF)
     'Invoice Date': extracted.invoice_date || '',
+    'Invoice Number': extracted.invoice_number || '',
     'Due Date': extracted.due_date || '',
     'Vendor': extracted.vendor_name || '',
     'Project Number': extracted.project_number || '',

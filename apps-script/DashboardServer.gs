@@ -55,6 +55,7 @@ function buildDashboardData_() {
         dateProcessedFormatted: formatDateForDashboard_(dateValue, timezone),
         dateReceivedFormatted: formatDateForDashboard_(receivedValue, timezone),
         vendor: r[idx['Vendor']] || '(unknown vendor)',
+        invoiceNumber: (idx['Invoice Number'] > -1 && r[idx['Invoice Number']]) ? String(r[idx['Invoice Number']]) : '',
         projectNumber: String(r[idx['Project Number']] == null ? '' : r[idx['Project Number']]).trim(),
         projectName: r[idx['Project Name']] || '',
         subprojectNumber: String(r[idx['Subproject Number']] == null ? '' : r[idx['Subproject Number']]).trim(),
