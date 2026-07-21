@@ -172,28 +172,25 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   const isHighConfidence = extracted.confidence >= CONFIG.CONFIDENCE_THRESHOLD;
   const overDollarThreshold = CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW !== null && extracted.amount > CONFIG.DOLLAR_THRESHOLD_FOR_REVIEW;
   const dueSoon = dueDateCramsPayPeriod_(extracted.due_date, emailDate);
-  const daysPastDue = daysPastDue_(extracted.due_date);
-  const pastDue = daysPastDue !== null && daysPastDue > 0;
 
-  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold && !dueSoon && !pastDue && !memoryNote;
+  const shouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !overDollarThreshold && !dueSoon && !memoryNote;
 
   const isFileable = matchedRef && matchedRef.driveFolderId;
 
   const fileName = buildInvoiceFileName_(extracted);
   let status = extracted.is_invoice ? 'Needs Review' : 'Not an Invoice';
-  // Genuinely overdue (due date already passed as of TODAY, not just tight when the email arrived)
-  // takes priority over ordinary auto-filing — this always needs a human's attention, regardless of
-  // confidence. Only "Filed" when we're both confident enough to auto-file AND the matched project
-  // actually has an archive folder on record — a matched-but-unprovisioned project still needs a
-  // human, same as the original behavior (it lands in _Unmatched below via resolveInvoiceDestinationFolderId_).
-  // A memoryNote (vendor-history rescue or conflict) always forces review — never auto-file on memory.
-  if (extracted.is_invoice && pastDue && isFileable) status = 'Past Due';
-  else if (shouldAutoFile && isFileable) status = 'Filed';
+  // Only "Filed" when we're both confident enough to auto-file AND the matched project actually has
+  // an archive folder on record — a matched-but-unprovisioned project still needs a human (it lands
+  // in _Unmatched below via resolveInvoiceDestinationFolderId_). A memoryNote (vendor-history rescue
+  // or conflict) always forces review — never auto-file on memory. Overdue invoices are no longer
+  // pulled into a separate "Past Due" lane; they file by month like everything else, and coordinators
+  // spot overdue bills via the dashboard's Due Date column/sort.
+  if (shouldAutoFile && isFileable) status = 'Filed';
 
   // Known project but not confidently an invoice (statement, low-confidence match, over the dollar
-  // threshold, past due, etc.) still gets filed — into that project's "Statements & Others" subfolder
-  // (or "Past Due", for overdue ones) rather than left unfiled, so it's never lost, only sitting one
-  // folder deeper awaiting review. No project match at all falls back to the top-level "_Unmatched"
+  // threshold, etc.) still gets filed — into that project's "Statements & Others" subfolder rather
+  // than left unfiled, so it's never lost, only sitting one folder deeper awaiting review. No project
+  // match at all falls back to the top-level "_Unmatched"
   // folder. See DriveService.gs/resolveInvoiceDestinationFolderId_ — the same resolver the
   // dashboard's manual override uses, so automatic and manual filing can never disagree about where
   // something belongs.
@@ -218,7 +215,7 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
     'Drive Link': driveLink,
     'Gmail Link': threadLink,
     'Match Note': extracted.match_reasoning || '',
-    'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon, daysPastDue }), memoryNote)
+    'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon }), memoryNote)
   });
 
   // Register this now-filed invoice so a later copy (this run or a future one) is recognized as a
@@ -312,20 +309,6 @@ function applyVendorMemory_(extracted, matchedRef, referenceRows, vendorMemory, 
 }
 
 /**
- * Days the due date has already passed as of TODAY (not relative to when the email arrived — see
- * dueDateCramsPayPeriod_ for that, a different, softer check). Returns null when there's no usable
- * due date or the date is today/in the future (i.e. not actually overdue).
- */
-function daysPastDue_(dueDateStr) {
-  const due = parseYmdDate_(dueDateStr);
-  if (!due) return null;
-  const today = new Date();
-  const todayMidnight = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const days = Math.round((todayMidnight.getTime() - due.getTime()) / 86400000);
-  return days > 0 ? days : null;
-}
-
-/**
  * True when the invoice's due date leaves too little time to pay — i.e. it falls on or within
  * CONFIG.DUE_SOON_DAYS days of when the email arrived (a due date already in the past counts too).
  * A due date comfortably in the future gives us room and is fine. Returns false whenever the due
@@ -369,9 +352,6 @@ function notInvoiceNote_(documentType) {
 function buildReviewNote_(status, extracted, flags) {
   if (status === 'Filed') return '';
   if (!extracted.is_invoice) return notInvoiceNote_(extracted.document_type);
-  if (status === 'Past Due') {
-    return `Past due: due date passed ${flags.daysPastDue} day${flags.daysPastDue === 1 ? '' : 's'} ago — needs urgent review/payment.`;
-  }
   const reasons = [];
   if (!flags.passesRuleCheck) reasons.push('no matching project found');
   else if (!flags.isHighConfidence) reasons.push(`low match confidence (${Math.round((Number(extracted.confidence) || 0) * 100)}%)`);
