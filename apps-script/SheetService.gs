@@ -256,6 +256,102 @@ function backfillDateReceived() {
 }
 
 /**
+ * One-time correction for dropping the "Past Due" lane. Finds every Invoice Log row still marked
+ * Status = "Past Due" — in BOTH the active log and the archive tab — and re-files it the normal way:
+ * moves its Drive file OUT of the project's legacy "Past Due" subfolder into the correct month folder
+ * (by invoice date), updates the row's Drive Link, and flips its Status to "Filed". When a row can't
+ * be cleanly re-filed (no matched project/folder, or no file on record) it's set to "Needs Review"
+ * with an explanatory note instead, so nothing is silently stranded. Nothing is deleted — files are
+ * only moved, and the now-empty "Past Due" folders are simply left behind (safe to delete by hand
+ * later). Idempotent and safe to re-run: once a row is no longer "Past Due" it's left untouched.
+ * Run this ONCE from the editor after the drop deploys.
+ */
+function migratePastDueRows() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) { Logger.log('Another run holds the script lock — wait a moment and try migratePastDueRows() again.'); return; }
+  try {
+    const referenceRows = getReferenceData_();
+    let scanned = 0, moved = 0, review = 0;
+    [CONFIG.SHEET_LOG_TAB, CONFIG.SHEET_LOG_ARCHIVE_TAB].forEach(tabName => {
+      const res = migratePastDueRowsInTab_(tabName, referenceRows);
+      scanned += res.scanned; moved += res.moved; review += res.review;
+      if (res.scanned > 0) {
+        Logger.log(`"${tabName}": ${res.moved} re-filed to month folders, ${res.review} set to Needs Review (couldn't auto-re-file), out of ${res.scanned} "Past Due" row(s).`);
+      }
+    });
+    if (scanned === 0) {
+      Logger.log('No "Past Due" rows found — nothing to migrate (already migrated, or none ever existed).');
+    } else {
+      Logger.log(`migratePastDueRows done: ${moved} row(s) re-filed by month, ${review} flagged Needs Review, ${scanned} total.`);
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Processes one tab for migratePastDueRows. Returns {scanned, moved, review}. See migratePastDueRows. */
+function migratePastDueRowsInTab_(tabName, referenceRows) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tabName);
+  if (!sheet) return { scanned: 0, moved: 0, review: 0 };
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return { scanned: 0, moved: 0, review: 0 };
+
+  const header = values[0];
+  const idx = {};
+  ['Status', 'Project Number', 'Subproject Number', 'Invoice Date', 'Drive Link', 'Drive File ID', 'Review Note']
+    .forEach(c => { idx[c] = header.indexOf(c); });
+  if (idx['Status'] === -1) return { scanned: 0, moved: 0, review: 0 };
+
+  const stamp = Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd HH:mm');
+  let scanned = 0, moved = 0, review = 0;
+
+  for (let i = 1; i < values.length; i++) {
+    const row = values[i];
+    if (String(row[idx['Status']] || '').trim() !== 'Past Due') continue;
+    scanned++;
+
+    const projectNumber = idx['Project Number'] > -1 ? String(row[idx['Project Number']] || '').trim() : '';
+    const subprojectNumber = idx['Subproject Number'] > -1 ? String(row[idx['Subproject Number']] || '').trim() : '';
+    // Normalize the invoice date to a "YYYY-MM-DD" string — a Date cell would otherwise stringify to
+    // "Wed Jul 01 2026 ..." and invoiceMonthKey_ would fall back to the current month (wrong folder).
+    const rawDate = idx['Invoice Date'] > -1 ? row[idx['Invoice Date']] : '';
+    const invoiceDate = (rawDate instanceof Date && !isNaN(rawDate.getTime()))
+      ? Utilities.formatDate(rawDate, CONFIG_TIMEZONE_(), 'yyyy-MM-dd') : String(rawDate || '');
+    const driveFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
+
+    const matchedRef = projectNumber ? findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) : null;
+
+    let newStatus, noteExtra;
+    if (matchedRef && matchedRef.driveFolderId && driveFileId) {
+      try {
+        const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, 'Filed', invoiceDate);
+        const file = DriveApp.getFileById(driveFileId);
+        file.moveTo(DriveApp.getFolderById(destFolderId));
+        if (idx['Drive Link'] > -1) sheet.getRange(i + 1, idx['Drive Link'] + 1).setValue(file.getUrl());
+        newStatus = 'Filed';
+        noteExtra = `"Past Due" lane removed — re-filed into its month folder ${stamp}.`;
+        moved++;
+      } catch (err) {
+        newStatus = 'Needs Review';
+        noteExtra = `"Past Due" lane removed, but couldn't move the Drive file ${stamp} (${err.message}) — please re-file manually.`;
+        review++;
+      }
+    } else {
+      newStatus = 'Needs Review';
+      noteExtra = `"Past Due" lane removed ${stamp}; couldn't auto-re-file (no matched project/folder or no file on record) — please review.`;
+      review++;
+    }
+
+    sheet.getRange(i + 1, idx['Status'] + 1).setValue(newStatus);
+    if (idx['Review Note'] > -1) {
+      const existing = String(row[idx['Review Note']] || '');
+      sheet.getRange(i + 1, idx['Review Note'] + 1).setValue(existing ? existing + ' ' + noteExtra : noteExtra);
+    }
+  }
+  return { scanned: scanned, moved: moved, review: review };
+}
+
+/**
  * A case/punctuation/legal-suffix-insensitive key for a vendor name, used to decide whether two
  * spellings are the SAME vendor. "Copp's Buildall", "COPPS BUILDALL", "Copps Buildall Ltd." all
  * collapse to "COPPSBUILDALL". Crucially, distinguishing words are kept, so "J-AAR Civil" ->

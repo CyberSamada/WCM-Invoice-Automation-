@@ -78,12 +78,10 @@ function buildDashboardData_() {
   const counts = {};
   let totalFiledAmount = 0;
   let totalNeedsReviewAmount = 0;
-  let totalPastDueAmount = 0;
   records.forEach(r => {
     counts[r.status] = (counts[r.status] || 0) + 1;
     if (r.status === 'Filed') totalFiledAmount += r.amount;
     if (r.status === 'Needs Review') totalNeedsReviewAmount += r.amount;
-    if (r.status === 'Past Due') totalPastDueAmount += r.amount;
   });
 
   // "Today" / "this week" (rolling 7 days) / "this month" (calendar month so far) — all relative
@@ -243,7 +241,6 @@ function buildDashboardData_() {
     countThisMonth: countThisMonth,
     totalFiledAmountFormatted: formatCurrencyForDashboard_(totalFiledAmount, 'CAD'),
     totalNeedsReviewAmountFormatted: formatCurrencyForDashboard_(totalNeedsReviewAmount, 'CAD'),
-    totalPastDueAmountFormatted: formatCurrencyForDashboard_(totalPastDueAmount, 'CAD'),
     byProject: byProject,
     errorCount: errorCount,
     errorTimestampsJson: errorTimestampsJson,
@@ -364,7 +361,9 @@ function updateInvoiceRow(rowId, updates) {
   const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
 
-  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Past Due', 'Duplicate'];
+  // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
+  // filing everything by month (see migratePastDueRows for the one-time cleanup of legacy rows).
+  const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Duplicate'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
   }

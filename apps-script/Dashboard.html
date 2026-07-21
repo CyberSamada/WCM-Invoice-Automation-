@@ -370,10 +370,6 @@
         <div class="card-value" id="cardNotInvoice"><?= data.counts['Not an Invoice'] || 0 ?></div>
         <div class="card-label">Not an Invoice</div>
       </div>
-      <div class="card pastdue">
-        <div class="card-value" id="cardPastDue"><?= data.counts['Past Due'] || 0 ?></div>
-        <div class="card-label">Past Due</div>
-      </div>
       <div class="card error">
         <div class="card-value" id="cardErrors"><?= data.errorCount ?></div>
         <div class="card-label">Errors</div>
@@ -389,7 +385,6 @@
     <div class="stat-strip">
       <div>Total Filed: <strong id="totalFiledAmount"><?= data.totalFiledAmountFormatted ?></strong></div>
       <div>Total Needs Review: <strong id="totalReviewAmount"><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
-      <div>Total Past Due: <strong id="totalPastDueAmount"><?= data.totalPastDueAmountFormatted ?></strong></div>
     </div>
 
     <div class="section">
@@ -403,7 +398,6 @@
             <option value="Filed">Filed</option>
             <option value="Needs Review">Needs Review</option>
             <option value="Not an Invoice">Not an Invoice</option>
-            <option value="Past Due">Past Due</option>
             <option value="Duplicate">Duplicate</option>
           </select>
         </div>
@@ -530,7 +524,6 @@
           <option value="Filed">Filed</option>
           <option value="Needs Review">Needs Review</option>
           <option value="Not an Invoice">Not an Invoice</option>
-          <option value="Past Due">Past Due</option>
           <option value="Duplicate">Duplicate</option>
         </select>
       </div>
@@ -579,7 +572,6 @@
           <option value="Filed">Filed</option>
           <option value="Needs Review">Needs Review</option>
           <option value="Not an Invoice">Not an Invoice</option>
-          <option value="Past Due">Past Due</option>
           <option value="Duplicate">Duplicate</option>
         </select>
       </div>
@@ -852,24 +844,21 @@
       var errors = tfStart === null ? ALL_ERROR_TIMESTAMPS : ALL_ERROR_TIMESTAMPS.filter(function (t) { return t >= tfStart; });
 
       var counts = {};
-      var totalFiled = 0, totalReview = 0, totalPastDue = 0;
+      var totalFiled = 0, totalReview = 0;
       records.forEach(function (r) {
         counts[r.status] = (counts[r.status] || 0) + 1;
         if (r.status === 'Filed') totalFiled += r.amount;
         if (r.status === 'Needs Review') totalReview += r.amount;
-        if (r.status === 'Past Due') totalPastDue += r.amount;
       });
 
       document.getElementById('cardTotal').textContent = records.length;
       document.getElementById('cardFiled').textContent = counts['Filed'] || 0;
       document.getElementById('cardReview').textContent = counts['Needs Review'] || 0;
       document.getElementById('cardNotInvoice').textContent = counts['Not an Invoice'] || 0;
-      document.getElementById('cardPastDue').textContent = counts['Past Due'] || 0;
       document.getElementById('cardErrors').textContent = errors.length;
 
       document.getElementById('totalFiledAmount').textContent = formatMoney(totalFiled, 'CAD');
       document.getElementById('totalReviewAmount').textContent = formatMoney(totalReview, 'CAD');
-      document.getElementById('totalPastDueAmount').textContent = formatMoney(totalPastDue, 'CAD');
     }
 
     function toggleCustomDateInputs() {
