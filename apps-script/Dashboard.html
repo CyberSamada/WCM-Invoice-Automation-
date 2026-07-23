@@ -176,6 +176,14 @@
     .project-filter .proj-sub { padding-left: 18px; color: #4b5563; }
     .project-filter input[type="checkbox"] { width: auto; padding: 0; margin: 0; box-sizing: border-box; cursor: pointer; }
     .project-filter .proj-group { display: flex; flex-direction: column; gap: 2px; }
+    /* Project filter collapsed into a dropdown so it doesn't dominate the filter bar */
+    .proj-dropdown { position: relative; }
+    .proj-dropdown-toggle { width: 100%; box-sizing: border-box; display: flex; justify-content: space-between; align-items: center; gap: 8px; font-family: inherit; font-size: 13px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937; cursor: pointer; text-align: left; }
+    .proj-dropdown-caret { color: #6b7280; font-size: 11px; }
+    .proj-dropdown-panel { display: none; position: absolute; z-index: 30; top: calc(100% + 4px); left: 0; right: 0; background: #fff; border: 1px solid #d1d5db; border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 8px; }
+    .proj-dropdown.open .proj-dropdown-panel { display: block; }
+    .proj-dropdown-panel .select-search { width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+    .proj-dropdown-panel .project-filter { border: none; padding: 0; max-height: 210px; }
     /* Project select can hold long names — let it span two columns when there's room */
     .filter-field.wide { grid-column: span 2; }
     .amount-range { display: flex; gap: 6px; align-items: center; }
@@ -299,17 +307,24 @@
     }
     .btn-secondary:hover { background: #f9fafb; }
 
-    /* PDF preview modal — wider than the edit modal, sized for an embedded document */
-    .preview-box { width: 720px; max-width: 96vw; }
-    .preview-frame-wrap { border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #f3f4f6; }
-    .preview-frame-wrap iframe { display: block; width: 100%; height: 62vh; border: none; }
-    .preview-location { font-size: 12px; color: #6b7280; margin: 10px 0 0; word-break: break-word; }
+    /* PDF preview modal — PDF on the left, edit panel on the right */
+    .preview-box { width: 1060px; max-width: 96vw; }
+    .preview-body { display: flex; gap: 16px; align-items: flex-start; margin-top: 4px; }
+    .preview-frame-wrap { flex: 1 1 auto; min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #f3f4f6; }
+    .preview-frame-wrap iframe { display: block; width: 100%; height: 68vh; border: none; }
+    .preview-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; max-height: 68vh; overflow-y: auto; }
+    .preview-location { font-size: 12px; color: #6b7280; margin: 0; word-break: break-word; }
     .preview-location strong { color: #374151; font-weight: 600; }
-    .preview-edit { display: flex; gap: 16px; margin-top: 14px; }
-    .preview-edit-col { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+    .preview-edit { display: flex; flex-direction: column; gap: 12px; margin-top: 0; }
+    .preview-edit-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
     .preview-edit-col select, .preview-edit-col input[type="text"] { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
     .preview-edit-label2 { margin-top: 8px; }
+    @media (max-width: 820px) {
+      .preview-body { flex-direction: column; }
+      .preview-side { flex-basis: auto; max-height: none; overflow-y: visible; width: 100%; }
+      .preview-frame-wrap { width: 100%; }
+    }
     .bulk-progress { margin-top: 12px; }
     .bulk-progress-track { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
     .bulk-progress-fill { height: 100%; width: 0%; background: #2563eb; transition: width 0.2s ease; }
@@ -422,8 +437,16 @@
         </div>
         <div class="filter-field wide">
           <label>Project</label>
-          <input type="text" class="select-search" id="filterProjectSearch" placeholder="Search projects…">
-          <div class="project-filter" id="filterProject" title="Tick a project for all of it, or specific subprojects; none ticked shows all"></div>
+          <div class="proj-dropdown" id="projectDropdown">
+            <button type="button" class="proj-dropdown-toggle" id="projectDropdownToggle" aria-expanded="false">
+              <span id="projectDropdownLabel">All projects</span>
+              <span class="proj-dropdown-caret" aria-hidden="true">&#9662;</span>
+            </button>
+            <div class="proj-dropdown-panel" id="projectDropdownPanel">
+              <input type="text" class="select-search" id="filterProjectSearch" placeholder="Search projects…">
+              <div class="project-filter" id="filterProject" title="Tick a project for all of it, or specific subprojects; none ticked shows all"></div>
+            </div>
+          </div>
         </div>
         <div class="filter-field">
           <label for="filterVendor">Vendor</label>
@@ -574,39 +597,42 @@
     <div class="modal-box preview-box">
       <h3 id="previewTitle">Invoice preview</h3>
       <p class="modal-subtitle" id="previewSubtitle"></p>
-      <div class="preview-frame-wrap">
-        <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
-      </div>
-      <p class="preview-location" id="previewLocation">Looking up file location…</p>
-
-      <div class="preview-edit">
-        <div class="preview-edit-col preview-edit-project">
-          <label for="previewProject">Project</label>
-          <input type="text" class="select-search" id="previewProjectSearch" placeholder="Search projects…">
-          <select id="previewProject" size="5"></select>
+      <div class="preview-body">
+        <div class="preview-frame-wrap">
+          <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
         </div>
-        <div class="preview-edit-col">
-          <label for="previewSubproject">Subproject</label>
-          <select id="previewSubproject"></select>
-          <label for="previewStatus" class="preview-edit-label2">Status</label>
-          <select id="previewStatus">
-            <option value="Filed">Filed</option>
-            <option value="Needs Review">Needs Review</option>
-            <option value="Not an Invoice">Not an Invoice</option>
-            <option value="Duplicate">Duplicate</option>
-          </select>
-          <label for="previewInvoiceNumber" class="preview-edit-label2">Invoice #</label>
-          <input type="text" id="previewInvoiceNumber" placeholder="Invoice number">
-          <label for="previewAmount" class="preview-edit-label2">Amount</label>
-          <input type="text" id="previewAmount" inputmode="decimal" placeholder="e.g. 1234.56">
-          <label for="previewCurrency" class="preview-edit-label2">Currency</label>
-          <select id="previewCurrency">
-            <option value="CAD">CAD</option>
-            <option value="USD">USD</option>
-          </select>
+        <div class="preview-side">
+          <p class="preview-location" id="previewLocation">Looking up file location…</p>
+          <div class="preview-edit">
+            <div class="preview-edit-col preview-edit-project">
+              <label for="previewProject">Project</label>
+              <input type="text" class="select-search" id="previewProjectSearch" placeholder="Search projects…">
+              <select id="previewProject" size="5"></select>
+            </div>
+            <div class="preview-edit-col">
+              <label for="previewSubproject">Subproject</label>
+              <select id="previewSubproject"></select>
+              <label for="previewStatus" class="preview-edit-label2">Status</label>
+              <select id="previewStatus">
+                <option value="Filed">Filed</option>
+                <option value="Needs Review">Needs Review</option>
+                <option value="Not an Invoice">Not an Invoice</option>
+                <option value="Duplicate">Duplicate</option>
+              </select>
+              <label for="previewInvoiceNumber" class="preview-edit-label2">Invoice #</label>
+              <input type="text" id="previewInvoiceNumber" placeholder="Invoice number">
+              <label for="previewAmount" class="preview-edit-label2">Amount</label>
+              <input type="text" id="previewAmount" inputmode="decimal" placeholder="e.g. 1234.56">
+              <label for="previewCurrency" class="preview-edit-label2">Currency</label>
+              <select id="previewCurrency">
+                <option value="CAD">CAD</option>
+                <option value="USD">USD</option>
+              </select>
+            </div>
+          </div>
+          <p class="modal-error" id="previewEditError"></p>
         </div>
       </div>
-      <p class="modal-error" id="previewEditError"></p>
 
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="previewCloseBtn">Close</button>
@@ -902,6 +928,7 @@
 
         container.appendChild(group);
       });
+      updateProjectDropdownLabel();
     }
 
     // Ticking a MAIN project box ticks + locks its subproject boxes (a main = the whole project);
@@ -914,7 +941,16 @@
           if (s.getAttribute('data-pkey') === pkey) { s.checked = box.checked; s.disabled = box.checked; }
         });
       }
+      updateProjectDropdownLabel();
       applyFilters();
+    }
+
+    // Summarizes the current project selection on the dropdown button. Auto-ticked subprojects (under
+    // a ticked main) are disabled, so counting checked-and-enabled boxes gives the real # of picks.
+    function updateProjectDropdownLabel() {
+      var n = document.querySelectorAll('#filterProject input[type="checkbox"]:checked:not(:disabled)').length;
+      var el = document.getElementById('projectDropdownLabel');
+      if (el) el.textContent = n === 0 ? 'All projects' : (n + ' selected');
     }
 
     function getTimeframeStart(value) {
@@ -1589,6 +1625,7 @@
     function resetFilters() {
       document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) { b.checked = false; });
       document.querySelectorAll('#filterProject input[type="checkbox"]').forEach(function (b) { b.checked = false; b.disabled = false; });
+      updateProjectDropdownLabel();
       var projSearch = document.getElementById('filterProjectSearch');
       if (projSearch) { projSearch.value = ''; projSearch.dispatchEvent(new Event('input')); }
       document.getElementById('filterVendor').value = '';
@@ -1613,6 +1650,19 @@
       populateProjectFilter();
       document.getElementById('filterStatus').addEventListener('change', applyFilters);
       document.getElementById('filterProject').addEventListener('change', onProjectFilterChange);
+      document.getElementById('projectDropdownToggle').addEventListener('click', function (e) {
+        e.stopPropagation();
+        var dd = document.getElementById('projectDropdown');
+        var open = dd.classList.toggle('open');
+        this.setAttribute('aria-expanded', open ? 'true' : 'false');
+      });
+      document.addEventListener('click', function (e) {
+        var dd = document.getElementById('projectDropdown');
+        if (dd && !dd.contains(e.target)) {
+          dd.classList.remove('open');
+          document.getElementById('projectDropdownToggle').setAttribute('aria-expanded', 'false');
+        }
+      });
       document.getElementById('filterProjectSearch').addEventListener('input', function () {
         var q = this.value.trim().toLowerCase();
         document.querySelectorAll('#filterProject .proj-group').forEach(function (g) {
