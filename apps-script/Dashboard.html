@@ -863,7 +863,8 @@
         var proj = projects[pKey];
         var subKeys = Object.keys(proj.subs).sort(compareDotted);
 
-        if (subKeys.length === 0) {
+        // The "(no project match)" bucket stays a single plain option — no header needed.
+        if (pKey === '') {
           var opt = document.createElement('option');
           opt.value = 'P:' + pKey;
           opt.textContent = proj.label;
@@ -871,6 +872,8 @@
           return;
         }
 
+        // Every real project gets its own bold header (an <optgroup>) with an "All of …" entry, even
+        // when it has no subprojects yet — so main projects like 45 and 46 stand out consistently.
         var group = document.createElement('optgroup');
         group.label = proj.label;
         var allOpt = document.createElement('option');
