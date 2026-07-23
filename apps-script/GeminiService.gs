@@ -315,11 +315,16 @@ function fetchWithRetry_(url, options, maxRetries) {
 function findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) {
   if (!projectNumber) return null;
   const matchableRows = getMatchableReferenceRows_(referenceRows);
-  const projectRows = matchableRows.filter(r => r.projectNumber === projectNumber);
+  // Compare numbers with leading zeros normalized (normalizeNumberKey_, DashboardServer.gs).
+  // Google Sheets stores "06" as the NUMBER 6, so a log/dashboard row reads back as "6" while the
+  // Project Reference sheet says "06" — strict string equality made every zero-prefixed project
+  // (02/05/06/08) fail to match on re-reads, which sent their files to _Unmatched.
+  const pKey = normalizeNumberKey_(projectNumber);
+  const projectRows = matchableRows.filter(r => normalizeNumberKey_(r.projectNumber) === pKey);
   if (projectRows.length === 0) return null;
 
-  const sub = subprojectNumber || '';
-  const exact = projectRows.find(r => (r.subprojectNumber || '') === sub);
+  const sub = normalizeNumberKey_(subprojectNumber || '');
+  const exact = projectRows.find(r => normalizeNumberKey_(r.subprojectNumber || '') === sub);
   // Prefer the blank-subproject ("main") row as the fallback identity for the project.
   const base = exact || projectRows.find(r => !r.subprojectNumber) || projectRows[0];
   const projectLevelRow = projectRows.find(r => !r.subprojectNumber && r.driveFolderId);
