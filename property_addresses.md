@@ -56,6 +56,11 @@ address file to the right project.
 
 ## Aliases seeded from this list
 
-Only properties whose address is **not already in the project name** are seeded as aliases (adding the
-name-embedded ones would just bloat the prompt Gemini already has). See
-`apps-script/project_aliases_seed.csv` for the import-ready rows.
+Properties whose address is **not already in the project name** are seeded as aliases. A few
+name-embedded ones are also seeded because the matcher was still getting them wrong in practice, and
+an explicit alias is a stronger, more direct signal than the reference name:
+
+- **06 Forest Edge Commons — 952 Southdale Rd** (invoices for 952 Southdale were misfiling)
+- **12 Sereno — 15 Capulet Walk** (the name abbreviates "Walk" to "WK")
+
+See `project_aliases_seed.csv` for the import-ready rows.
