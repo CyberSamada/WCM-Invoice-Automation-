@@ -73,10 +73,17 @@ function processInvoicesInner_() {
     const attachments = getPdfAttachments_(thread);
 
     if (attachments.length === 0) {
-      // No PDF on this thread — mark processed so it's not rechecked every run, but flag it for a
-      // human, with a diagnostic of what was actually found so a real miss is self-explanatory
-      // instead of needing a guess (see GmailService.gs/describeThreadAttachments_).
-      logError_('No PDF attachment found', describeThreadAttachments_(thread), threadLink);
+      // Two different reasons the in-range PDF list can be empty:
+      //  (a) the thread genuinely has no PDF at all — a real miss worth flagging for a human; or
+      //  (b) the thread DOES have PDF(s), but all on messages before PROCESS_FROM_DATE — an old
+      //      invoice whose thread resurfaced via a recent follow-up reply. That's expected and not an
+      //      error: mark it processed and move on quietly, so we don't file the old invoice OR spam
+      //      the Errors tab for every payment-chase reply on the backlog.
+      if (processFromDate_() && threadHasAnyPdf_(thread)) {
+        Logger.log(`Skipped resurfaced old thread (its PDF(s) predate PROCESS_FROM_DATE): ${threadLink}`);
+      } else {
+        logError_('No PDF attachment found', describeThreadAttachments_(thread), threadLink);
+      }
       markThreadProcessed_(thread);
       continue;
     }
