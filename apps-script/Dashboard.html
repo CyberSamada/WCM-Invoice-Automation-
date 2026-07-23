@@ -543,6 +543,17 @@
         <label for="editInvoiceNumber">Invoice #</label>
         <input type="text" id="editInvoiceNumber" placeholder="Invoice number (fix if wrong/blank)">
       </div>
+      <div class="modal-field">
+        <label for="editAmount">Amount</label>
+        <input type="text" id="editAmount" inputmode="decimal" placeholder="e.g. 1234.56">
+      </div>
+      <div class="modal-field">
+        <label for="editCurrency">Currency</label>
+        <select id="editCurrency">
+          <option value="CAD">CAD</option>
+          <option value="USD">USD</option>
+        </select>
+      </div>
       <p class="modal-error" id="editModalError"></p>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="editCancelBtn">Cancel</button>
@@ -579,6 +590,13 @@
           </select>
           <label for="previewInvoiceNumber" class="preview-edit-label2">Invoice #</label>
           <input type="text" id="previewInvoiceNumber" placeholder="Invoice number">
+          <label for="previewAmount" class="preview-edit-label2">Amount</label>
+          <input type="text" id="previewAmount" inputmode="decimal" placeholder="e.g. 1234.56">
+          <label for="previewCurrency" class="preview-edit-label2">Currency</label>
+          <select id="previewCurrency">
+            <option value="CAD">CAD</option>
+            <option value="USD">USD</option>
+          </select>
         </div>
       </div>
       <p class="modal-error" id="previewEditError"></p>
@@ -1092,6 +1110,15 @@
       select.value = selectedSubNumber || '';
     }
 
+    // Sets a currency <select> to a value, adding it as an option first if it isn't CAD/USD (so an
+    // unusual currency already on a row still displays instead of silently snapping to CAD).
+    function setCurrencySelect(selectEl, cur) {
+      cur = String(cur || 'CAD').toUpperCase();
+      var has = Array.prototype.some.call(selectEl.options, function (o) { return o.value === cur; });
+      if (!has) { var o = document.createElement('option'); o.value = cur; o.textContent = cur; selectEl.appendChild(o); }
+      selectEl.value = cur;
+    }
+
     function openEditModal(rowId) {
       var record = ALL_RECORDS.find(function (r) { return r.rowId === rowId; });
       if (!record) return;
@@ -1120,6 +1147,8 @@
 
       document.getElementById('editStatus').value = record.status || 'Needs Review';
       document.getElementById('editInvoiceNumber').value = record.invoiceNumber || '';
+      document.getElementById('editAmount').value = (record.amount || record.amount === 0) ? record.amount : '';
+      setCurrencySelect(document.getElementById('editCurrency'), record.currency);
       var editSearch = document.getElementById('editProjectSearch');
       editSearch.value = '';
       filterSelectByText(projectSelect, ''); // reset any prior filtering
@@ -1139,6 +1168,8 @@
       var subprojectNumber = document.getElementById('editSubproject').value;
       var status = document.getElementById('editStatus').value;
       var invoiceNumber = document.getElementById('editInvoiceNumber').value;
+      var amount = document.getElementById('editAmount').value;
+      var currency = document.getElementById('editCurrency').value;
 
       var saveBtn = document.getElementById('editSaveBtn');
       var errorEl = document.getElementById('editModalError');
@@ -1161,7 +1192,7 @@
           saveBtn.textContent = 'Save';
           errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber });
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency });
     }
 
     // --- PDF preview modal --------------------------------------------------------------------
@@ -1235,6 +1266,8 @@
       projectSelect.onchange = function () { fillPreviewSubprojects(tree, projectSelect.value, ''); };
       document.getElementById('previewStatus').value = record.status || 'Needs Review';
       document.getElementById('previewInvoiceNumber').value = record.invoiceNumber || '';
+      document.getElementById('previewAmount').value = (record.amount || record.amount === 0) ? record.amount : '';
+      setCurrencySelect(document.getElementById('previewCurrency'), record.currency);
       document.getElementById('previewProjectSearch').value = '';
       filterSelectByText(projectSelect, '');
       var err = document.getElementById('previewEditError'); err.textContent = ''; err.style.color = '';
@@ -1251,6 +1284,8 @@
       var subprojectNumber = document.getElementById('previewSubproject').value;
       var status = document.getElementById('previewStatus').value;
       var invoiceNumber = document.getElementById('previewInvoiceNumber').value;
+      var amount = document.getElementById('previewAmount').value;
+      var currency = document.getElementById('previewCurrency').value;
 
       var saveBtn = document.getElementById('previewSaveBtn');
       var errorEl = document.getElementById('previewEditError');
@@ -1285,7 +1320,7 @@
           saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
           errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber });
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency });
     }
 
     // --- Multi-select + bulk edit ---------------------------------------------------------------

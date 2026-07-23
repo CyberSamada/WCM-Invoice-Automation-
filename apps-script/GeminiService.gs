@@ -83,7 +83,7 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
       invoice_date: { type: 'string', format: 'date', description: 'Invoice date in YYYY-MM-DD format. See the date-disambiguation instructions in the prompt for ambiguous numeric dates (e.g. 09/07/2026).' },
       due_date: { type: 'string', format: 'date', nullable: true, description: 'Payment due date in YYYY-MM-DD format, if present. Same date-disambiguation rule applies.' },
       amount: { type: 'number', description: 'Total amount due on the invoice.' },
-      currency: { type: 'string', description: 'ISO 4217 currency code, e.g. CAD, USD.' },
+      currency: { type: 'string', description: 'ISO 4217 currency code. Default to "CAD" — these are Canadian vendors. Only return "USD" when the invoice EXPLICITLY indicates US dollars: a printed "USD", "US Dollars", or "US$". A bare "$" with no country marker is CAD, not USD. When in doubt, use "CAD".' },
       project_number: {
         type: 'string',
         enum: projectNumbers,
@@ -237,7 +237,25 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   // of risking the two fields disagreeing. Everything downstream (Main.gs, Test.gs) still just
   // reads is_invoice, so nothing else needs to change to support the new document_type field.
   parsed.is_invoice = parsed.document_type === 'invoice';
+  // Safety net on top of the prompt rule: never leave currency blank/garbage as USD by accident.
+  // A missing or unrecognizable value defaults to CAD; a real USD stays USD. See normalizeCurrency_.
+  parsed.currency = normalizeCurrency_(parsed.currency);
   return parsed;
+}
+
+/**
+ * Normalizes an extracted currency to a clean ISO code, defaulting to CAD. These are Canadian
+ * vendors, so anything blank/unrecognizable is CAD — USD is only kept when it genuinely came back as
+ * USD (the prompt already instructs Gemini to use USD only when the invoice explicitly says so). This
+ * is a backstop, not the primary control: it won't invent USD, only prevent an empty/odd value from
+ * lingering as something other than CAD.
+ */
+function normalizeCurrency_(value) {
+  const c = String(value == null ? '' : value).trim().toUpperCase();
+  if (!c) return 'CAD';
+  if (['US', 'US$', 'USD', 'USDOLLARS', 'US DOLLARS', 'USDOLLAR'].indexOf(c) !== -1) return 'USD';
+  if (['CA', 'CAD', 'CDN', 'C$', 'CAN', 'CANADIAN'].indexOf(c) !== -1) return 'CAD';
+  return /^[A-Z]{3}$/.test(c) ? c : 'CAD'; // keep any other real ISO code; otherwise default CAD
 }
 
 /**
