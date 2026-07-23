@@ -20,28 +20,28 @@
 ## How it works, step by step
 
 **Step 1 — An invoice arrives.**
-Vendors email invoices to `billing@wcmcon.com`. The system checks that inbox every 15 minutes and picks up anything new. It only ever processes *new* mail — anything already handled is labeled and never touched twice, even if someone replies to the old email thread.
+Vendors email `billing@wcmcon.com`. Within about 15 minutes, the system picks it up.
 
-**Step 2 — The invoice is read.**
-The PDF is opened and the key facts are pulled out automatically: **vendor, invoice number, invoice date, due date, amount, and currency**. Amounts are treated as CAD unless the invoice explicitly says US dollars. The vendor's name is standardized to one spelling, so "Copp's Buildall" and "COPPS BUILDALL" don't become two different vendors.
+**Step 2 — It's read.**
+The vendor, invoice number, dates, and amount are pulled from the PDF automatically.
 
-**Step 3 — "Is this actually an invoice?"**
-Purchase Orders, agreements, account statements, and payment notices *look* like invoices but aren't bills. The system tells them apart and sets them aside as **Not an Invoice** — filed, but never mixed in with real bills.
+**Step 3 — Real invoices are separated out.**
+Purchase Orders, statements, and notices are set aside as **Not an Invoice** — never mixed in with real bills.
 
-**Step 4 — "Have we seen this one before?"**
-If the same invoice arrives a second time (a vendor re-sends it, or forwards it again), it is **not filed twice**. The dashboard just gets a **Duplicate** note that points back at the original copy.
+**Step 4 — Duplicates are caught.**
+A re-sent invoice is never filed twice — the dashboard just notes it as a **Duplicate**.
 
 **Step 5 — It's matched to a project.**
-The invoice is matched to a **project and subproject** from the official project list — using project names, numbers, and known site addresses (e.g. an invoice that only says *"1105 Wellington Rd"* still finds White Oaks Mall). The system also knows WCM's own billing address isn't a project, so a "Bill To: 1701 Richmond St" line doesn't confuse it.
+Each invoice is matched to its **project and subproject** — even when the invoice only shows a site address.
 
-**Step 6 — The PDF is filed in Drive** *(see the folder structure below)*.
-The file is renamed to a standard name — **`YYMMDD - InvoiceNumber - Vendor.pdf`** (the date is the day it was processed) — and placed in exactly one spot determined by its project, subproject, and status.
+**Step 6 — It's filed in Drive** *(see the folder structure below)*.
+Renamed to **`YYMMDD - InvoiceNumber - Vendor.pdf`** and placed in exactly one predictable spot.
 
 **Step 7 — It's logged on the dashboard.**
-Every document becomes a row: dates (processed / received / invoice), vendor, invoice #, project, amount, status, plus links to the filed PDF and the original email.
+One row per invoice, with its status and links to the filed PDF and the original email.
 
-**Step 8 — People stay in charge.**
-Anything uncertain lands as **Needs Review**. Fixing it on the dashboard moves the *actual file* in Drive to match — and the correction is remembered for that vendor next time. A daily check also catches files someone moved by hand in Drive, so the dashboard never quietly disagrees with reality. A project coordinator or PM always gives the final OK before an invoice goes to payment — that approval step stays with people, on purpose.
+**Step 8 — People approve.**
+Anything uncertain shows as **Needs Review** — fix it on the dashboard and the file moves itself. Payment approval always stays with a person.
 
 ---
 
