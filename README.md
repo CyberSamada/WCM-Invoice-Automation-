@@ -10,54 +10,92 @@
 
 - **Saves the manual sorting.** Invoices arrive at `billing@wcmcon.com` and are filed into the correct project's Drive folder within about 15 minutes — no one has to touch them.
 - **Nothing gets lost.** Even when the system isn't sure where something belongs, it still saves a copy and flags it for review. An invoice is never silently dropped.
+- **Nothing gets filed twice.** If a vendor re-sends an invoice, the system recognizes it and just notes the re-send — it never creates a second copy.
 - **One place to see everything.** A live dashboard shows every invoice, its status, its amount, and where it was filed — no need to dig through Drive or a spreadsheet.
-- **Catches what matters.** Past-due bills, invoices that squeeze the pay period, and anything the system wasn't confident about all get flagged for a person to check before money moves.
+- **Catches what matters.** Non-invoices (POs, statements), tight due dates, duplicates, and anything the system wasn't confident about all get flagged for a person to check before money moves.
 - **Learns your corrections.** When you fix a misfiled invoice, the system remembers — the next time that vendor's invoice arrives, it applies what it learned (and still asks you to confirm).
 
 ---
 
-## How an invoice flows through it
+## How it works, step by step
+
+**Step 1 — An invoice arrives.**
+Vendors email invoices to `billing@wcmcon.com`. The system checks that inbox every 15 minutes and picks up anything new. It only ever processes *new* mail — anything already handled is labeled and never touched twice, even if someone replies to the old email thread.
+
+**Step 2 — The invoice is read.**
+The PDF is opened and the key facts are pulled out automatically: **vendor, invoice number, invoice date, due date, amount, and currency**. Amounts are treated as CAD unless the invoice explicitly says US dollars. The vendor's name is standardized to one spelling, so "Copp's Buildall" and "COPPS BUILDALL" don't become two different vendors.
+
+**Step 3 — "Is this actually an invoice?"**
+Purchase Orders, agreements, account statements, and payment notices *look* like invoices but aren't bills. The system tells them apart and sets them aside as **Not an Invoice** — filed, but never mixed in with real bills.
+
+**Step 4 — "Have we seen this one before?"**
+If the same invoice arrives a second time (a vendor re-sends it, or forwards it again), it is **not filed twice**. The dashboard just gets a **Duplicate** note that points back at the original copy.
+
+**Step 5 — It's matched to a project.**
+The invoice is matched to a **project and subproject** from the official project list — using project names, numbers, and known site addresses (e.g. an invoice that only says *"1105 Wellington Rd"* still finds White Oaks Mall). The system also knows WCM's own billing address isn't a project, so a "Bill To: 1701 Richmond St" line doesn't confuse it.
+
+**Step 6 — The PDF is filed in Drive** *(see the folder structure below)*.
+The file is renamed to a standard name — **`YYMMDD - InvoiceNumber - Vendor.pdf`** (the date is the day it was processed) — and placed in exactly one spot determined by its project, subproject, and status.
+
+**Step 7 — It's logged on the dashboard.**
+Every document becomes a row: dates (processed / received / invoice), vendor, invoice #, project, amount, status, plus links to the filed PDF and the original email.
+
+**Step 8 — People stay in charge.**
+Anything uncertain lands as **Needs Review**. Fixing it on the dashboard moves the *actual file* in Drive to match — and the correction is remembered for that vendor next time. A daily check also catches files someone moved by hand in Drive, so the dashboard never quietly disagrees with reality. A project coordinator or PM always gives the final OK before an invoice goes to payment — that approval step stays with people, on purpose.
+
+---
+
+## The folder structure
+
+Everything lands in the **Invoice Archive**. Each file has exactly one correct home, decided by three questions: *which project? which subproject? what status?*
+
+```
+📁 Invoice Archive
+│
+├── 📁 06 - FOREST EDGE CMNS. - 952 SOUTHDALE        ← one folder per project
+│   │
+│   ├── 📁 6.4 - Forest Edge Commons (CRU3)          ← one folder per subproject
+│   │   ├── 📁 2026-07                               ← FILED invoices, by month processed
+│   │   │   └── 📄 260722 - 1163 - Outer Construction.pdf
+│   │   ├── 📁 Needs Review                          ← invoices waiting on a person
+│   │   └── 📁 Statements & Others                   ← non-invoices ONLY (POs, statements, notices)
+│   │
+│   └── 📁 No Subprojects                            ← invoices not tied to any subproject
+│       ├── 📁 2026-07
+│       ├── 📁 Needs Review
+│       └── 📁 Statements & Others
+│
+└── 📁 _Unmatched                                    ← couldn't be placed at all — needs a person
+```
+
+Three rules make it predictable:
+
+1. **Subproject first.** An invoice lives under its subproject's folder — or under **No Subprojects** when it isn't tied to one.
+2. **Statuses never mix.** **Filed** invoices go in a month folder (`YYYY-MM` — the month processed, the same date the filename starts with). **Needs Review** items have their own folder. **Statements & Others** holds *only* non-invoices.
+3. **Nowhere to hide.** Anything that can't be matched to a project at all goes to the top-level **_Unmatched** folder — visible, never lost.
+
+---
+
+## The whole flow at a glance
 
 ```mermaid
 flowchart TD
     A["📧 Invoice arrives at<br/>billing@wcmcon.com"] --> B["🤖 System reads the PDF:<br/>vendor, invoice #, dates, amount"]
     B --> C{"Is it really<br/>an invoice?"}
-    C -->|"No — a Purchase Order,<br/>statement, or notice"| D["📁 Filed for review,<br/>marked 'Not an Invoice'"]
-    C -->|"Yes"| E{"Which project<br/>does it belong to?"}
-    E -->|"Confident match"| F{"Due date OK &<br/>everything checks out?"}
-    E -->|"Not sure"| G["📁 Filed to 'Needs Review'<br/>for a person to place"]
-    F -->|"Yes"| H["✅ Filed automatically into<br/>the project's month folder"]
-    F -->|"Past due / due too soon /<br/>large amount"| I["⚠️ Filed but flagged<br/>'Past Due' or 'Needs Review'"]
+    C -->|"No — a Purchase Order,<br/>statement, or notice"| D["📁 Statements & Others,<br/>marked 'Not an Invoice'"]
+    C -->|"Yes"| K{"Seen this invoice<br/>before?"}
+    K -->|"Yes — a re-send"| L["📝 'Duplicate' note on the dashboard,<br/>pointing at the original — not filed twice"]
+    K -->|"New"| E{"Which project<br/>does it belong to?"}
+    E -->|"Confident match"| F{"Everything<br/>checks out?"}
+    E -->|"Not sure"| G["📁 'Needs Review' folder,<br/>for a person to place"]
+    F -->|"Yes"| H["✅ Filed into the project's<br/>month folder"]
+    F -->|"Due too soon /<br/>large amount"| I["📁 'Needs Review' folder,<br/>with the reason noted"]
     H --> J["📊 Logged on the dashboard"]
     I --> J
     G --> J
     D --> J
+    L --> J
 ```
-
-A project coordinator or PM always gives the final human OK before an invoice goes to payment — that approval step stays with people, on purpose. The system only reads and copies; it never deletes or changes the original email.
-
----
-
-## How invoices are filed in Drive
-
-Everything lands in the **Invoice Archive**, organized so any invoice is easy to find:
-
-```mermaid
-flowchart TD
-    R["📁 Invoice Archive"] --> P["📁 54 - WHITE OAKS MALL"]
-    P --> S["📁 54.13 - White Oaks CRUs"]
-    P --> NS["📁 No Subprojects<br/>(invoices with no subproject assigned)"]
-    S --> M["📁 2026-07  (Filed, by month processed)"]
-    M --> F["📄 260715 - INV5205 - Vendor Name.pdf"]
-    S --> NR["📁 Needs Review<br/>(awaiting a person)"]
-    S --> ST["📁 Statements &amp; Others<br/>(non-invoices: statements, POs, notices)"]
-    R --> U["📁 _Unmatched<br/>(couldn't be placed — needs a person)"]
-```
-
-- Each invoice lives under its **subproject folder** — or under a **No Subprojects** folder in the project when no subproject is assigned.
-- From there, **statuses never mix**: **Filed** invoices go into a **month folder** (`YYYY-MM`, the month processed — same date the filename carries), **Needs Review** items go into a **Needs Review** folder, and **non-invoices** (statements, POs, notices) go into **Statements & Others**.
-- **Invoices the system couldn't place at all** go to a top-level **_Unmatched** folder so they're easy to spot and assign.
-- **Filenames are standardized**: `YYMMDD - InvoiceNumber - Vendor.pdf` (the date is when it was processed).
 
 ---
 
@@ -65,36 +103,37 @@ flowchart TD
 
 **Reading & understanding invoices**
 - Reads the PDF from the billing inbox automatically — including invoices whose attachment is mislabeled by the sender.
-- Extracts vendor, invoice number, invoice date, due date, and amount.
+- Extracts vendor, invoice number, invoice date, due date, amount, and currency (CAD unless the invoice explicitly says USD).
 - Tells a real **invoice** apart from a **Purchase Order / Agreement**, an **account statement**, or a payment-info notice — so a PO doesn't get filed as a bill.
 - Resolves ambiguous dates (e.g. "09/07/2026") using when the email actually arrived.
+- **Duplicate detection** — a re-sent invoice is logged as a *Duplicate* pointing at the original, never filed twice.
 
 **Sorting & filing**
-- Matches each invoice to the right project **and** subproject from the official project list.
-- Files into a tidy project → subproject → month folder structure in Drive (a **No Subprojects** folder holds anything without a subproject).
-- Statuses never mix: separate **Needs Review** and **Statements & Others** folders for anything needing attention.
-- Standardized, consistent file naming.
-- **Vendor name standardization** — one canonical spelling per company, so "Copp's Buildall" and "COPPS BUILDALL" don't split into two, while genuinely different divisions (e.g. *J-AAR Civil* vs *J-AAR Structure*) stay separate.
+- Matches each invoice to the right project **and** subproject from the official project list — including by **known site addresses**, not just project names.
+- Files into the strict structure above: subproject (or *No Subprojects*) → month / Needs Review / Statements & Others. **Statuses never mix.**
+- Standardized, consistent file naming (`YYMMDD - InvoiceNumber - Vendor.pdf`).
+- **Vendor name standardization** — one canonical spelling per company, while genuinely different divisions (e.g. *J-AAR Civil* vs *J-AAR Structure*) stay separate.
 
 **Flagging what needs a human**
-- **Past Due** — the due date has already passed.
-- **Crams the pay period** — due date lands too soon after arrival.
-- **Needs Review** — the system wasn't confident about the project match.
+- **Needs Review** — the system wasn't confident about the match, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period).
+- **Duplicate** — the same invoice arrived again.
 - Every flag comes with a short plain-language note explaining *why*.
 
 **The dashboard**
-- Live status cards (Filed / Needs Review / Not an Invoice / Past Due / Errors) with a **time-frame selector** (today / this week / this month / all time).
-- Filter the invoice list by status, project, vendor, date range, or amount.
-- **Preview a filed PDF in place** — with its Drive folder location shown — plus an "Open in Drive" button.
-- **Fix a misfile** with one click: change the project, subproject, or status and the system moves the actual file in Drive to match.
-- **Bulk edit** — select many invoices and re-file them all at once.
-- Invoice number and both the received date and processed date shown per row.
+- Live status cards with a **time-frame selector** (today / this week / this month / all time).
+- **Powerful filters** — pick multiple statuses at once, tick whole projects or individual subprojects, search by vendor or invoice #, filter by amount, and filter any date range by *processed*, *received*, or *invoice* date.
+- **Sort control** — reorder the list by any date, vendor, project, amount, or status, ascending or descending.
+- **Preview a filed PDF in place**, with its live Drive folder location — and edit the project, subproject, status, invoice #, amount, or currency *right next to the PDF*. **Prev / Next** buttons let you work through a stack without closing the preview.
+- **Fix a misfile in one click** — the system moves the actual file in Drive to match (and renames it if you corrected the invoice #).
+- **Bulk edit** — select many rows (shift-click selects a range) and re-file them all at once, with a progress bar.
 - **Send feedback** straight from the dashboard.
 - **Start / Pause** the automation, and swap the dashboard logo — no code needed.
 
-**Learning & record-keeping**
-- **Vendor memory** — learns from your manual corrections. When a vendor you've corrected before sends another invoice, the system applies what it learned (and routes it to you to confirm, never silently).
+**Keeping itself honest**
+- **Vendor memory** — learns from your manual corrections; a previously-corrected vendor's next invoice applies what was learned (and still routes to you to confirm).
 - **Override Log** — every correction is recorded (what the system chose vs. what you changed it to), so patterns are visible over time.
+- **Daily Drive check** — if someone moves or deletes a filed PDF directly in Drive, the system notices: it updates the log to match (with an audit trail) or flags the row for review. The dashboard and Drive can't silently drift apart.
+- The invoice log **archives itself** — old rows roll into an archive tab automatically, so it stays fast for years without a manual reset.
 - A running **Errors** log for anything that couldn't be processed.
 
 ---
@@ -104,19 +143,19 @@ flowchart TD
 You don't need access to the spreadsheet or any code — just the dashboard link (ask whoever manages the automation for the URL, and bookmark it).
 
 **1. Check the day's status.**
-The cards across the top show how many invoices are Filed, need review, are past due, etc. Use the **time-frame selector** (top right) to switch between today / this week / this month.
+The cards across the top show how many invoices are Filed, need review, weren't invoices, or errored. Use the **time-frame selector** (top right) to switch between today / this week / this month.
 
 **2. Find what needs you.**
-Set the **Status** filter to "Needs Review" or "Past Due" to see just the invoices waiting on a person. You can also filter by your project, a vendor, an amount range, or a date range.
+Open the **Status** dropdown and tick "Needs Review" to see just the invoices waiting on a person. Open the **Project** dropdown and tick your project — ticking a main project includes all its subprojects, or tick just the subprojects you care about. You can also search by vendor or invoice #, filter by amount, and set a date range (by processed, received, or invoice date). The **Sort by** control reorders whatever the filters found.
 
 **3. Look at an invoice.**
-Click the **file icon** on a row to preview the PDF right on the page — it also shows exactly where the file lives in Drive, with an **Open in Drive** button if you want the full folder.
+Click the **file icon** on a row to preview the PDF right on the page — the panel beside it shows exactly where the file lives in Drive, with an **Open in Drive** button.
 
-**4. Fix one that's filed wrong.**
-Click the **pencil icon** on the row, pick the correct project / subproject / status, and Save. The system moves the actual PDF in Drive to the right folder for you — and remembers the correction for next time.
+**4. Fix one that's filed wrong — without leaving the preview.**
+The panel beside the PDF lets you correct the **project, subproject, status, invoice #, amount, or currency**, then **Save changes**. The system moves (and if needed renames) the actual PDF in Drive — and remembers the correction for that vendor. Then hit **Next ›** to roll straight to the following invoice.
 
 **5. Fix several at once.**
-Tick the **checkboxes** on multiple rows, then use **Edit selected** to re-file them all in one go (e.g. reassign a batch of a vendor's invoices to the right project).
+Tick the **checkboxes** on multiple rows (hold **Shift** to select a range), then **Edit selected** to re-file them all in one go — a progress bar shows it working through the batch.
 
 **6. Flag anything odd.**
 Use the **Send feedback** button in the corner for anything confusing or wrong — it's tracked for follow-up.
@@ -135,6 +174,7 @@ The main page above is written for everyday users. All technical documentation l
 | [`apps-script/SETUP.md`](./apps-script/SETUP.md) | Deployment, configuration, keeping the live script in sync with this repo |
 | [`apps-script/`](./apps-script/) | The actual source code (Gmail, AI extraction, Drive, Sheets, and the dashboard) |
 | [`project_reference.csv`](./project_reference.csv) | The master project/subproject list used for matching |
+| [`property_addresses.md`](./property_addresses.md) | Canonical property addresses backing the address-based matching |
 | [`EMPLOYEE_GUIDE.md`](./EMPLOYEE_GUIDE.md) | The end-user how-to (also linked above) |
 
 **Status:** Live and running inside Google Workspace — no external server or third-party automation platform. Runs on an automatic schedule; the dashboard is a hosted web page anyone with the link can view.
