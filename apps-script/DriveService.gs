@@ -103,6 +103,21 @@ function buildInvoiceFileName_(extracted) {
   return `${datePart} - ${safeInvoiceNumber} - ${safeVendor}.pdf`;
 }
 
+/**
+ * Rebuilds an invoice's standardized filename when its invoice number is corrected on the dashboard —
+ * same "YYMMDD - InvoiceNumber - Vendor.pdf" format as buildInvoiceFileName_, but from already-logged
+ * fields and using the row's ORIGINAL Date Processed (not now), so only the number changes.
+ */
+function buildRenamedInvoiceFileName_(dateProcessed, invoiceNumber, vendor) {
+  const d = (dateProcessed instanceof Date && !isNaN(dateProcessed.getTime())) ? dateProcessed : new Date(dateProcessed);
+  const datePart = !isNaN(d.getTime())
+    ? Utilities.formatDate(d, CONFIG_TIMEZONE_(), 'yyMMdd')
+    : Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyMMdd');
+  const safeInvoiceNumber = sanitizeForFileName_(String(invoiceNumber || 'NoInvoiceNumber'));
+  const safeVendor = sanitizeForFileName_(String(vendor || 'UnknownVendor'));
+  return `${datePart} - ${safeInvoiceNumber} - ${safeVendor}.pdf`;
+}
+
 /** Strips characters Drive/most filesystems reject in names, and collapses whitespace. */
 function sanitizeForFileName_(value) {
   return String(value).replace(/[\\/:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim();
