@@ -207,7 +207,13 @@
       width: 100%;
     }
     .reset-btn:hover { background: #eef4fb; }
-    .results-count { font-size: 12px; color: #6b7280; margin: 0 0 8px 0; }
+    .results-count { font-size: 12px; color: #6b7280; margin: 0; }
+    .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px 0; }
+    .sort-control { display: flex; align-items: center; gap: 6px; }
+    .sort-control label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+    .sort-control select { font-family: inherit; font-size: 12px; padding: 5px 7px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937; }
+    .sort-dir { font-size: 13px; line-height: 1; padding: 5px 10px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #374151; cursor: pointer; }
+    .sort-dir:hover { background: #f9fafb; }
 
     /* Tables */
     table {
@@ -500,7 +506,22 @@
         </div>
       </div>
 
-      <p class="results-count" id="resultsCount">Showing all invoices</p>
+      <div class="results-header">
+        <p class="results-count" id="resultsCount">Showing all invoices</p>
+        <div class="sort-control">
+          <label for="sortField">Sort by</label>
+          <select id="sortField">
+            <option value="processed">Processed date</option>
+            <option value="received">Received date</option>
+            <option value="invoice">Invoice date</option>
+            <option value="vendor">Vendor</option>
+            <option value="project">Project</option>
+            <option value="amount">Amount</option>
+            <option value="status">Status</option>
+          </select>
+          <button type="button" class="sort-dir" id="sortDir" data-dir="desc" title="Toggle sort direction (newest/oldest, A–Z/Z–A)" aria-label="Toggle sort direction">&#8595;</button>
+        </div>
+      </div>
 
       <div class="bulk-bar" id="bulkBar">
         <span><span class="bulk-count" id="bulkCount">0</span> selected</span>
@@ -1051,10 +1072,44 @@
         return true;
       });
 
-      // Sort by the same date basis the user is filtering on, so the list reads in the order they expect.
-      filtered.sort(function (a, b) { return (b[dateField] || 0) - (a[dateField] || 0); });
-
+      sortRecords(filtered);
       renderResults(filtered);
+    }
+
+    // Fields where "descending" (newest / highest first) is the natural default; the rest default A->Z.
+    var SORT_DESC_DEFAULT = ['processed', 'received', 'invoice', 'amount'];
+
+    // Sorts the FILTERED list in place per the Sort-by control (field + direction). Independent of the
+    // filters — it just reorders what's already shown.
+    function sortRecords(list) {
+      var field = document.getElementById('sortField').value;
+      var mul = document.getElementById('sortDir').getAttribute('data-dir') === 'asc' ? 1 : -1;
+      list.sort(function (a, b) {
+        var d;
+        switch (field) {
+          case 'received': d = (a.dateReceivedRaw || 0) - (b.dateReceivedRaw || 0); break;
+          case 'invoice':  d = (a.invoiceDateRaw || 0) - (b.invoiceDateRaw || 0); break;
+          case 'amount':   d = (a.amount || 0) - (b.amount || 0); break;
+          case 'vendor':   d = String(a.vendor || '').localeCompare(String(b.vendor || '')); break;
+          case 'status':   d = String(a.status || '').localeCompare(String(b.status || '')); break;
+          case 'project':
+            d = compareDotted(normalizeKey(a.projectNumber || ''), normalizeKey(b.projectNumber || ''));
+            if (d === 0) d = compareDotted(normalizeKey(a.subprojectNumber || ''), normalizeKey(b.subprojectNumber || ''));
+            break;
+          case 'processed':
+          default:         d = (a.dateProcessedRaw || 0) - (b.dateProcessedRaw || 0); break;
+        }
+        if (d === 0) d = (a.dateProcessedRaw || 0) - (b.dateProcessedRaw || 0); // stable-ish tiebreak
+        return d * mul;
+      });
+    }
+
+    // Updates the direction toggle (arrow + tooltip). data-dir drives sortRecords.
+    function setSortDir(dir) {
+      var btn = document.getElementById('sortDir');
+      btn.setAttribute('data-dir', dir);
+      btn.innerHTML = dir === 'asc' ? '&#8593;' : '&#8595;';
+      btn.title = dir === 'asc' ? 'Ascending (oldest / A-Z / low first) - click to flip' : 'Descending (newest / Z-A / high first) - click to flip';
     }
 
     function renderResults(list) {
@@ -1673,6 +1728,14 @@
       document.getElementById('filterInvoiceNumber').addEventListener('input', applyFilters);
       document.getElementById('filterTimeframe').addEventListener('change', function () { toggleCustomDateInputs(); applyFilters(); });
       document.getElementById('filterDateBasis').addEventListener('change', applyFilters);
+      document.getElementById('sortField').addEventListener('change', function () {
+        setSortDir(SORT_DESC_DEFAULT.indexOf(this.value) > -1 ? 'desc' : 'asc');
+        applyFilters();
+      });
+      document.getElementById('sortDir').addEventListener('click', function () {
+        setSortDir(this.getAttribute('data-dir') === 'asc' ? 'desc' : 'asc');
+        applyFilters();
+      });
       document.getElementById('filterAmountMin').addEventListener('input', applyFilters);
       document.getElementById('filterAmountMax').addEventListener('input', applyFilters);
       document.getElementById('filterDateStart').addEventListener('change', applyFilters);
