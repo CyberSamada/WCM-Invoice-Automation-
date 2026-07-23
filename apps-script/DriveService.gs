@@ -47,9 +47,9 @@ function getOrCreateNamedSubfolder_(parentFolderId, name) {
 }
 
 /**
- * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the email/received
- * date, so filed invoices are grouped by the month they arrived under the project name folder. Returns
- * the parent folder itself when CONFIG.FILE_BY_MONTH is off.
+ * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the PROCESSED
+ * date (the same date the filename carries), so filed invoices are grouped by the month they were
+ * handled. Returns the parent folder itself when CONFIG.FILE_BY_MONTH is off.
  */
 function getMonthSubfolderId_(projectFolderId, monthDate) {
   if (!CONFIG.FILE_BY_MONTH) return projectFolderId;
@@ -57,12 +57,11 @@ function getMonthSubfolderId_(projectFolderId, monthDate) {
 }
 
 /**
- * The "YYYY-MM" folder name for an invoice, based on WHEN IT ARRIVED (the email/received date) rather
- * than the invoice's printed date. Grouping by arrival keeps everything received in a given month in
- * one folder (and matches the processed-date filename), instead of scattering by whatever date the
- * vendor put on the invoice. Accepts a Date (email received date) or a "YYYY-MM-DD" string; a Date is
- * formatted in the script timezone, a string is read directly (no timezone shift). Falls back to the
- * current month if neither is usable.
+ * The "YYYY-MM" folder name for an invoice, based on its PROCESSED date - the same date the filename
+ * uses ("YYMMDD - ..."), so the filename and folder always agree, and a batch processed in one month
+ * consolidates into that month's folder. Accepts a Date or a "YYYY-MM-DD" string; a Date is formatted
+ * in the script timezone, a string is read directly (no timezone shift). Falls back to the current
+ * month if neither is usable.
  */
 function monthFolderKey_(monthDate) {
   if (monthDate instanceof Date && !isNaN(monthDate.getTime())) {
@@ -77,7 +76,7 @@ function monthFolderKey_(monthDate) {
  * Resolves the Drive folder a matched invoice should live in, given its status — the single source
  * of truth shared by automatic filing (Main.gs/processOneInvoice_) and the dashboard's manual
  * override (DashboardServer.gs/updateInvoiceRow), so the two paths can never disagree about where
- * something belongs. 'Filed' goes straight into the month folder (grouped by the email/received date). Anything else
+ * something belongs. 'Filed' goes straight into the month folder (grouped by the processed date). Anything else
  * (Needs Review, Not an Invoice) goes into that month's "Statements & Others" subfolder — nested
  * under the month, so a project's archive stays organized by month at a glance either way. No project
  * match at all falls back to the top-level "_Unmatched" folder.
