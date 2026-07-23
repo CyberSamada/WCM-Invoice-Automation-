@@ -26,41 +26,42 @@ At the top you'll see summary cards, with a **time-frame selector** (top right) 
 | **Filed** | Auto-filed with high confidence — no action needed |
 | **Needs Review** | The system wasn't sure, or it's a statement/non-invoice — take a look |
 | **Not an Invoice** | Recognized as something other than an invoice (statement, Purchase Order, notice, etc.) |
-| **Past Due** | The due date has already passed — needs urgent attention |
 | **Errors** | Something went wrong processing it — see below |
 
-Below that, filters let you narrow the invoice list by status, project, vendor name, date range, or amount. Use these to find something specific — e.g. set Project to your building and Status to "Needs Review" to see just what's waiting on you.
+Below that, filters narrow the invoice list. The **Status** and **Project** filters are dropdowns where you can tick **several at once** (ticking a main project includes all its subprojects). You can also search by **vendor** or **invoice #**, set an **amount** range, and pick a **date range** — filtered by processed, received, or invoice date. A **Sort by** control reorders whatever the filters found (newest/oldest, by vendor, project, amount, or status).
 
-Each row shows the invoice's processed date, received date, vendor (with its invoice number underneath), project/subproject, amount, and status, plus quick actions:
-- 📄 **Preview** the filed PDF right on the page (shows its Drive location, with an "Open in Drive" button)
+Each row shows the invoice's processed date, received date, invoice date, vendor (with its invoice number underneath), project/subproject, amount, and status, plus quick actions:
+- 📄 **Preview** the filed PDF right on the page — with an edit panel beside it and **Prev / Next** buttons to work through a stack without closing it
 - ✉️ open the original email in Gmail
-- ✏️ **edit** the row (fix the project/subproject/status)
+- ✏️ **edit** the row (fix the project, subproject, status, invoice #, amount, or currency)
 
 ## What each status means
 
 - **Filed** — done, no action needed. Filed into the project's folder, organized by month.
-- **Needs Review** — the system filed a copy but wants a human to confirm the project/amount are right, or it just crammed the pay period (due date too soon after it arrived) and wants a second look before it's paid on autopilot. Check it and correct it if needed (see below).
-- **Past Due** — the invoice's due date has already passed. It's filed into that project's **Past Due** folder and flagged so it gets urgent attention before it slips further.
-- **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a Purchase Order / Agreement, a statement, a receipt, a "your account info changed" email, etc.). Worth a quick glance to confirm it agrees with you.
+- **Needs Review** — the system filed a copy (into the **Needs Review** folder) but wants a human to confirm: it wasn't sure about the project, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period). Check it and correct it if needed (see below).
+- **Duplicate** — the same invoice arrived again (a vendor re-send). It was **not** filed twice; the row's file link points at the original copy. Nothing to do unless the re-send was actually a *revised* invoice — then edit the row.
+- **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a Purchase Order / Agreement, a statement, a receipt, a "your account info changed" email, etc.). It's filed under **Statements & Others**. Worth a quick glance to confirm it agrees with you.
 - **Errors** — something prevented processing (most often: the email matched the billing label but didn't actually have a PDF attached). Open the Gmail link to see the original email and handle it manually.
 
 ## Fixing a misfiled invoice
 
 If an invoice landed under the wrong project, subproject, or status, you can fix it yourself — no need to ask for help:
 
-1. Find the row in the table and click the **pencil/edit icon** at the end of the row.
-2. A small window opens where you can change the **project**, **subproject**, and **status**.
+1. Find the row in the table and click the **pencil/edit icon** at the end of the row — or open the **PDF preview** (file icon) and use the edit panel right beside the document.
+2. Change the **project**, **subproject**, **status**, **invoice #**, **amount**, or **currency**.
 3. Click **Save**.
 
-This doesn't just update the log — it also moves the actual file in Google Drive to the correct folder, so the archive and the dashboard always agree. The system also **remembers your correction**: next time that same vendor sends an invoice, it applies what it learned (and still shows it to you to confirm).
+This doesn't just update the log — it also moves the actual file in Google Drive to the correct folder (and renames it if you corrected the invoice #), so the archive and the dashboard always agree. The system also **remembers your correction**: next time that same vendor sends an invoice, it applies what it learned (and still shows it to you to confirm).
+
+Working through a pile? In the preview, use **‹ Prev / Next ›** to move to the next invoice without closing it — review, fix, Save, Next.
 
 ### Fixing several at once
 
 If a batch of invoices all need the same fix (say, several from one vendor that all went to the wrong project):
 
-1. Tick the **checkboxes** on each row you want to change (or the checkbox in the header to select all shown).
+1. Tick the **checkboxes** on each row you want to change — hold **Shift** and click to select a whole range, or use the header checkbox to select all shown.
 2. Click **Edit selected** in the bar that appears.
-3. Choose the project/subproject/status to apply, and Save. They're all re-filed at once.
+3. Choose the project/subproject/status to apply, and Save. A progress bar shows them being re-filed one by one.
 
 ## Where filed invoices live in Drive
 
