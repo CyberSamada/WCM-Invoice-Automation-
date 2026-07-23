@@ -294,6 +294,11 @@
     .preview-frame-wrap iframe { display: block; width: 100%; height: 62vh; border: none; }
     .preview-location { font-size: 12px; color: #6b7280; margin: 10px 0 0; word-break: break-word; }
     .preview-location strong { color: #374151; font-weight: 600; }
+    .preview-edit { display: flex; gap: 16px; margin-top: 14px; }
+    .preview-edit-col { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
+    .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
+    .preview-edit-col select { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+    .preview-edit-label2 { margin-top: 8px; }
 
     /* Bulk select/edit */
     .bulk-bar {
@@ -535,7 +540,7 @@
     </div>
   </div>
 
-  <!-- PDF preview -->
+  <!-- PDF preview (with inline edit) -->
   <div class="modal-overlay" id="previewModalOverlay" style="display:none">
     <div class="modal-box preview-box">
       <h3 id="previewTitle">Invoice preview</h3>
@@ -544,9 +549,31 @@
         <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
       </div>
       <p class="preview-location" id="previewLocation">Looking up file location…</p>
+
+      <div class="preview-edit">
+        <div class="preview-edit-col preview-edit-project">
+          <label for="previewProject">Project</label>
+          <input type="text" class="select-search" id="previewProjectSearch" placeholder="Search projects…">
+          <select id="previewProject" size="5"></select>
+        </div>
+        <div class="preview-edit-col">
+          <label for="previewSubproject">Subproject</label>
+          <select id="previewSubproject"></select>
+          <label for="previewStatus" class="preview-edit-label2">Status</label>
+          <select id="previewStatus">
+            <option value="Filed">Filed</option>
+            <option value="Needs Review">Needs Review</option>
+            <option value="Not an Invoice">Not an Invoice</option>
+            <option value="Duplicate">Duplicate</option>
+          </select>
+        </div>
+      </div>
+      <p class="modal-error" id="previewEditError"></p>
+
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="previewCloseBtn">Close</button>
-        <button type="button" class="btn-primary" id="previewOpenDriveBtn">Open in Drive</button>
+        <button type="button" class="btn-secondary" id="previewOpenDriveBtn">Open in Drive</button>
+        <button type="button" class="btn-primary" id="previewSaveBtn">Save changes</button>
       </div>
     </div>
   </div>
@@ -1122,6 +1149,7 @@
     }
 
     var previewDriveLink = '';
+    var previewRowId = null;
 
     function openPreviewModal(rowId) {
       var record = ALL_RECORDS.find(function (r) { return r.rowId === rowId; });
@@ -1130,9 +1158,11 @@
       if (!parsed) { window.open(record.driveLink, '_blank'); return; } // unparseable link — old behavior as fallback
 
       previewDriveLink = record.driveLink;
+      previewRowId = rowId;
       document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
       document.getElementById('previewFrame').src = parsed.url;
       document.getElementById('previewLocation').textContent = 'Looking up file location…';
+      populatePreviewEditControls(record);
       document.getElementById('previewModalOverlay').style.display = 'flex';
 
       google.script.run
@@ -1151,6 +1181,86 @@
       document.getElementById('previewModalOverlay').style.display = 'none';
       document.getElementById('previewFrame').src = 'about:blank'; // stop the embedded viewer
       previewDriveLink = '';
+      previewRowId = null;
+    }
+
+    // Fills the preview modal's own subproject <select> for a chosen project (its own copy so it
+    // never touches the edit modal's controls).
+    function fillPreviewSubprojects(tree, projectKeyVal, selectedSubNumber) {
+      var select = document.getElementById('previewSubproject');
+      select.innerHTML = '';
+      var none = document.createElement('option'); none.value = ''; none.textContent = '(no subproject)'; select.appendChild(none);
+      var proj = tree[projectKeyVal];
+      if (proj) Object.keys(proj.subs).sort(compareDotted).forEach(function (sKey) {
+        var opt = document.createElement('option'); opt.value = proj.subs[sKey].number; opt.textContent = proj.subs[sKey].label; select.appendChild(opt);
+      });
+      select.value = selectedSubNumber || '';
+    }
+
+    // Loads the current project/subproject/status into the preview modal's inline edit controls.
+    function populatePreviewEditControls(record) {
+      var tree = buildReferenceTree();
+      var projectSelect = document.getElementById('previewProject');
+      projectSelect.innerHTML = '';
+      var noneOpt = document.createElement('option'); noneOpt.value = ''; noneOpt.textContent = '(no project match)'; projectSelect.appendChild(noneOpt);
+      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
+        var opt = document.createElement('option'); opt.value = pKey; opt.textContent = tree[pKey].label; projectSelect.appendChild(opt);
+      });
+      var currentPKey = normalizeKey(record.projectNumber);
+      projectSelect.value = tree[currentPKey] ? currentPKey : '';
+      fillPreviewSubprojects(tree, projectSelect.value, record.subprojectNumber);
+      projectSelect.onchange = function () { fillPreviewSubprojects(tree, projectSelect.value, ''); };
+      document.getElementById('previewStatus').value = record.status || 'Needs Review';
+      document.getElementById('previewProjectSearch').value = '';
+      filterSelectByText(projectSelect, '');
+      var err = document.getElementById('previewEditError'); err.textContent = ''; err.style.color = '';
+      var btn = document.getElementById('previewSaveBtn'); btn.disabled = false; btn.textContent = 'Save changes';
+    }
+
+    // Saves the preview modal's inline edits via the same server call as the edit modal, then refreshes
+    // the table behind it and the location line (the file may have moved to a new project folder).
+    function savePreviewEdit() {
+      if (!previewRowId) return;
+      var tree = buildReferenceTree();
+      var pKey = document.getElementById('previewProject').value;
+      var projectNumber = pKey && tree[pKey] ? tree[pKey].number : '';
+      var subprojectNumber = document.getElementById('previewSubproject').value;
+      var status = document.getElementById('previewStatus').value;
+
+      var saveBtn = document.getElementById('previewSaveBtn');
+      var errorEl = document.getElementById('previewEditError');
+      errorEl.textContent = ''; errorEl.style.color = '';
+      saveBtn.disabled = true; saveBtn.textContent = 'Saving…';
+
+      var rowId = previewRowId;
+      google.script.run
+        .withSuccessHandler(function (updated) {
+          saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
+          var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
+          if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
+          applyFilters(); // refresh the table behind the modal
+          errorEl.style.color = '#059669'; errorEl.textContent = 'Saved ✓';
+          // The file may have moved to a new project folder — refresh the location line.
+          var newLink = (updated && updated.driveLink) || previewDriveLink;
+          previewDriveLink = newLink;
+          var parsed = drivePreviewUrl(newLink);
+          if (parsed) {
+            document.getElementById('previewLocation').textContent = 'Updating file location…';
+            google.script.run
+              .withSuccessHandler(function (info) {
+                document.getElementById('previewLocation').innerHTML =
+                  '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
+                  ' &nbsp;·&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+              })
+              .withFailureHandler(function () {})
+              .getInvoiceFileInfo(parsed.fileId);
+          }
+        })
+        .withFailureHandler(function (err) {
+          saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
+          errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
+        })
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status });
     }
 
     // --- Multi-select + bulk edit ---------------------------------------------------------------
@@ -1387,6 +1497,8 @@
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
       document.getElementById('previewCloseBtn').addEventListener('click', closePreviewModal);
       document.getElementById('previewOpenDriveBtn').addEventListener('click', function () { if (previewDriveLink) window.open(previewDriveLink, '_blank'); });
+      document.getElementById('previewProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('previewProject'), this.value); });
+      document.getElementById('previewSaveBtn').addEventListener('click', savePreviewEdit);
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();
       applyFilters();

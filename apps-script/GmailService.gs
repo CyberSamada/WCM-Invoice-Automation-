@@ -37,27 +37,56 @@ function dateRangeQuerySuffix_() {
   return suffix;
 }
 
+/** The PROCESS_FROM_DATE cutoff as a Date (local midnight, inclusive), or null when not set. */
+function processFromDate_() {
+  return CONFIG.PROCESS_FROM_DATE ? parseYmdDate_(CONFIG.PROCESS_FROM_DATE) : null;
+}
+
+/** True if an attachment is a PDF — by content type OR a ".pdf" filename (see getPdfAttachments_). */
+function isPdfAttachment_(attachment) {
+  return attachment.getContentType() === 'application/pdf' || /\.pdf$/i.test(attachment.getName() || '');
+}
+
 /**
- * Returns all PDF attachments (as Blobs) across every message in a thread.
+ * Returns PDF attachments (as Blobs) across a thread's messages — but ONLY from messages dated on or
+ * after CONFIG.PROCESS_FROM_DATE.
  *
- * Matches by content type OR a ".pdf" filename, not content type alone — some senders' mail
- * systems attach real PDFs under a generic type like "application/octet-stream" instead of
- * "application/pdf" (this is what silently dropped valid PDFs before: they showed up as a normal
- * attachment in Gmail, but the strict content-type check never counted them, logging a false "no
- * PDF attachment" error). The extension check catches that without accepting non-PDF files.
+ * The per-MESSAGE date check matters because the start-date cutoff is applied in the Gmail search via
+ * `after:` (see dateRangeQuerySuffix_), and Gmail's `after:` matches a whole THREAD if ANY message in
+ * it is recent. So a months-old invoice whose thread just got a follow-up reply ("when will this be
+ * paid?") resurfaces in the search, and without this check its original, pre-cutoff PDF would be
+ * pulled off the old message and filed as if new. Filtering per message means only genuinely new
+ * invoices are processed; old attachments on resurfaced threads are left alone.
+ *
+ * Matches by content type OR a ".pdf" filename, not content type alone — some senders' mail systems
+ * attach real PDFs under a generic type like "application/octet-stream" instead of "application/pdf"
+ * (this silently dropped valid PDFs before). The extension check catches that without accepting
+ * non-PDF files.
  */
 function getPdfAttachments_(thread) {
   const attachments = [];
+  const fromDate = processFromDate_();
   thread.getMessages().forEach(message => {
+    if (fromDate && message.getDate() < fromDate) return; // skip messages before the start-date cutoff
     message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
-      const isPdfType = attachment.getContentType() === 'application/pdf';
-      const isPdfName = /\.pdf$/i.test(attachment.getName() || '');
-      if (isPdfType || isPdfName) {
+      if (isPdfAttachment_(attachment)) {
         attachments.push({ blob: attachment.copyBlob(), message: message });
       }
     });
   });
   return attachments;
+}
+
+/** True if the thread has ANY PDF attachment at all, ignoring the date cutoff — lets the caller tell
+ *  a genuine "no PDF on this thread" miss from a thread whose only PDF(s) predate PROCESS_FROM_DATE. */
+function threadHasAnyPdf_(thread) {
+  let found = false;
+  thread.getMessages().forEach(message => {
+    message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
+      if (isPdfAttachment_(attachment)) found = true;
+    });
+  });
+  return found;
 }
 
 /**
