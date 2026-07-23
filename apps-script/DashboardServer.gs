@@ -329,7 +329,7 @@ function setAutomationPaused(paused) {
  *   subset; omitted (null/undefined) fields are left unchanged. subprojectNumber '' means "no
  *   subproject" explicitly.
  */
-function updateInvoiceRow(rowId, updates) {
+function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to edit invoice records.');
   }
@@ -370,7 +370,7 @@ function updateInvoiceRow(rowId, updates) {
 
   let matchedRef = null;
   if (newProjectNumber) {
-    matchedRef = findReferenceMatch_(getReferenceData_(), newProjectNumber, newSubprojectNumber);
+    matchedRef = findReferenceMatch_(cachedReferenceRows || getReferenceData_(), newProjectNumber, newSubprojectNumber);
     if (!matchedRef) {
       throw new Error(`Project "${newProjectNumber}" (with that subproject) wasn't found in the Project Reference sheet.`);
     }
@@ -468,11 +468,15 @@ function updateInvoiceRows(rowIds, updates) {
   if (!rowIds || !rowIds.length) throw new Error('No rows selected.');
   if (rowIds.length > 100) throw new Error('Too many rows at once — select 100 or fewer.');
 
+  // Read the Project Reference once for the whole batch instead of once per row (each updateInvoiceRow
+  // would otherwise re-read it), so bulk edits do noticeably less sheet I/O. The Drive file move per
+  // row is the real cost and can't be batched in Apps Script — hence the client-side progress bar.
+  const referenceRows = getReferenceData_();
   const updated = [];
   const errors = [];
   rowIds.forEach(rowId => {
     try {
-      updated.push(updateInvoiceRow(rowId, updates));
+      updated.push(updateInvoiceRow(rowId, updates, referenceRows));
     } catch (err) {
       errors.push({ rowId: rowId, message: err.message });
     }
