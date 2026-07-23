@@ -1,5 +1,5 @@
 /**
- * Refile.gs
+ * Refile.gs (v2 — status-separated structure)
  * Reconciles EVERY already-filed invoice into the current folder structure:
  *
  *   <project folder>/
