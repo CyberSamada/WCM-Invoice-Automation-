@@ -47,25 +47,28 @@ function getOrCreateNamedSubfolder_(parentFolderId, name) {
 }
 
 /**
- * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the invoice
- * date, so filed invoices are grouped by month under the project name folder. Returns the parent
- * folder itself when CONFIG.FILE_BY_MONTH is off.
+ * Gets or creates a "YYYY-MM" month subfolder under the project folder, derived from the email/received
+ * date, so filed invoices are grouped by the month they arrived under the project name folder. Returns
+ * the parent folder itself when CONFIG.FILE_BY_MONTH is off.
  */
-function getMonthSubfolderId_(projectFolderId, invoiceDate) {
+function getMonthSubfolderId_(projectFolderId, monthDate) {
   if (!CONFIG.FILE_BY_MONTH) return projectFolderId;
-  return getOrCreateNamedSubfolder_(projectFolderId, invoiceMonthKey_(invoiceDate)).getId();
+  return getOrCreateNamedSubfolder_(projectFolderId, monthFolderKey_(monthDate)).getId();
 }
 
 /**
- * The "YYYY-MM" folder name for an invoice. Reads the year+month straight off the invoice date
- * STRING (which Gemini returns as "YYYY-MM-DD") rather than constructing a Date — a Date would be
- * parsed as UTC midnight and then shifted by the script timezone, which pushes a 1st-of-month
- * invoice into the previous month's folder. String slicing has no timezone and is deterministic,
- * so the same date always maps to the same folder. Falls back to the current month only when the
- * invoice has no usable date at all.
+ * The "YYYY-MM" folder name for an invoice, based on WHEN IT ARRIVED (the email/received date) rather
+ * than the invoice's printed date. Grouping by arrival keeps everything received in a given month in
+ * one folder (and matches the processed-date filename), instead of scattering by whatever date the
+ * vendor put on the invoice. Accepts a Date (email received date) or a "YYYY-MM-DD" string; a Date is
+ * formatted in the script timezone, a string is read directly (no timezone shift). Falls back to the
+ * current month if neither is usable.
  */
-function invoiceMonthKey_(invoiceDate) {
-  const m = /^\s*(\d{4})-(\d{2})/.exec(String(invoiceDate || ''));
+function monthFolderKey_(monthDate) {
+  if (monthDate instanceof Date && !isNaN(monthDate.getTime())) {
+    return Utilities.formatDate(monthDate, CONFIG_TIMEZONE_(), 'yyyy-MM');
+  }
+  const m = /^\s*(\d{4})-(\d{2})/.exec(String(monthDate || ''));
   if (m) return `${m[1]}-${m[2]}`;
   return Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM');
 }
@@ -74,14 +77,14 @@ function invoiceMonthKey_(invoiceDate) {
  * Resolves the Drive folder a matched invoice should live in, given its status — the single source
  * of truth shared by automatic filing (Main.gs/processOneInvoice_) and the dashboard's manual
  * override (DashboardServer.gs/updateInvoiceRow), so the two paths can never disagree about where
- * something belongs. 'Filed' goes straight into the month folder (by invoice date). Anything else
+ * something belongs. 'Filed' goes straight into the month folder (grouped by the email/received date). Anything else
  * (Needs Review, Not an Invoice) goes into that month's "Statements & Others" subfolder — nested
  * under the month, so a project's archive stays organized by month at a glance either way. No project
  * match at all falls back to the top-level "_Unmatched" folder.
  */
-function resolveInvoiceDestinationFolderId_(matchedRef, status, invoiceDate) {
+function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
   if (matchedRef && matchedRef.driveFolderId) {
-    const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, invoiceDate);
+    const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, monthDate);
     if (status === 'Filed') return monthFolderId;
     return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
   }
