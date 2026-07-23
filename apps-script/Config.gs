@@ -109,6 +109,11 @@ const CONFIG = {
   SHEET_FEEDBACK_TAB: 'Feedback',
   FEEDBACK_COLUMNS: ['Timestamp', 'Message', 'Page Context'],
 
+  // "Drive Audit" tab — the tracked trail of files that drifted (were moved or deleted directly in
+  // Drive instead of via the dashboard) and what the daily reconciler did about it. See Reconcile.gs.
+  SHEET_DRIVE_AUDIT_TAB: 'Drive Audit',
+  DRIVE_AUDIT_COLUMNS: ['Timestamp', 'Row ID', 'Vendor', 'Invoice Number', 'Detected', 'From (logged)', 'To (actual)', 'Action'],
+
   // "Vendor Directory" tab — one canonical spelling per vendor, so the log/filenames don't drift
   // into "Copp's Buildall" vs "COPPS BUILDALL" for the same company. Matching is by Normalized Key
   // (case/punctuation/legal-suffix-insensitive), NOT by the display name — so distinct divisions

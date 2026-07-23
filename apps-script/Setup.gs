@@ -63,3 +63,22 @@ function createArchiveTrigger() {
 
   Logger.log('Archive trigger created: archiveOldInvoiceLogRows() runs monthly on the 1st, ~4am.');
 }
+
+/**
+ * Optional: runs the Drive drift auditor (Reconcile.gs/reconcileDriveLocations) once a day, so files
+ * moved or deleted directly in Drive get caught and either synced back into the log or flagged for
+ * review. Run this ONCE to set it up. Idempotent — re-running replaces the existing trigger.
+ */
+function createReconcileTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'reconcileDriveLocations')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('reconcileDriveLocations')
+    .timeBased()
+    .everyDays(1)
+    .atHour(3)
+    .create();
+
+  Logger.log('Reconcile trigger created: reconcileDriveLocations() runs daily, ~3am.');
+}
