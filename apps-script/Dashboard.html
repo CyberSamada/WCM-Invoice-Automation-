@@ -165,6 +165,10 @@
       width: 100%;
       box-sizing: border-box;
     }
+    /* Multi-select status filter (checkboxes) */
+    .status-filter { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
+    .status-filter .status-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; color: #374151; text-transform: none; letter-spacing: 0; cursor: pointer; }
+    .status-filter .status-chk input[type="checkbox"] { width: auto; padding: 0; margin: 0; border: 1px solid #9ca3af; box-sizing: border-box; cursor: pointer; }
     /* Project select can hold long names — let it span two columns when there's room */
     .filter-field.wide { grid-column: span 2; }
     .amount-range { display: flex; gap: 6px; align-items: center; }
@@ -270,7 +274,7 @@
     .modal-subtitle { font-size: 12px; color: #6b7280; margin: 0 0 14px; }
     .modal-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
     .modal-field label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
-    .modal-field select, .modal-field textarea {
+    .modal-field select, .modal-field textarea, .modal-field input[type="text"] {
       font-family: inherit; font-size: 13px; padding: 7px 9px;
       border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937;
     }
@@ -297,7 +301,7 @@
     .preview-edit { display: flex; gap: 16px; margin-top: 14px; }
     .preview-edit-col { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 0; }
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
-    .preview-edit-col select { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+    .preview-edit-col select, .preview-edit-col input[type="text"] { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
     .preview-edit-label2 { margin-top: 8px; }
     .bulk-progress { margin-top: 12px; }
     .bulk-progress-track { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
@@ -401,14 +405,13 @@
 
       <div class="filter-bar">
         <div class="filter-field">
-          <label for="filterStatus">Status</label>
-          <select id="filterStatus">
-            <option value="all">All</option>
-            <option value="Filed">Filed</option>
-            <option value="Needs Review">Needs Review</option>
-            <option value="Not an Invoice">Not an Invoice</option>
-            <option value="Duplicate">Duplicate</option>
-          </select>
+          <label>Status</label>
+          <div class="status-filter" id="filterStatus" title="Tick one or more; none ticked shows all">
+            <label class="status-chk"><input type="checkbox" value="Filed"> Filed</label>
+            <label class="status-chk"><input type="checkbox" value="Needs Review"> Needs Review</label>
+            <label class="status-chk"><input type="checkbox" value="Not an Invoice"> Not an Invoice</label>
+            <label class="status-chk"><input type="checkbox" value="Duplicate"> Duplicate</label>
+          </div>
         </div>
         <div class="filter-field wide">
           <label for="filterProject">Project</label>
@@ -536,6 +539,10 @@
           <option value="Duplicate">Duplicate</option>
         </select>
       </div>
+      <div class="modal-field">
+        <label for="editInvoiceNumber">Invoice #</label>
+        <input type="text" id="editInvoiceNumber" placeholder="Invoice number (fix if wrong/blank)">
+      </div>
       <p class="modal-error" id="editModalError"></p>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="editCancelBtn">Cancel</button>
@@ -570,6 +577,8 @@
             <option value="Not an Invoice">Not an Invoice</option>
             <option value="Duplicate">Duplicate</option>
           </select>
+          <label for="previewInvoiceNumber" class="preview-edit-label2">Invoice #</label>
+          <input type="text" id="previewInvoiceNumber" placeholder="Invoice number">
         </div>
       </div>
       <p class="modal-error" id="previewEditError"></p>
@@ -902,7 +911,11 @@
     }
 
     function applyFilters() {
-      var status = document.getElementById('filterStatus').value;
+      // Multi-select status: collect the ticked statuses. None ticked = no status filter (show all).
+      var selectedStatuses = [];
+      document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) {
+        if (b.checked) selectedStatuses.push(b.value);
+      });
       var project = document.getElementById('filterProject').value;
       var vendor = document.getElementById('filterVendor').value.trim().toLowerCase();
       var invNum = document.getElementById('filterInvoiceNumber').value.trim().toLowerCase();
@@ -928,7 +941,7 @@
       var bounded = (tfStart !== null || tfEnd !== null);
 
       var filtered = ALL_RECORDS.filter(function (r) {
-        if (status !== 'all' && r.status !== status) return false;
+        if (selectedStatuses.length && selectedStatuses.indexOf(r.status) === -1) return false;
         if (project !== 'all') {
           if (project.charAt(0) === 'P') {
             var pKey = project.slice(2);
@@ -1106,6 +1119,7 @@
       projectSelect.onchange = function () { populateEditSubprojects(tree, projectSelect.value, ''); };
 
       document.getElementById('editStatus').value = record.status || 'Needs Review';
+      document.getElementById('editInvoiceNumber').value = record.invoiceNumber || '';
       var editSearch = document.getElementById('editProjectSearch');
       editSearch.value = '';
       filterSelectByText(projectSelect, ''); // reset any prior filtering
@@ -1124,6 +1138,7 @@
       var projectNumber = pKey && tree[pKey] ? tree[pKey].number : '';
       var subprojectNumber = document.getElementById('editSubproject').value;
       var status = document.getElementById('editStatus').value;
+      var invoiceNumber = document.getElementById('editInvoiceNumber').value;
 
       var saveBtn = document.getElementById('editSaveBtn');
       var errorEl = document.getElementById('editModalError');
@@ -1146,7 +1161,7 @@
           saveBtn.textContent = 'Save';
           errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status });
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber });
     }
 
     // --- PDF preview modal --------------------------------------------------------------------
@@ -1219,6 +1234,7 @@
       fillPreviewSubprojects(tree, projectSelect.value, record.subprojectNumber);
       projectSelect.onchange = function () { fillPreviewSubprojects(tree, projectSelect.value, ''); };
       document.getElementById('previewStatus').value = record.status || 'Needs Review';
+      document.getElementById('previewInvoiceNumber').value = record.invoiceNumber || '';
       document.getElementById('previewProjectSearch').value = '';
       filterSelectByText(projectSelect, '');
       var err = document.getElementById('previewEditError'); err.textContent = ''; err.style.color = '';
@@ -1234,6 +1250,7 @@
       var projectNumber = pKey && tree[pKey] ? tree[pKey].number : '';
       var subprojectNumber = document.getElementById('previewSubproject').value;
       var status = document.getElementById('previewStatus').value;
+      var invoiceNumber = document.getElementById('previewInvoiceNumber').value;
 
       var saveBtn = document.getElementById('previewSaveBtn');
       var errorEl = document.getElementById('previewEditError');
@@ -1268,7 +1285,7 @@
           saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
           errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status });
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber });
     }
 
     // --- Multi-select + bulk edit ---------------------------------------------------------------
@@ -1499,7 +1516,7 @@
     }
 
     function resetFilters() {
-      document.getElementById('filterStatus').value = 'all';
+      document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) { b.checked = false; });
       document.getElementById('filterProject').value = 'all';
       document.getElementById('filterVendor').value = '';
       document.getElementById('filterInvoiceNumber').value = '';

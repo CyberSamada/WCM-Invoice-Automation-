@@ -356,10 +356,12 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   const currentProjectNumber = String(row[idx['Project Number']] || '').trim();
   const currentSubprojectNumber = String(row[idx['Subproject Number']] || '').trim();
   const currentStatus = String(row[idx['Status']] || '').trim();
+  const currentInvoiceNumber = idx['Invoice Number'] > -1 ? String(row[idx['Invoice Number']] || '').trim() : '';
 
   const newProjectNumber = updates.projectNumber != null ? String(updates.projectNumber).trim() : currentProjectNumber;
   const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
+  const newInvoiceNumber = updates.invoiceNumber != null ? String(updates.invoiceNumber).trim() : currentInvoiceNumber;
 
   // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
   // filing everything by month, and the legacy Past Due rows were already migrated to Filed/Needs Review.
@@ -378,22 +380,31 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
 
   const projectChanged = newProjectNumber !== currentProjectNumber || newSubprojectNumber !== currentSubprojectNumber;
   const statusChanged = newStatus !== currentStatus;
+  const invoiceNumberChanged = newInvoiceNumber !== currentInvoiceNumber;
   let newDriveLink = row[idx['Drive Link']];
 
   // A "Duplicate" row is a bookkeeping notice, not a filed copy — its Drive File ID points at the
-  // ORIGINAL invoice's file (shared, not its own). So when a row is set to Duplicate, never move the
-  // Drive file: doing so would relocate the original invoice out of where it's correctly filed.
+  // ORIGINAL invoice's file (shared, not its own). So for a Duplicate row never move OR rename the
+  // Drive file: that would disturb the original invoice where it's correctly filed.
   const shouldMoveFile = (projectChanged || statusChanged) && newStatus !== 'Duplicate';
-  if (shouldMoveFile) {
+  // The filename embeds the invoice number ("YYMMDD - InvoiceNumber - Vendor"), so a corrected number
+  // should rename the file too, keeping the filename honest.
+  const shouldRenameFile = invoiceNumberChanged && newStatus !== 'Duplicate';
+  if (shouldMoveFile || shouldRenameFile) {
     const driveFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
     if (driveFileId) {
       try {
-        const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, newStatus, row[idx['Invoice Date']]);
         const file = DriveApp.getFileById(driveFileId);
-        file.moveTo(DriveApp.getFolderById(destFolderId));
-        newDriveLink = file.getUrl();
+        if (shouldMoveFile) {
+          const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, newStatus, row[idx['Invoice Date']]);
+          file.moveTo(DriveApp.getFolderById(destFolderId));
+          newDriveLink = file.getUrl();
+        }
+        if (shouldRenameFile) {
+          file.setName(buildRenamedInvoiceFileName_(row[idx['Date Processed']], newInvoiceNumber, row[idx['Vendor']]));
+        }
       } catch (err) {
-        throw new Error(`Saved the field changes, but couldn't move the file in Drive: ${err.message}`);
+        throw new Error(`Saved the field changes, but couldn't update the file in Drive: ${err.message}`);
       }
     }
   }
@@ -402,6 +413,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   const changeParts = [];
   if (projectChanged) changeParts.push(`project set to ${newProjectNumber}${newSubprojectNumber ? '/' + newSubprojectNumber : ''}`);
   if (statusChanged) changeParts.push(`status set to ${newStatus}`);
+  if (invoiceNumberChanged) changeParts.push(`invoice # set to ${newInvoiceNumber || '(blank)'}`);
   const overrideNote = `Manually updated ${stamp} — ${changeParts.join('; ') || 'no change'}.`;
 
   const setCell = (col, value) => { if (idx[col] > -1) sheet.getRange(rowNum, idx[col] + 1).setValue(value); };
@@ -410,6 +422,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   setCell('Subproject Number', matchedRef ? matchedRef.subprojectNumber : '');
   setCell('Subproject Name', matchedRef ? matchedRef.subprojectName : '');
   setCell('Status', newStatus);
+  setCell('Invoice Number', newInvoiceNumber);
   setCell('Drive Link', newDriveLink);
   if (idx['Review Note'] > -1) {
     const existingNote = String(row[idx['Review Note']] || '');
@@ -419,12 +432,12 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   // Record the correction (what the automation had vs. what the human set it to) for the Override
   // Log — the learning/audit trail. Only when something actually changed. Never let a logging
   // hiccup fail the edit the user just made.
-  if (projectChanged || statusChanged) {
+  if (projectChanged || statusChanged || invoiceNumberChanged) {
     try {
       logOverride_({
         rowId: rowId,
         vendor: row[idx['Vendor']],
-        invoiceNumber: idx['Invoice Number'] > -1 ? row[idx['Invoice Number']] : '',
+        invoiceNumber: newInvoiceNumber,
         amount: row[idx['Amount']],
         fromProject: currentProjectNumber,
         fromSubproject: currentSubprojectNumber,
@@ -445,6 +458,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
     subprojectName: matchedRef ? matchedRef.subprojectName : '',
     status: newStatus,
     statusClass: statusToClass_(newStatus),
+    invoiceNumber: newInvoiceNumber,
     driveLink: newDriveLink,
     reviewNote: idx['Review Note'] > -1 ? String(sheet.getRange(rowNum, idx['Review Note'] + 1).getValue() || '') : ''
   };
