@@ -417,10 +417,9 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
       try {
         const file = DriveApp.getFileById(driveFileId);
         if (shouldMoveFile) {
-          // Month folder is keyed on when the invoice arrived (Date Received), falling back to Date
-          // Processed — matching how the automation files (see Main.gs), not the invoice's printed date.
-          const folderMonthDate = (idx['Date Received'] > -1 && row[idx['Date Received']]) ? row[idx['Date Received']] : row[idx['Date Processed']];
-          const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, newStatus, folderMonthDate);
+          // Month folder is keyed on the row's PROCESSED date — the same date its filename carries —
+          // so filename and folder always agree, matching how the automation files (see Main.gs).
+          const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, newStatus, row[idx['Date Processed']]);
           file.moveTo(DriveApp.getFolderById(destFolderId));
           newDriveLink = file.getUrl();
         }
