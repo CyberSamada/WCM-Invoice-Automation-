@@ -299,6 +299,10 @@
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
     .preview-edit-col select { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
     .preview-edit-label2 { margin-top: 8px; }
+    .bulk-progress { margin-top: 12px; }
+    .bulk-progress-track { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
+    .bulk-progress-fill { height: 100%; width: 0%; background: #2563eb; transition: width 0.2s ease; }
+    .bulk-progress-text { font-size: 12px; color: #6b7280; margin: 6px 0 0; }
 
     /* Bulk select/edit */
     .bulk-bar {
@@ -603,6 +607,10 @@
         </select>
       </div>
       <p class="modal-error" id="bulkModalError"></p>
+      <div class="bulk-progress" id="bulkProgress" style="display:none">
+        <div class="bulk-progress-track"><div class="bulk-progress-fill" id="bulkProgressFill"></div></div>
+        <p class="bulk-progress-text" id="bulkProgressText"></p>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="bulkCancelBtn">Cancel</button>
         <button type="button" class="btn-primary" id="bulkApplyBtn">Apply to selected</button>
@@ -1351,10 +1359,14 @@
       var bulkSearch = document.getElementById('bulkProjectSearch');
       bulkSearch.value = '';
       filterSelectByText(projectSelect, '');
+      document.getElementById('bulkProgress').style.display = 'none';
       document.getElementById('bulkModalOverlay').style.display = 'flex';
     }
 
+    var bulkSaving = false;
+
     function closeBulkModal() {
+      if (bulkSaving) return; // don't let them click off mid-save
       document.getElementById('bulkModalOverlay').style.display = 'none';
     }
 
@@ -1378,34 +1390,75 @@
       }
 
       var applyBtn = document.getElementById('bulkApplyBtn');
+      var cancelBtn = document.getElementById('bulkCancelBtn');
       var errorEl = document.getElementById('bulkModalError');
+      var progressWrap = document.getElementById('bulkProgress');
+      var progressFill = document.getElementById('bulkProgressFill');
+      var progressText = document.getElementById('bulkProgressText');
       errorEl.textContent = '';
-      applyBtn.disabled = true;
-      applyBtn.textContent = 'Applying…';
 
-      google.script.run
-        .withSuccessHandler(function (result) {
-          applyBtn.disabled = false;
-          applyBtn.textContent = 'Apply to selected';
-          (result.updated || []).forEach(function (updated) {
-            var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === updated.rowId; });
-            if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
-            delete SELECTED_ROWIDS[updated.rowId]; // successfully edited rows leave the selection
-          });
-          if (result.errors && result.errors.length) {
-            errorEl.textContent = result.errors.length + ' row(s) failed and stay selected — first error: ' + result.errors[0].message;
-            applyFilters();
-          } else {
-            closeBulkModal();
-            applyFilters();
-          }
-        })
-        .withFailureHandler(function (err) {
-          applyBtn.disabled = false;
-          applyBtn.textContent = 'Apply to selected';
-          errorEl.textContent = err && err.message ? err.message : 'Could not apply — try again.';
-        })
-        .updateInvoiceRows(ids, updates);
+      // Process in small chunks so the bar advances smoothly and each server call stays quick (each
+      // row moves a Drive file, which is the real cost and can't be parallelized). The modal is locked
+      // while this runs so a stray click can't close it mid-save.
+      var total = ids.length;
+      var CHUNK = 4;
+      var done = 0, failed = 0, firstError = '';
+
+      bulkSaving = true;
+      applyBtn.disabled = true; applyBtn.textContent = 'Applying…';
+      cancelBtn.disabled = true;
+      progressWrap.style.display = 'block';
+      progressFill.style.width = '0%';
+      progressText.textContent = 'Updated 0 of ' + total + '…';
+
+      function finish() {
+        bulkSaving = false;
+        applyBtn.disabled = false; applyBtn.textContent = 'Apply to selected';
+        cancelBtn.disabled = false;
+        applyFilters();
+        if (failed) {
+          progressText.textContent = 'Done — ' + failed + ' of ' + total + ' failed and stay selected.';
+          errorEl.textContent = failed + ' row(s) failed. First error: ' + firstError;
+        } else {
+          progressText.textContent = 'Done — updated ' + total + '.';
+          setTimeout(function () { progressWrap.style.display = 'none'; closeBulkModal(); }, 500);
+        }
+      }
+
+      function bumpProgress(count) {
+        done += count;
+        progressFill.style.width = Math.round((done / total) * 100) + '%';
+        progressText.textContent = 'Updated ' + Math.min(done, total) + ' of ' + total + '…';
+      }
+
+      function processNext(start) {
+        if (start >= total) { finish(); return; }
+        var chunk = ids.slice(start, start + CHUNK);
+        google.script.run
+          .withSuccessHandler(function (result) {
+            (result.updated || []).forEach(function (updated) {
+              var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === updated.rowId; });
+              if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
+              delete SELECTED_ROWIDS[updated.rowId]; // successfully edited rows leave the selection
+            });
+            if (result.errors && result.errors.length) {
+              failed += result.errors.length;
+              if (!firstError) firstError = result.errors[0].message;
+            }
+            bumpProgress(chunk.length);
+            processNext(start + CHUNK);
+          })
+          .withFailureHandler(function (err) {
+            // Whole-chunk failure (e.g. a transient server error) — those rows stay selected; keep going.
+            failed += chunk.length;
+            if (!firstError) firstError = (err && err.message) ? err.message : 'Server error on a batch.';
+            bumpProgress(chunk.length);
+            processNext(start + CHUNK);
+          })
+          .updateInvoiceRows(chunk, updates);
+      }
+
+      processNext(0);
     }
 
     // --- Feedback -----------------------------------------------------------------------------
