@@ -114,7 +114,7 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     const testMatchFolder = matchedRef.exactSubproject
       ? getOrCreateNamedSubfolder_(testProjectFolder.getId(), `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`)
       : testProjectFolder;
-    const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), extracted.invoice_date);
+    const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), emailDate);
     testDestFolder = wouldAutoFile
       ? DriveApp.getFolderById(testMonthFolderId)
       : getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);

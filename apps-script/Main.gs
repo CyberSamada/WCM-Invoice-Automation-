@@ -201,7 +201,11 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   // folder. See DriveService.gs/resolveInvoiceDestinationFolderId_ — the same resolver the
   // dashboard's manual override uses, so automatic and manual filing can never disagree about where
   // something belongs.
-  const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, status, extracted.invoice_date);
+  // Month folder is keyed on the EMAIL date (when it arrived), not the invoice's printed date — so
+  // everything received in a given month lands in one month folder regardless of the date the vendor
+  // put on the invoice, matching the processed-date filename. Falls back to now if emailDate is absent.
+  const folderMonthDate = (emailDate instanceof Date && !isNaN(emailDate.getTime())) ? emailDate : new Date();
+  const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, status, folderMonthDate);
   const driveLink = fileInvoiceToDrive_(pdfBlob, destFolderId, fileName);
 
   logInvoiceRow_({
