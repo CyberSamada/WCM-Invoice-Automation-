@@ -357,11 +357,24 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   const currentSubprojectNumber = String(row[idx['Subproject Number']] || '').trim();
   const currentStatus = String(row[idx['Status']] || '').trim();
   const currentInvoiceNumber = idx['Invoice Number'] > -1 ? String(row[idx['Invoice Number']] || '').trim() : '';
+  const currentAmount = idx['Amount'] > -1 ? row[idx['Amount']] : '';
+  const currentCurrency = idx['Currency'] > -1 ? String(row[idx['Currency']] || '').trim() : '';
 
   const newProjectNumber = updates.projectNumber != null ? String(updates.projectNumber).trim() : currentProjectNumber;
   const newSubprojectNumber = updates.subprojectNumber != null ? String(updates.subprojectNumber).trim() : currentSubprojectNumber;
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
   const newInvoiceNumber = updates.invoiceNumber != null ? String(updates.invoiceNumber).trim() : currentInvoiceNumber;
+  const newCurrency = updates.currency != null ? normalizeCurrency_(updates.currency) : currentCurrency;
+  let newAmount = currentAmount;
+  if (updates.amount != null) {
+    const raw = String(updates.amount).trim();
+    if (raw === '') { newAmount = ''; }
+    else {
+      const parsedAmount = Number(raw.replace(/[^0-9.\-]/g, ''));
+      if (isNaN(parsedAmount)) throw new Error('Amount must be a number.');
+      newAmount = parsedAmount;
+    }
+  }
 
   // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
   // filing everything by month, and the legacy Past Due rows were already migrated to Filed/Needs Review.
@@ -381,6 +394,8 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   const projectChanged = newProjectNumber !== currentProjectNumber || newSubprojectNumber !== currentSubprojectNumber;
   const statusChanged = newStatus !== currentStatus;
   const invoiceNumberChanged = newInvoiceNumber !== currentInvoiceNumber;
+  const amountChanged = String(newAmount) !== String(currentAmount);
+  const currencyChanged = newCurrency !== currentCurrency;
   let newDriveLink = row[idx['Drive Link']];
 
   // A "Duplicate" row is a bookkeeping notice, not a filed copy — its Drive File ID points at the
@@ -414,6 +429,8 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   if (projectChanged) changeParts.push(`project set to ${newProjectNumber}${newSubprojectNumber ? '/' + newSubprojectNumber : ''}`);
   if (statusChanged) changeParts.push(`status set to ${newStatus}`);
   if (invoiceNumberChanged) changeParts.push(`invoice # set to ${newInvoiceNumber || '(blank)'}`);
+  if (amountChanged) changeParts.push(`amount set to ${newAmount === '' ? '(blank)' : newAmount}`);
+  if (currencyChanged) changeParts.push(`currency set to ${newCurrency || '(blank)'}`);
   const overrideNote = `Manually updated ${stamp} — ${changeParts.join('; ') || 'no change'}.`;
 
   const setCell = (col, value) => { if (idx[col] > -1) sheet.getRange(rowNum, idx[col] + 1).setValue(value); };
@@ -423,6 +440,8 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   setCell('Subproject Name', matchedRef ? matchedRef.subprojectName : '');
   setCell('Status', newStatus);
   setCell('Invoice Number', newInvoiceNumber);
+  setCell('Amount', newAmount);
+  setCell('Currency', newCurrency);
   setCell('Drive Link', newDriveLink);
   if (idx['Review Note'] > -1) {
     const existingNote = String(row[idx['Review Note']] || '');
@@ -432,13 +451,13 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   // Record the correction (what the automation had vs. what the human set it to) for the Override
   // Log — the learning/audit trail. Only when something actually changed. Never let a logging
   // hiccup fail the edit the user just made.
-  if (projectChanged || statusChanged || invoiceNumberChanged) {
+  if (projectChanged || statusChanged || invoiceNumberChanged || amountChanged || currencyChanged) {
     try {
       logOverride_({
         rowId: rowId,
         vendor: row[idx['Vendor']],
         invoiceNumber: newInvoiceNumber,
-        amount: row[idx['Amount']],
+        amount: newAmount,
         fromProject: currentProjectNumber,
         fromSubproject: currentSubprojectNumber,
         fromStatus: currentStatus,
@@ -459,6 +478,8 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
     status: newStatus,
     statusClass: statusToClass_(newStatus),
     invoiceNumber: newInvoiceNumber,
+    amount: newAmount,
+    currency: newCurrency,
     driveLink: newDriveLink,
     reviewNote: idx['Review Note'] > -1 ? String(sheet.getRange(rowNum, idx['Review Note'] + 1).getValue() || '') : ''
   };
