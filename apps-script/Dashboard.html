@@ -169,6 +169,13 @@
     .status-filter { display: flex; flex-direction: column; gap: 3px; padding: 2px 0; }
     .status-filter .status-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; font-weight: 400; color: #374151; text-transform: none; letter-spacing: 0; cursor: pointer; }
     .status-filter .status-chk input[type="checkbox"] { width: auto; padding: 0; margin: 0; border: 1px solid #9ca3af; box-sizing: border-box; cursor: pointer; }
+    /* Multi-select project filter (hierarchical checkboxes) */
+    .project-filter { display: flex; flex-direction: column; gap: 2px; max-height: 190px; overflow-y: auto; border: 1px solid #d1d5db; border-radius: 6px; padding: 6px 8px; background: #fff; }
+    .project-filter .proj-chk { display: flex; align-items: center; gap: 6px; font-size: 12px; color: #374151; cursor: pointer; text-transform: none; letter-spacing: 0; font-weight: 400; }
+    .project-filter .proj-main { font-weight: 700; margin-top: 4px; }
+    .project-filter .proj-sub { padding-left: 18px; color: #4b5563; }
+    .project-filter input[type="checkbox"] { width: auto; padding: 0; margin: 0; box-sizing: border-box; cursor: pointer; }
+    .project-filter .proj-group { display: flex; flex-direction: column; gap: 2px; }
     /* Project select can hold long names — let it span two columns when there's room */
     .filter-field.wide { grid-column: span 2; }
     .amount-range { display: flex; gap: 6px; align-items: center; }
@@ -414,10 +421,9 @@
           </div>
         </div>
         <div class="filter-field wide">
-          <label for="filterProject">Project</label>
-          <select id="filterProject">
-            <option value="all">All Projects</option>
-          </select>
+          <label>Project</label>
+          <input type="text" class="select-search" id="filterProjectSearch" placeholder="Search projects…">
+          <div class="project-filter" id="filterProject" title="Tick a project for all of it, or specific subprojects; none ticked shows all"></div>
         </div>
         <div class="filter-field">
           <label for="filterVendor">Vendor</label>
@@ -432,6 +438,7 @@
           <select id="filterDateBasis">
             <option value="processed">Processed date</option>
             <option value="received">Received date</option>
+            <option value="invoice">Invoice date</option>
           </select>
         </div>
         <div class="filter-field">
@@ -480,10 +487,10 @@
 
       <table>
         <thead>
-          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
+          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Invoice Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="10" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="11" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -842,7 +849,8 @@
     // <optgroup>s so a project can be filtered on its own, or narrowed to one specific subproject —
     // mirrors the "By Project & Subproject" table structure.
     function populateProjectFilter() {
-      var select = document.getElementById('filterProject');
+      var container = document.getElementById('filterProject');
+      container.innerHTML = '';
       var projects = {}; // normalized project key -> { label, subs: { normalized sub key -> label } }
 
       ALL_RECORDS.forEach(function (r) {
@@ -863,32 +871,50 @@
         var proj = projects[pKey];
         var subKeys = Object.keys(proj.subs).sort(compareDotted);
 
-        // The "(no project match)" bucket stays a single plain option — no header needed.
-        if (pKey === '') {
-          var opt = document.createElement('option');
-          opt.value = 'P:' + pKey;
-          opt.textContent = proj.label;
-          select.appendChild(opt);
-          return;
-        }
+        // Each project is a group: a bold MAIN checkbox (ticking it selects the whole project - all
+        // subprojects) plus a checkbox per subproject beneath. Wrapping in a group lets the search box
+        // show a main together with its subs.
+        var group = document.createElement('div');
+        group.className = 'proj-group';
 
-        // Every real project gets its own bold header (an <optgroup>) with an "All of …" entry, even
-        // when it has no subprojects yet — so main projects like 45 and 46 stand out consistently.
-        var group = document.createElement('optgroup');
-        group.label = proj.label;
-        var allOpt = document.createElement('option');
-        allOpt.value = 'P:' + pKey;
-        allOpt.textContent = 'All of ' + proj.label;
-        group.appendChild(allOpt);
+        var mainLbl = document.createElement('label');
+        mainLbl.className = 'proj-chk' + (pKey === '' ? '' : ' proj-main');
+        var mainBox = document.createElement('input');
+        mainBox.type = 'checkbox';
+        mainBox.setAttribute('data-type', 'P');
+        mainBox.setAttribute('data-pkey', pKey);
+        mainLbl.appendChild(mainBox);
+        mainLbl.appendChild(document.createTextNode(' ' + proj.label));
+        group.appendChild(mainLbl);
+
         subKeys.forEach(function (sKey) {
-          var subOpt = document.createElement('option');
-          subOpt.value = 'S:' + pKey + '|' + sKey;
-          subOpt.className = 'sub-option';
-          subOpt.textContent = '  ↳ ' + proj.subs[sKey];
-          group.appendChild(subOpt);
+          var subLbl = document.createElement('label');
+          subLbl.className = 'proj-chk proj-sub';
+          var subBox = document.createElement('input');
+          subBox.type = 'checkbox';
+          subBox.setAttribute('data-type', 'S');
+          subBox.setAttribute('data-pkey', pKey);
+          subBox.setAttribute('data-skey', sKey);
+          subLbl.appendChild(subBox);
+          subLbl.appendChild(document.createTextNode('  ↳ ' + proj.subs[sKey]));
+          group.appendChild(subLbl);
         });
-        select.appendChild(group);
+
+        container.appendChild(group);
       });
+    }
+
+    // Ticking a MAIN project box ticks + locks its subproject boxes (a main = the whole project);
+    // unticking frees them. Sub boxes ticked on their own filter to just that subproject. Then filter.
+    function onProjectFilterChange(e) {
+      var box = e.target;
+      if (box && box.getAttribute && box.getAttribute('data-type') === 'P') {
+        var pkey = box.getAttribute('data-pkey');
+        document.querySelectorAll('#filterProject input[data-type="S"]').forEach(function (s) {
+          if (s.getAttribute('data-pkey') === pkey) { s.checked = box.checked; s.disabled = box.checked; }
+        });
+      }
+      applyFilters();
     }
 
     function getTimeframeStart(value) {
@@ -937,11 +963,20 @@
       document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) {
         if (b.checked) selectedStatuses.push(b.value);
       });
-      var project = document.getElementById('filterProject').value;
+      // Multi-select project filter: a ticked MAIN project matches all its rows (every subproject);
+      // a ticked SUBproject matches just that subproject. Union across everything ticked; none ticked
+      // = no project filter (show all).
+      var checkedMains = {};   // normalized project key -> true (whole project)
+      var checkedSubs = {};    // "pKey|sKey" -> true
+      document.querySelectorAll('#filterProject input[type="checkbox"]:checked').forEach(function (b) {
+        if (b.getAttribute('data-type') === 'P') checkedMains[b.getAttribute('data-pkey')] = true;
+        else checkedSubs[b.getAttribute('data-pkey') + '|' + b.getAttribute('data-skey')] = true;
+      });
+      var hasProjectFilter = Object.keys(checkedMains).length > 0 || Object.keys(checkedSubs).length > 0;
       var vendor = document.getElementById('filterVendor').value.trim().toLowerCase();
       var invNum = document.getElementById('filterInvoiceNumber').value.trim().toLowerCase();
       var timeframe = document.getElementById('filterTimeframe').value;
-      var dateBasis = document.getElementById('filterDateBasis').value; // 'processed' | 'received'
+      var dateBasis = document.getElementById('filterDateBasis').value; // 'processed' | 'received' | 'invoice'
       var amountMin = parseFloat(document.getElementById('filterAmountMin').value);
       var amountMax = parseFloat(document.getElementById('filterAmountMax').value);
       var customStart = document.getElementById('filterDateStart').value;
@@ -950,7 +985,8 @@
       // Which date the time-frame / custom-range filter applies to. A received date of 0 means the
       // row has no received date on record (older rows) — such rows can't fall inside a bounded
       // window, so they're excluded whenever a time frame is set, but still show under "All time".
-      var dateField = dateBasis === 'received' ? 'dateReceivedRaw' : 'dateProcessedRaw';
+      var dateField = dateBasis === 'received' ? 'dateReceivedRaw'
+        : (dateBasis === 'invoice' ? 'invoiceDateRaw' : 'dateProcessedRaw');
 
       var tfStart = null, tfEnd = null;
       if (timeframe === 'custom') {
@@ -963,14 +999,10 @@
 
       var filtered = ALL_RECORDS.filter(function (r) {
         if (selectedStatuses.length && selectedStatuses.indexOf(r.status) === -1) return false;
-        if (project !== 'all') {
-          if (project.charAt(0) === 'P') {
-            var pKey = project.slice(2);
-            if (normalizeKey(r.projectNumber) !== pKey) return false;
-          } else if (project.charAt(0) === 'S') {
-            var parts = project.slice(2).split('|');
-            if (normalizeKey(r.projectNumber) !== parts[0] || normalizeKey(r.subprojectNumber) !== parts[1]) return false;
-          }
+        if (hasProjectFilter) {
+          var rp = normalizeKey(r.projectNumber);
+          var rs = normalizeKey(r.subprojectNumber);
+          if (!checkedMains[rp] && !checkedSubs[rp + '|' + rs]) return false;
         }
         if (vendor && r.vendor.toLowerCase().indexOf(vendor) === -1) return false;
         if (invNum && String(r.invoiceNumber || '').toLowerCase().indexOf(invNum) === -1) return false;
@@ -994,7 +1026,7 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="10" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">No invoices match these filters.</td></tr>';
         LAST_RENDERED = [];
         syncSelectAllBox();
         updateBulkBar();
@@ -1013,6 +1045,7 @@
             : '') + '</td>' +
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
+          '<td>' + escapeHtml(r.invoiceDateFormatted || '—') + '</td>' +
           '<td>' + escapeHtml(r.vendor) +
             (r.invoiceNumber ? '<div class="vendor-invnum">Inv# ' + escapeHtml(r.invoiceNumber) + '</div>' : '') + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
@@ -1555,7 +1588,9 @@
 
     function resetFilters() {
       document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) { b.checked = false; });
-      document.getElementById('filterProject').value = 'all';
+      document.querySelectorAll('#filterProject input[type="checkbox"]').forEach(function (b) { b.checked = false; b.disabled = false; });
+      var projSearch = document.getElementById('filterProjectSearch');
+      if (projSearch) { projSearch.value = ''; projSearch.dispatchEvent(new Event('input')); }
       document.getElementById('filterVendor').value = '';
       document.getElementById('filterInvoiceNumber').value = '';
       document.getElementById('filterTimeframe').value = 'all';
@@ -1577,7 +1612,13 @@
       document.getElementById('resetLogoBtn').addEventListener('click', resetLogoToDefault);
       populateProjectFilter();
       document.getElementById('filterStatus').addEventListener('change', applyFilters);
-      document.getElementById('filterProject').addEventListener('change', applyFilters);
+      document.getElementById('filterProject').addEventListener('change', onProjectFilterChange);
+      document.getElementById('filterProjectSearch').addEventListener('input', function () {
+        var q = this.value.trim().toLowerCase();
+        document.querySelectorAll('#filterProject .proj-group').forEach(function (g) {
+          g.style.display = (!q || g.textContent.toLowerCase().indexOf(q) !== -1) ? '' : 'none';
+        });
+      });
       document.getElementById('filterVendor').addEventListener('input', applyFilters);
       document.getElementById('filterInvoiceNumber').addEventListener('input', applyFilters);
       document.getElementById('filterTimeframe').addEventListener('change', function () { toggleCustomDateInputs(); applyFilters(); });

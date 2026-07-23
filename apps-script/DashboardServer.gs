@@ -51,11 +51,17 @@ function buildDashboardData_() {
       // any falsy value, so this degrades gracefully rather than showing "Invalid Date".
       const receivedValue = idx['Date Received'] > -1 ? r[idx['Date Received']] : '';
       const receivedObj = receivedValue ? ((receivedValue instanceof Date) ? receivedValue : new Date(receivedValue)) : null;
+      // Invoice Date is a date-only value (usually the "YYYY-MM-DD" string Gemini returns), so parse
+      // it without a timezone shift and format date-only — see parseInvoiceDateLocal_.
+      const invoiceDateValue = idx['Invoice Date'] > -1 ? r[idx['Invoice Date']] : '';
+      const invoiceDateObj = parseInvoiceDateLocal_(invoiceDateValue);
       return {
         dateProcessedRaw: isNaN(dateObj.getTime()) ? 0 : dateObj.getTime(), // epoch ms — used for client-side filtering
         dateReceivedRaw: (receivedObj && !isNaN(receivedObj.getTime())) ? receivedObj.getTime() : 0, // 0 = no received date (won't match a bounded window)
+        invoiceDateRaw: invoiceDateObj ? invoiceDateObj.getTime() : 0, // 0 = no/unparseable invoice date
         dateProcessedFormatted: formatDateForDashboard_(dateValue, timezone),
         dateReceivedFormatted: formatDateForDashboard_(receivedValue, timezone),
+        invoiceDateFormatted: invoiceDateObj ? Utilities.formatDate(invoiceDateObj, timezone, 'MMM d, yyyy') : (invoiceDateValue ? String(invoiceDateValue) : ''),
         vendor: r[idx['Vendor']] || '(unknown vendor)',
         invoiceNumber: (idx['Invoice Number'] > -1 && r[idx['Invoice Number']]) ? String(r[idx['Invoice Number']]) : '',
         projectNumber: String(r[idx['Project Number']] == null ? '' : r[idx['Project Number']]).trim(),
@@ -702,6 +708,21 @@ function formatDateForDashboard_(value, timezone) {
   const d = (value instanceof Date) ? value : new Date(value);
   if (isNaN(d.getTime())) return String(value);
   return Utilities.formatDate(d, timezone, 'MMM d, yyyy h:mm a');
+}
+
+/**
+ * Parses an Invoice Date value to a local-midnight Date without a timezone shift. Invoice Date is a
+ * date-only field — usually the "YYYY-MM-DD" string Gemini returns — so `new Date("2026-07-15")`
+ * (parsed as UTC) would land on the wrong calendar day in a west-of-UTC timezone. Reads the Y/M/D
+ * parts directly instead. Returns null for blank/unparseable values, or the Date if already a Date.
+ */
+function parseInvoiceDateLocal_(value) {
+  if (!value) return null;
+  if (value instanceof Date) return isNaN(value.getTime()) ? null : value;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(value).trim());
+  if (m) return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  const d = new Date(String(value));
+  return isNaN(d.getTime()) ? null : d;
 }
 
 function formatCurrencyForDashboard_(amount, currency) {
