@@ -22,10 +22,11 @@ const CONFIG = {
   GEMINI_PACING_MS: 13000,      // pause between Gemini calls. Lower ONLY after enabling billing.
   TRIGGER_INTERVAL_MINUTES: 15, // how often processInvoices runs. Must be 1, 5, 10, 15, or 30 (Apps Script limit). 5 ≈ 3x more runs/hour. Re-run createTimeTrigger()/press Start after changing.
   // Start-date cutoff — only process mail dated on or AFTER this date ("YYYY-MM-DD", inclusive).
-  // Anything older is ignored entirely (never processed, never labeled). Set when the June 2026
-  // fresh-start reset was done, so the years-deep backlog before it stays untouched — see
-  // GmailService.gs/dateRangeQuerySuffix_. null = no start cutoff, consider all mail under the label.
-  PROCESS_FROM_DATE: '2026-06-01',
+  // Anything older is ignored entirely (never processed, never labeled). Enforced per-MESSAGE (see
+  // GmailService.gs/getPdfAttachments_), so an old invoice can't sneak in even when its thread got a
+  // recent reply. Set to 2026-07-01 once the June backlog was caught up by hand — only genuinely new
+  // (July-onward) invoices are processed from here on. null = no start cutoff, consider all mail.
+  PROCESS_FROM_DATE: '2026-07-01',
 
   // Gemini
   GEMINI_MODEL: 'gemini-3.1-flash-lite', // less in-demand than gemini-3.5-flash on the free tier — swap back if quota/availability improves
