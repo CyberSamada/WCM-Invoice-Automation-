@@ -1,44 +1,54 @@
 /**
  * Refile.gs
- * One-time consolidation for the switch to processed-date month folders: moves every already-filed
- * invoice into the "YYYY-MM" folder of its Date PROCESSED — the same date its filename carries — so
- * (for example) the whole June-backlog batch that was processed in July consolidates under 2026-07,
- * and filename/folder always agree.
+ * Reconciles EVERY already-filed invoice into the current folder structure:
+ *
+ *   <project folder>/
+ *     <subproject folder>/            (when a subproject is assigned)
+ *       YYYY-MM/                      Filed invoices, by processed month (matches the filename date)
+ *       Needs Review/                 invoices awaiting review — never mixed with statements
+ *       Statements & Others/          ONLY "Not an Invoice" documents
+ *     No Subprojects/                 (when NO subproject is assigned)
+ *       YYYY-MM/  ·  Needs Review/  ·  Statements & Others/
+ *
+ * refileToCorrectFolders() recomputes each Invoice Log row's destination with
+ * resolveInvoiceDestinationFolderId_ — the exact same resolver automatic filing and the dashboard
+ * use — and moves the file if it isn't already there. Because the resolver now handles the
+ * no-subproject case properly ("No Subprojects" folder, never an arbitrary sibling subproject) and
+ * separates statuses, re-running this converges: a file is "in place" only when it's genuinely in
+ * its correct folder.
  *
  * - Reads the active Invoice Log AND the archive tab. Rows with no Drive File ID, and "Duplicate"
  *   notice rows (their file belongs to the original invoice), are skipped.
- * - Recomputes each row's correct destination with resolveInvoiceDestinationFolderId_ (the same
- *   resolver every other filing path uses): Filed rows to the month folder, everything else to that
- *   month's "Statements & Others". A file already in the right place is left untouched — idempotent,
- *   safe to re-run.
- * - Drive-only: a move doesn't change a file's URL, so the sheet needs no rewriting.
- * - Afterwards, month-shaped folders (YYYY-MM) and "Statements & Others" subfolders left EMPTY by the
- *   moves are trashed (recoverable), so the old scattered month folders disappear.
- * - Time-budgeted like every long job here: if it can't finish in one run, re-run it — already-moved
- *   files are skipped, so it picks up where it left off.
- *
- * Run refileByProcessedMonth() ONCE from the editor after this deploys (re-run until it reports done).
+ * - Drive-only: moves don't change file URLs, so the sheet needs no rewriting.
+ * - Time-budgeted: if it can't finish in one run it says so — re-run until it reports "Done"
+ *   (already-correct files are skipped cheaply, so each re-run gets further).
+ * - Finishes with cleanupEmptyArchiveFolders(): a FULL sweep of every project/subproject folder that
+ *   trashes empty structural folders (YYYY-MM, Needs Review, Statements & Others, No Subprojects,
+ *   legacy Past Due) — including ones left behind by older refile runs. Trash is recoverable.
+ *   cleanupEmptyArchiveFolders() can also be run on its own from the editor.
  */
 
-function refileByProcessedMonth() {
+function refileToCorrectFolders() {
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(0)) { Logger.log('Another run holds the script lock — wait a moment and try again.'); return; }
   try {
-    refileByProcessedMonthInner_();
+    refileToCorrectFoldersInner_();
   } finally {
     lock.releaseLock();
   }
 }
 
-function refileByProcessedMonthInner_() {
+function refileToCorrectFoldersInner_() {
   const referenceRows = getReferenceData_();
   const startTime = Date.now();
-  const MAX_RUN_MS = 4.5 * 60 * 1000;
-  const oldParentIds = {}; // folders files were moved OUT of — candidates for empty-folder cleanup
-  let checked = 0, moved = 0, skippedInPlace = 0, skippedNoFile = 0, deferred = 0;
+  const MAX_RUN_MS = 4 * 60 * 1000;
+  const matchCache = {}; // "project|subproject" -> matchedRef (findReferenceMatch_ may hit Drive)
+  const destCache = {};  // "project|subproject|statusBucket|monthKey" -> destination folder ID
+  let checked = 0, moved = 0, skippedInPlace = 0, skippedNoFile = 0;
+  let deferred = false;
 
   const tabs = [CONFIG.SHEET_LOG_TAB, CONFIG.SHEET_LOG_ARCHIVE_TAB];
-  for (let t = 0; t < tabs.length; t++) {
+  for (let t = 0; t < tabs.length && !deferred; t++) {
     const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(tabs[t]);
     if (!sheet) continue;
     const values = sheet.getDataRange().getValues();
@@ -49,7 +59,7 @@ function refileByProcessedMonthInner_() {
     if (idx['Drive File ID'] === -1 || idx['Date Processed'] === -1) continue;
 
     for (let i = 1; i < values.length; i++) {
-      if (Date.now() - startTime > MAX_RUN_MS) { deferred++; break; }
+      if (Date.now() - startTime > MAX_RUN_MS) { deferred = true; break; }
       const row = values[i];
       const fileId = String(row[idx['Drive File ID']] || '').trim();
       if (!fileId) continue;
@@ -60,67 +70,119 @@ function refileByProcessedMonthInner_() {
       try {
         const projectNumber = idx['Project Number'] > -1 ? String(row[idx['Project Number']] || '').trim() : '';
         const subprojectNumber = idx['Subproject Number'] > -1 ? String(row[idx['Subproject Number']] || '').trim() : '';
-        const matchedRef = projectNumber ? findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) : null;
-        const destFolderId = resolveInvoiceDestinationFolderId_(matchedRef, status, row[idx['Date Processed']]);
+
+        const matchKey = projectNumber + '|' + subprojectNumber;
+        if (!(matchKey in matchCache)) {
+          matchCache[matchKey] = projectNumber ? findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) : null;
+        }
+        const matchedRef = matchCache[matchKey];
+
+        // Statuses collapse to three folder buckets; month only matters for Filed.
+        const bucket = status === 'Filed' ? 'Filed' : (status === 'Not an Invoice' ? 'Not an Invoice' : 'Needs Review');
+        const destKey = matchKey + '|' + bucket + '|' + (bucket === 'Filed' ? monthFolderKey_(row[idx['Date Processed']]) : '');
+        if (!(destKey in destCache)) {
+          destCache[destKey] = resolveInvoiceDestinationFolderId_(matchedRef, bucket, row[idx['Date Processed']]);
+        }
+        const destFolderId = destCache[destKey];
 
         const file = DriveApp.getFileById(fileId);
         if (file.isTrashed()) { skippedNoFile++; continue; }
 
-        // Already in the right folder? Leave it (this is what makes re-runs cheap and idempotent).
+        // Already in the right folder? Leave it — this is what makes re-runs cheap and convergent.
         let inPlace = false;
         const parents = file.getParents();
-        const parentIds = [];
         while (parents.hasNext()) {
-          const p = parents.next();
-          parentIds.push(p.getId());
-          if (p.getId() === destFolderId) inPlace = true;
+          if (parents.next().getId() === destFolderId) { inPlace = true; break; }
         }
         if (inPlace) { skippedInPlace++; continue; }
 
         file.moveTo(DriveApp.getFolderById(destFolderId));
-        parentIds.forEach(id => { oldParentIds[id] = true; });
         moved++;
       } catch (err) {
         skippedNoFile++; // missing/inaccessible file — nothing to move
       }
     }
-    if (deferred) break;
   }
 
-  const removedFolders = cleanupEmptiedMonthFolders_(oldParentIds);
+  let removedFolders = 0;
+  if (!deferred) {
+    removedFolders = cleanupEmptyArchiveFoldersInner_(referenceRows, startTime, MAX_RUN_MS + 60 * 1000);
+  }
 
-  Logger.log(`refileByProcessedMonth: ${moved} file(s) moved to their processed-month folder, ` +
-    `${skippedInPlace} already in place, ${skippedNoFile} skipped (missing/trashed file), ${checked} checked. ` +
-    `${removedFolders} emptied folder(s) trashed.` +
-    (deferred ? ' TIME BUDGET HIT — re-run refileByProcessedMonth() to continue (already-moved files are skipped).' : ' Done.'));
+  Logger.log(`refileToCorrectFolders: ${moved} file(s) moved, ${skippedInPlace} already in place, ` +
+    `${skippedNoFile} skipped (missing/trashed file), ${checked} checked. ` +
+    `${removedFolders} empty folder(s) trashed.` +
+    (deferred ? ' TIME BUDGET HIT — re-run refileToCorrectFolders() to continue (already-correct files are skipped).' : ' Done.'));
 }
 
 /**
- * Trashes folders left empty by the refile — but ONLY month-shaped ("YYYY-MM") folders and
- * "Statements & Others" subfolders, never project folders. Removing an empty "Statements & Others"
- * can empty its parent month folder, so this cascades upward until nothing more qualifies. Trash is
- * recoverable.
+ * Full sweep for leftover empty structure: walks EVERY project/subproject folder on the Project
+ * Reference sheet and trashes empty structural folders — "YYYY-MM" month folders, "Needs Review",
+ * "Statements & Others", "No Subprojects", and legacy "Past Due" — wherever they sit (up to three
+ * levels deep, e.g. project / No Subprojects / 2026-05 / Statements & Others). Never touches project
+ * or subproject folders themselves, and never touches a folder that still has any content. Runs
+ * automatically at the end of refileToCorrectFolders(); safe to run on its own any time.
  */
-function cleanupEmptiedMonthFolders_(folderIdSet) {
-  const MONTH_RE = /^\d{4}-\d{2}$/;
+function cleanupEmptyArchiveFolders() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(0)) { Logger.log('Another run holds the script lock — wait a moment and try again.'); return; }
+  try {
+    const removed = cleanupEmptyArchiveFoldersInner_(getReferenceData_(), Date.now(), 4.5 * 60 * 1000);
+    Logger.log(`cleanupEmptyArchiveFolders: ${removed} empty folder(s) trashed (recoverable from Trash).`);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** True if a folder name is refile-managed structure (safe to trash when empty). */
+function isStructuralFolderName_(name) {
+  const n = String(name || '');
+  return /^\d{4}-\d{2}$/.test(n)
+    || n === CONFIG.STATEMENTS_SUBFOLDER_NAME
+    || n === CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME
+    || n === CONFIG.NO_SUBPROJECT_FOLDER_NAME
+    || n === CONFIG.PASTDUE_SUBFOLDER_NAME; // legacy — lane removed, empty leftovers can go
+}
+
+function cleanupEmptyArchiveFoldersInner_(referenceRows, startTime, maxRunMs) {
+  // Every provisioned project/subproject folder is a root to sweep under (deduped).
+  const rootIds = {};
+  referenceRows.forEach(r => { if (r.driveFolderId) rootIds[r.driveFolderId] = true; });
+
+  // Collect structural folders up to 3 levels below each root (only descending through structural
+  // names — a project's own document folders are never entered or touched).
+  const candidates = {};
+  const collect = (folder, depth) => {
+    if (depth > 3 || Date.now() - startTime > maxRunMs) return;
+    const children = folder.getFolders();
+    while (children.hasNext()) {
+      const child = children.next();
+      if (!isStructuralFolderName_(child.getName())) continue;
+      candidates[child.getId()] = true;
+      collect(child, depth + 1);
+    }
+  };
+  Object.keys(rootIds).forEach(id => {
+    if (Date.now() - startTime > maxRunMs) return;
+    try { collect(DriveApp.getFolderById(id), 1); } catch (e) { /* missing/inaccessible root */ }
+  });
+
+  // Trash empties bottom-up: repeated passes so a month folder emptied by removing its
+  // "Statements & Others" child gets caught on the next pass.
   let removed = 0;
-  let candidates = Object.keys(folderIdSet || {});
-  for (let pass = 0; pass < 4 && candidates.length; pass++) {
-    const next = {};
-    candidates.forEach(id => {
+  let ids = Object.keys(candidates);
+  for (let pass = 0; pass < 4 && ids.length; pass++) {
+    const stillCandidates = [];
+    ids.forEach(id => {
       try {
         const folder = DriveApp.getFolderById(id);
         if (folder.isTrashed()) return;
-        const name = String(folder.getName() || '');
-        if (!MONTH_RE.test(name) && name !== CONFIG.STATEMENTS_SUBFOLDER_NAME) return; // never touch project/other folders
-        if (folder.getFiles().hasNext() || folder.getFolders().hasNext()) return;      // not empty — leave it
-        const parents = folder.getParents();
+        if (folder.getFiles().hasNext() || folder.getFolders().hasNext()) { stillCandidates.push(id); return; }
         folder.setTrashed(true);
         removed++;
-        while (parents.hasNext()) next[parents.next().getId()] = true; // parent may now be empty too
-      } catch (e) { /* gone/inaccessible — nothing to do */ }
+      } catch (e) { /* gone/inaccessible */ }
     });
-    candidates = Object.keys(next);
+    ids = stillCandidates;
   }
   return removed;
 }

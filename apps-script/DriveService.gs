@@ -73,21 +73,47 @@ function monthFolderKey_(monthDate) {
 }
 
 /**
- * Resolves the Drive folder a matched invoice should live in, given its status — the single source
- * of truth shared by automatic filing (Main.gs/processOneInvoice_) and the dashboard's manual
- * override (DashboardServer.gs/updateInvoiceRow), so the two paths can never disagree about where
- * something belongs. 'Filed' goes straight into the month folder (grouped by the processed date). Anything else
- * (Needs Review, Not an Invoice) goes into that month's "Statements & Others" subfolder — nested
- * under the month, so a project's archive stays organized by month at a glance either way. No project
- * match at all falls back to the top-level "_Unmatched" folder.
+ * The BASE folder an invoice belongs under, before status is considered:
+ *   - subproject assigned  -> that subproject's own folder (created with the standard
+ *                             "<number> - <name>" naming if it isn't provisioned yet)
+ *   - no subproject        -> a "No Subprojects" folder directly under the project folder
+ *   - no project folder resolvable at all -> '' (caller falls back to _Unmatched)
+ * Never an arbitrary sibling subproject's folder — that was the old "weird spot" bug.
+ */
+function resolveBaseFolderId_(matchedRef) {
+  if (!matchedRef) return '';
+  if (matchedRef.exactSubproject && matchedRef.subprojectNumber) {
+    if (matchedRef.subprojectFolderId) return matchedRef.subprojectFolderId;
+    if (matchedRef.projectFolderId) {
+      return getOrCreateNamedSubfolder_(matchedRef.projectFolderId,
+        `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`).getId();
+    }
+    return '';
+  }
+  if (matchedRef.projectFolderId) {
+    return getOrCreateNamedSubfolder_(matchedRef.projectFolderId, CONFIG.NO_SUBPROJECT_FOLDER_NAME).getId();
+  }
+  return '';
+}
+
+/**
+ * Resolves the Drive folder a matched invoice should live in — the single source of truth shared by
+ * automatic filing (Main.gs), the dashboard's manual override (DashboardServer.gs), and the refile
+ * reconciler (Refile.gs), so the paths can never disagree. Statuses are strictly SEPARATED under the
+ * base folder (subproject, or "No Subprojects" under the project):
+ *   Filed           -> <base>/YYYY-MM        (processed month — matches the filename's date)
+ *   Not an Invoice  -> <base>/Statements & Others
+ *   anything else   -> <base>/Needs Review   (awaiting human review; never mixed with statements)
+ * No project match at all falls back to the top-level "_Unmatched" folder.
  */
 function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
-  if (matchedRef && matchedRef.driveFolderId) {
-    const monthFolderId = getMonthSubfolderId_(matchedRef.driveFolderId, monthDate);
-    if (status === 'Filed') return monthFolderId;
-    return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
+  const baseId = resolveBaseFolderId_(matchedRef);
+  if (!baseId) {
+    return getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME).getId();
   }
-  return getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME).getId();
+  if (status === 'Filed') return getMonthSubfolderId_(baseId, monthDate);
+  if (status === 'Not an Invoice') return getOrCreateNamedSubfolder_(baseId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
+  return getOrCreateNamedSubfolder_(baseId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME).getId();
 }
 
 /**

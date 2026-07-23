@@ -69,12 +69,15 @@ Invoices are organized like this:
 ```
 Invoice Archive
 └── <Project Number> - <Project Name>
-    └── <Subproject Number> - <Subproject Name>   (only if the invoice is tied to a subproject)
-        ├── <Year-Month>                          (e.g. 2026-07)
-        │   ├── (auto-filed invoices go straight here)
-        │   └── Statements & Others               (needs-review items, statements, etc.)
-        └── Past Due                              (overdue invoices, kept in one place)
+    ├── <Subproject Number> - <Subproject Name>   (when the invoice is tied to a subproject)
+    │   ├── <Year-Month>                          (Filed invoices, e.g. 2026-07 — the month processed)
+    │   ├── Needs Review                          (invoices awaiting a person)
+    │   └── Statements & Others                   (non-invoices: statements, POs, notices)
+    └── No Subprojects                            (invoices with no subproject assigned)
+        ├── <Year-Month>  ·  Needs Review  ·  Statements & Others   (same three, by status)
 ```
+
+Statuses never mix: a folder holds only one kind of thing, so "what still needs review" is always one folder, not scattered.
 
 Files are named consistently: **`YYMMDD - InvoiceNumber - Vendor.pdf`** (the date is when it was processed) — so a folder of invoices sorts and reads cleanly.
 
