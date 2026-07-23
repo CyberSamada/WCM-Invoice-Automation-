@@ -63,4 +63,7 @@ an explicit alias is a stronger, more direct signal than the reference name:
 - **06 Forest Edge Commons — 952 Southdale Rd** (invoices for 952 Southdale were misfiling)
 - **12 Sereno — 15 Capulet Walk** (the name abbreviates "Walk" to "WK")
 
-See `project_aliases_seed.csv` for the import-ready rows.
+These aliases live in code (`apps-script/AliasSeed.gs`) and are merged in automatically by
+`getAliasData_` — **no manual import needed**; they're active on the next deploy. `project_aliases_seed.csv`
+is kept as a human-readable mirror. To add/change an alias, edit `AliasSeed.gs` (a row hand-added to the
+"Project Aliases" tab still wins over a code seed on the same alias + project).

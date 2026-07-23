@@ -46,30 +46,47 @@ function getMatchableReferenceRows_(referenceRows) {
 }
 
 /**
- * Reads the optional "Project Aliases" tab: known alternate names/addresses that map straight to
- * a project (e.g. a street address invoices use instead of the project's marketing name), for
- * cases Gemini can't reliably infer from the Project Reference sheet alone. Returns [] if the tab
- * doesn't exist — this feature is optional, not required for the automation to run.
+ * Known alternate names/addresses that map straight to a project (e.g. a street address invoices use
+ * instead of the project's marketing name), for cases Gemini can't reliably infer from the Project
+ * Reference sheet alone. Combines two sources:
+ *   1. The "Project Aliases" tab (optional, hand-editable).
+ *   2. The code-maintained seed list (AliasSeed.gs/SEED_ALIASES) — so the shipped aliases are active
+ *      on deploy with NO manual import step.
+ * Sheet rows are read first, so a hand-added row wins over a code seed on the same alias + project.
+ * Deduped by alias (case-insensitive) + project number.
  */
 function getAliasData_() {
-  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
-  if (!sheet) return [];
-  const values = sheet.getDataRange().getValues();
-  const header = values.shift() || [];
-  const idx = {
-    alias: header.indexOf('Alias'),
-    projectNumber: header.indexOf('Project Number'),
-    subprojectNumber: header.indexOf('Subproject Number')
+  const out = [];
+  const seen = {};
+  const add = (alias, projectNumber, subprojectNumber) => {
+    const a = String(alias == null ? '' : alias).trim();
+    const p = String(projectNumber == null ? '' : projectNumber).trim();
+    if (!a || !p) return;
+    const key = a.toLowerCase() + '|' + p;
+    if (seen[key]) return;
+    seen[key] = true;
+    out.push({ alias: a, projectNumber: p, subprojectNumber: String(subprojectNumber == null ? '' : subprojectNumber).trim() });
   };
-  if (idx.alias === -1 || idx.projectNumber === -1) return [];
 
-  return values
-    .filter(row => row[idx.alias] !== '' && row[idx.projectNumber] !== '')
-    .map(row => ({
-      alias: String(row[idx.alias]).trim(),
-      projectNumber: String(row[idx.projectNumber]).trim(),
-      subprojectNumber: idx.subprojectNumber === -1 ? '' : String(row[idx.subprojectNumber] || '').trim()
-    }));
+  // 1. The "Project Aliases" tab, if present — hand-edited rows take precedence.
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (sheet) {
+    const values = sheet.getDataRange().getValues();
+    const header = values.shift() || [];
+    const ai = header.indexOf('Alias');
+    const pi = header.indexOf('Project Number');
+    const si = header.indexOf('Subproject Number');
+    if (ai > -1 && pi > -1) {
+      values.forEach(row => add(row[ai], row[pi], si === -1 ? '' : row[si]));
+    }
+  }
+
+  // 2. The code-maintained seed (AliasSeed.gs) — active on deploy, no import needed.
+  if (typeof SEED_ALIASES !== 'undefined' && SEED_ALIASES.length) {
+    SEED_ALIASES.forEach(a => add(a[0], a[1], a[2]));
+  }
+
+  return out;
 }
 
 /**
