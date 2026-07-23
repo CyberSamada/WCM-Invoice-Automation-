@@ -45,9 +45,10 @@ const CONFIG = {
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
   // DEPRECATED: the "Past Due" lane was removed — overdue invoices now file by month like everything
-  // else, and coordinators spot them via the dashboard's Due Date column/sort. This name is kept only
-  // so the one-time migration (SheetService.gs/migratePastDueRows) can recognize the legacy "Past Due"
-  // subfolders it moves invoices out of. Nothing writes new invoices here anymore.
+  // else, and coordinators spot them via the dashboard's Due Date column/sort. Nothing writes new
+  // invoices to a "Past Due" folder anymore; the one-time cleanup that emptied the legacy folders has
+  // already been run. Kept only so old references don't break — safe to delete once the legacy
+  // "Past Due" folders in Drive have been removed by hand.
   PASTDUE_SUBFOLDER_NAME: 'Past Due',
   FILE_BY_MONTH: true, // group auto-filed invoices into a "YYYY-MM" subfolder (by invoice date) under the project folder. false = file straight into the project folder.
   DUE_SOON_DAYS: 7, // flag an invoice for review when its due date is this many days (or fewer) after the email arrived — a short window crams the pay period. Invoices with no due date are not flagged. Set to null to disable this check.

@@ -362,7 +362,7 @@ function updateInvoiceRow(rowId, updates) {
   const newStatus = updates.status != null ? String(updates.status).trim() : currentStatus;
 
   // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
-  // filing everything by month (see migratePastDueRows for the one-time cleanup of legacy rows).
+  // filing everything by month, and the legacy Past Due rows were already migrated to Filed/Needs Review.
   const ALLOWED_STATUSES = ['Filed', 'Needs Review', 'Not an Invoice', 'Duplicate'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
