@@ -324,17 +324,31 @@ function findReferenceMatch_(referenceRows, projectNumber, subprojectNumber) {
   const base = exact || projectRows.find(r => !r.subprojectNumber) || projectRows[0];
   const projectLevelRow = projectRows.find(r => !r.subprojectNumber && r.driveFolderId);
   const anyRowWithFolder = projectRows.find(r => r.driveFolderId);
-  const driveFolderId = (exact && exact.driveFolderId) // the subproject's own dedicated subfolder, if provisioned
-    || (projectLevelRow && projectLevelRow.driveFolderId) // else the project's own folder
-    || (anyRowWithFolder && anyRowWithFolder.driveFolderId) // else whatever sibling row happens to have one
-    || '';
+
+  // The subproject's own dedicated folder, when a subproject matched exactly and is provisioned.
+  const subprojectFolderId = (exact && exact.subprojectNumber && exact.driveFolderId) ? exact.driveFolderId : '';
+  // The PROJECT-level folder. When Project Reference has no blank-subproject row with an ID (some
+  // projects only list subproject rows), derive it as the PARENT of a sibling subproject's folder —
+  // never use the sibling folder itself as the destination. That old fallback dumped no-subproject
+  // invoices into an arbitrary subproject's folder (the "weird spot").
+  let projectFolderId = (projectLevelRow && projectLevelRow.driveFolderId) || '';
+  if (!projectFolderId && anyRowWithFolder && typeof DriveApp !== 'undefined') {
+    try {
+      const parents = DriveApp.getFolderById(anyRowWithFolder.driveFolderId).getParents();
+      if (parents.hasNext()) projectFolderId = parents.next().getId();
+    } catch (e) { /* sibling folder missing/inaccessible — leave '' and let the resolver fall back */ }
+  }
 
   return {
     projectNumber: projectNumber,
     projectName: base.projectName,
     subprojectNumber: exact ? (exact.subprojectNumber || '') : '',
     subprojectName: exact ? exact.subprojectName : '',
-    driveFolderId: driveFolderId,
+    // Legacy blended field, kept for "is this fileable at all" checks and links: the most specific
+    // folder this match can file into.
+    driveFolderId: subprojectFolderId || projectFolderId || '',
+    subprojectFolderId: subprojectFolderId,
+    projectFolderId: projectFolderId,
     exactSubproject: !!exact
   };
 }

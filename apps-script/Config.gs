@@ -41,9 +41,14 @@ const CONFIG = {
   // always routes to human review, never auto-files. See Main.gs/applyVendorMemory_. null = disable.
   VENDOR_MEMORY_MIN_CORRECTIONS: 2,
 
-  // Anything that isn't auto-filed (statements, low-confidence matches, non-invoices) still gets
-  // filed here instead of staying unfiled — see Main.gs/processOneInvoice_ and DriveService.gs.
-  STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // subfolder created inside each project's Invoice Archive folder
+  // Drive filing is separated strictly BY STATUS under a base folder (the subproject's folder, or
+  // "No Subprojects" under the project when none is assigned) — see DriveService.gs:
+  //   Filed           -> <base>/YYYY-MM (processed month)
+  //   Needs Review    -> <base>/Needs Review
+  //   Not an Invoice  -> <base>/Statements & Others
+  STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // ONLY "Not an Invoice" documents live here
+  NEEDS_REVIEW_SUBFOLDER_NAME: 'Needs Review',      // invoices awaiting human review — never mixed with statements
+  NO_SUBPROJECT_FOLDER_NAME: 'No Subprojects',      // base folder under the project when no subproject is assigned
   UNMATCHED_SUBFOLDER_NAME: '_Unmatched', // top-level fallback, used only when there's no project match at all
   // DEPRECATED: the "Past Due" lane was removed — overdue invoices now file by month like everything
   // else, and coordinators spot them via the dashboard's Due Date column/sort. Nothing writes new

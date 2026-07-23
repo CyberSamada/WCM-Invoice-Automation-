@@ -4,13 +4,13 @@
  *
  * - Runs the real Gemini extraction + matching, so you get a genuine accuracy signal.
  * - NEVER touches real project folders — test file copies go to CONFIG.TEST_FOLDER_ID instead,
- *   organized exactly like the real Invoice Archive would be: a subfolder per matched project (e.g.
- *   "54 - WHITE OAKS MALL") with high-confidence invoices at its root and anything else (statements,
- *   low-confidence matches, non-invoices) inside that project's "Statements & Others" subfolder.
- *   Anything with no project match at all goes into a top-level "_Unmatched" subfolder. This mirrors
- *   processOneInvoice_() in Main.gs exactly, so a test run is a true preview of where things would
- *   land for real — zero risk of a test file landing in a real, shared folder. A "Would File To" link
- *   on each row also shows the real archive folder it corresponds to.
+ *   organized exactly like the real Invoice Archive: a subfolder per matched project, then the base
+ *   folder (the subproject folder, or "No Subprojects"), then a status-separated subfolder — Filed
+ *   preview into a YYYY-MM month folder, review candidates into "Needs Review", non-invoices into
+ *   "Statements & Others". Anything with no project match at all goes into a top-level "_Unmatched"
+ *   subfolder. This mirrors processOneInvoice_() in Main.gs exactly, so a test run is a true preview
+ *   of where things would land for real — zero risk of a test file landing in a real, shared folder.
+ *   A "Would File To" link on each row also shows the real archive folder it corresponds to.
  * - Applies CONFIG.TEST_LABEL, not CONFIG.PROCESSED_LABEL — tested threads stay fully available
  *   to the real processInvoices() run afterward. Nothing needs to be undone.
  * - Restores each thread's original read/unread state when done, as a safety net.
@@ -105,19 +105,22 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
 
   const wouldAutoFile = extracted.is_invoice && passesRuleCheck && isHighConfidence && !dueSoon && matchedRef && !!matchedRef.driveFolderId;
 
-  // Mirrors the real "<project> / <subproject>" nesting so a test run previews the real archive
-  // structure — see DriveSetup.gs/createInvoiceArchiveFolders and getOrCreateTestProjectFolder_.
+  // Mirrors the real structure — base folder (subproject, or "No Subprojects") then a STATUS-separated
+  // subfolder — so a test run previews exactly where things would land. See DriveService.gs.
   const testFileName = `TEST_${buildInvoiceFileName_(extracted)}`;
   let testDestFolder;
   if (matchedRef) {
     const testProjectFolder = getOrCreateTestProjectFolder_(matchedRef.projectNumber, matchedRef.projectName);
-    const testMatchFolder = matchedRef.exactSubproject
+    const testBaseFolder = (matchedRef.exactSubproject && matchedRef.subprojectNumber)
       ? getOrCreateNamedSubfolder_(testProjectFolder.getId(), `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`)
-      : testProjectFolder;
-    const testMonthFolderId = getMonthSubfolderId_(testMatchFolder.getId(), new Date()); // processed date, matching Main.gs
-    testDestFolder = wouldAutoFile
-      ? DriveApp.getFolderById(testMonthFolderId)
-      : getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
+      : getOrCreateNamedSubfolder_(testProjectFolder.getId(), CONFIG.NO_SUBPROJECT_FOLDER_NAME);
+    if (wouldAutoFile) {
+      testDestFolder = DriveApp.getFolderById(getMonthSubfolderId_(testBaseFolder.getId(), new Date())); // processed date, matching Main.gs
+    } else if (!extracted.is_invoice) {
+      testDestFolder = getOrCreateNamedSubfolder_(testBaseFolder.getId(), CONFIG.STATEMENTS_SUBFOLDER_NAME);
+    } else {
+      testDestFolder = getOrCreateNamedSubfolder_(testBaseFolder.getId(), CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME);
+    }
   } else {
     testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);
   }

@@ -46,15 +46,16 @@ Everything lands in the **Invoice Archive**, organized so any invoice is easy to
 flowchart TD
     R["📁 Invoice Archive"] --> P["📁 54 - WHITE OAKS MALL"]
     P --> S["📁 54.13 - White Oaks CRUs"]
-    S --> M["📁 2026-07  (by month)"]
+    P --> NS["📁 No Subprojects<br/>(invoices with no subproject assigned)"]
+    S --> M["📁 2026-07  (Filed, by month processed)"]
     M --> F["📄 260715 - INV5205 - Vendor Name.pdf"]
-    S --> ST["📁 Statements &amp; Others<br/>(needs-review items, statements)"]
-    S --> PD["📁 Past Due<br/>(overdue invoices)"]
+    S --> NR["📁 Needs Review<br/>(awaiting a person)"]
+    S --> ST["📁 Statements &amp; Others<br/>(non-invoices: statements, POs, notices)"]
     R --> U["📁 _Unmatched<br/>(couldn't be placed — needs a person)"]
 ```
 
-- **Confidently-filed invoices** go straight into their project → subproject → month folder.
-- **Anything needing a look** goes into that project's **Statements & Others** (or **Past Due**) subfolder — never lost, just one folder deeper awaiting review.
+- Each invoice lives under its **subproject folder** — or under a **No Subprojects** folder in the project when no subproject is assigned.
+- From there, **statuses never mix**: **Filed** invoices go into a **month folder** (`YYYY-MM`, the month processed — same date the filename carries), **Needs Review** items go into a **Needs Review** folder, and **non-invoices** (statements, POs, notices) go into **Statements & Others**.
 - **Invoices the system couldn't place at all** go to a top-level **_Unmatched** folder so they're easy to spot and assign.
 - **Filenames are standardized**: `YYMMDD - InvoiceNumber - Vendor.pdf` (the date is when it was processed).
 
@@ -70,8 +71,8 @@ flowchart TD
 
 **Sorting & filing**
 - Matches each invoice to the right project **and** subproject from the official project list.
-- Files into a tidy project → subproject → month folder structure in Drive.
-- Separate **Past Due** and **Statements & Others** areas for anything needing attention.
+- Files into a tidy project → subproject → month folder structure in Drive (a **No Subprojects** folder holds anything without a subproject).
+- Statuses never mix: separate **Needs Review** and **Statements & Others** folders for anything needing attention.
 - Standardized, consistent file naming.
 - **Vendor name standardization** — one canonical spelling per company, so "Copp's Buildall" and "COPPS BUILDALL" don't split into two, while genuinely different divisions (e.g. *J-AAR Civil* vs *J-AAR Structure*) stay separate.
 

@@ -194,12 +194,12 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
   // spot overdue bills via the dashboard's Due Date column/sort.
   if (shouldAutoFile && isFileable) status = 'Filed';
 
-  // Known project but not confidently an invoice (statement, low-confidence match, over the dollar
-  // threshold, etc.) still gets filed — into that project's "Statements & Others" subfolder rather
-  // than left unfiled, so it's never lost, only sitting one folder deeper awaiting review. No project
-  // match at all falls back to the top-level "_Unmatched"
-  // folder. See DriveService.gs/resolveInvoiceDestinationFolderId_ — the same resolver the
-  // dashboard's manual override uses, so automatic and manual filing can never disagree about where
+  // Every document still gets filed somewhere — statuses are strictly separated under the base
+  // folder (subproject, or "No Subprojects" under the project): Filed -> YYYY-MM month folder,
+  // Needs Review -> "Needs Review", Not an Invoice -> "Statements & Others". No project match at
+  // all falls back to the top-level "_Unmatched" folder. See
+  // DriveService.gs/resolveInvoiceDestinationFolderId_ — the same resolver the dashboard's manual
+  // override and the refile reconciler use, so no filing path can ever disagree about where
   // something belongs.
   // Month folder is keyed on the PROCESSED date (now) — the same date the filename uses — so the
   // filename and folder always agree, and a batch processed in a given month lands in that one month
