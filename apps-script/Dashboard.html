@@ -334,8 +334,11 @@
     .hint-edit-row input[type="text"], .hint-edit-row select { font-family: inherit; font-size: 12.5px; padding: 5px 7px; border: 1px solid #d1d5db; border-radius: 5px; }
     .hint-edit-controls { display: flex; gap: 6px; }
     .hint-edit-controls select { flex: 1 1 auto; }
-    .hints-add-sub { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-    .hints-add-sub select { flex: 1 1 auto; font-family: inherit; font-size: 12.5px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+    .hints-add-sub { display: flex; gap: 8px; align-items: flex-end; margin-top: 6px; }
+    .hints-sub-field { display: flex; flex-direction: column; gap: 3px; flex: 1 1 auto; min-width: 0; }
+    .hints-sub-label { font-size: 10px; font-weight: 600; color: #9ca3af; text-transform: uppercase; letter-spacing: 0.03em; }
+    .hints-add-sub select { width: 100%; font-family: inherit; font-size: 12.5px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+    .hints-add-sub .btn-primary { flex: 0 0 auto; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     .btn-primary {
       font-family: inherit; font-size: 13px; font-weight: 600;
@@ -772,7 +775,10 @@
         <label for="hintsNewAlias">Add a hint (name or address on the invoice)</label>
         <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
         <div class="hints-add-sub">
-          <select id="hintsNewSub" title="Subproject this hint points to (optional)"></select>
+          <span class="hints-sub-field" id="hintsSubField">
+            <label class="hints-sub-label" for="hintsNewSub">Subproject (optional)</label>
+            <select id="hintsNewSub" title="Which subproject this hint points to — leave on ‘Whole project’ unless the address is a specific unit"></select>
+          </span>
           <button type="button" class="btn-primary" id="hintsAddBtn">Add</button>
         </div>
       </div>
@@ -1780,17 +1786,27 @@
     var HINTS_ALL = []; // last-loaded full alias list: [{alias, projectNumber, subprojectNumber, base, projectLabel}]
     var HINT_EDITING = null; // alias currently being inline-edited (so a re-render keeps the editor open)
 
-    // Fills a subproject <select> with the given project's subprojects (plus a "(no subproject)" first
-    // option), pre-selecting selectedSub. Shared by the Add row and the inline editor.
+    // Fills a subproject <select> with the given project's subprojects (plus a "Whole project" first
+    // option that means no subproject), pre-selecting selectedSub. Returns whether the project has any
+    // subprojects, so callers can hide the picker entirely for whole-project-only projects. Shared by
+    // the Add row and the inline editor.
     function fillHintSubSelect(selectEl, projectNumber, selectedSub) {
       var tree = buildReferenceTree();
       selectEl.innerHTML = '';
-      var none = document.createElement('option'); none.value = ''; none.textContent = '(no subproject)'; selectEl.appendChild(none);
+      var none = document.createElement('option'); none.value = ''; none.textContent = 'Whole project (no subproject)'; selectEl.appendChild(none);
       var proj = tree[normalizeKey(projectNumber)];
-      if (proj) Object.keys(proj.subs).sort(compareDotted).forEach(function (sKey) {
+      var keys = proj ? Object.keys(proj.subs).sort(compareDotted) : [];
+      keys.forEach(function (sKey) {
         var o = document.createElement('option'); o.value = proj.subs[sKey].number; o.textContent = proj.subs[sKey].label; selectEl.appendChild(o);
       });
       selectEl.value = selectedSub || '';
+      return keys.length > 0;
+    }
+
+    // Fills the Add row's subproject picker and hides the whole field when the project has none.
+    function refreshAddSubField(projectNumber) {
+      var hasSubs = fillHintSubSelect(document.getElementById('hintsNewSub'), projectNumber, '');
+      document.getElementById('hintsSubField').style.display = hasSubs ? '' : 'none';
     }
 
     function openHintsModal() {
@@ -1809,7 +1825,7 @@
       });
       document.getElementById('hintsProjectSearch').value = '';
       filterSelectByText(sel, '');
-      fillHintSubSelect(document.getElementById('hintsNewSub'), sel.value, '');
+      refreshAddSubField(sel.value);
       document.getElementById('hintsList').innerHTML = '<li class="hints-empty">Loading hints…</li>';
       document.getElementById('hintsModalOverlay').style.display = 'flex';
       loadHints();
@@ -1818,7 +1834,7 @@
     // Called when the project picker changes: refresh the list and the Add row's subproject options.
     function onHintsProjectChange() {
       HINT_EDITING = null;
-      fillHintSubSelect(document.getElementById('hintsNewSub'), document.getElementById('hintsProject').value, '');
+      refreshAddSubField(document.getElementById('hintsProject').value);
       renderHintsList();
     }
 
@@ -1885,15 +1901,19 @@
       var controls = document.createElement('div');
       controls.className = 'hint-edit-controls';
       var subSel = document.createElement('select');
-      fillHintSubSelect(subSel, a.projectNumber, a.subprojectNumber);
+      var hasSubs = fillHintSubSelect(subSel, a.projectNumber, a.subprojectNumber);
+      // Only offer the subproject picker when this project actually has subprojects; otherwise the
+      // hint is whole-project and the value stays whatever it was.
+      var getSub = function () { return hasSubs ? subSel.value : (a.subprojectNumber || ''); };
       var saveBtn = document.createElement('button');
       saveBtn.type = 'button'; saveBtn.className = 'btn-primary'; saveBtn.textContent = 'Save';
-      saveBtn.addEventListener('click', function () { saveHintEdit(a, input.value, subSel.value, saveBtn); });
+      saveBtn.addEventListener('click', function () { saveHintEdit(a, input.value, getSub(), saveBtn); });
       var cancelBtn = document.createElement('button');
       cancelBtn.type = 'button'; cancelBtn.className = 'btn-secondary'; cancelBtn.textContent = 'Cancel';
       cancelBtn.addEventListener('click', function () { HINT_EDITING = null; renderHintsList(); });
-      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveHintEdit(a, input.value, subSel.value, saveBtn); } });
-      controls.appendChild(subSel); controls.appendChild(saveBtn); controls.appendChild(cancelBtn);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveHintEdit(a, input.value, getSub(), saveBtn); } });
+      if (hasSubs) controls.appendChild(subSel);
+      controls.appendChild(saveBtn); controls.appendChild(cancelBtn);
       wrap.appendChild(input); wrap.appendChild(controls);
       li.appendChild(wrap);
       input.focus();
@@ -1933,6 +1953,7 @@
           btn.disabled = false; btn.textContent = 'Add';
           HINTS_ALL = (res && res.aliases) || [];
           document.getElementById('hintsNewAlias').value = '';
+          document.getElementById('hintsNewSub').value = ''; // don't let the next hint inherit this subproject
           renderHintsList();
           errorEl.style.color = '#059669';
           errorEl.textContent = (res && res.added === false) ? 'That hint was already there.' : 'Hint added ✓';
