@@ -1960,6 +1960,7 @@
           btn.disabled = false; btn.textContent = 'Add';
           HINTS_ALL = (res && res.aliases) || [];
           document.getElementById('hintsNewAlias').value = '';
+          document.getElementById('hintsNewSub').value = ''; // don't let the next hint inherit this subproject
           renderHintsList();
           errorEl.style.color = '#059669';
           errorEl.textContent = (res && res.added === false) ? 'That hint was already there.' : 'Hint added ✓';
