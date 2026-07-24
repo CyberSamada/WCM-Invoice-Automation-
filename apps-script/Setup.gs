@@ -25,12 +25,6 @@ function setup() {
   ensureKnowledgeSeeded_();
   Logger.log(`Seeded the "${CONFIG.SHEET_ALIASES_TAB}" and "${CONFIG.SHEET_AI_NOTES_TAB}" tabs from the shipped defaults (edit them from the dashboard's Manage hints panel, or directly).`);
 
-  const notesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_AI_NOTES_TAB);
-  if (!notesSheet) {
-    getOrCreateSheet_(CONFIG.SHEET_AI_NOTES_TAB, CONFIG.AI_NOTES_COLUMNS);
-    Logger.log(`Created "${CONFIG.SHEET_AI_NOTES_TAB}" tab — optional standing hints for the AI extractor, one per row (merged with the code-seeded notes in ExtractionNotes.gs). Leave empty if not needed.`);
-  }
-
   Logger.log('Setup complete. Next: set the GEMINI_API_KEY script property, fill in the Project Reference tab, then create a time-driven trigger for processInvoices() — see SETUP.md.');
 }
 
