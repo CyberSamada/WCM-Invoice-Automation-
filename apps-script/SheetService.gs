@@ -201,10 +201,13 @@ function getAliasData_() {
     const a = String(alias == null ? '' : alias).trim();
     const p = String(projectNumber == null ? '' : projectNumber).trim();
     if (!a || !p) return;
-    const key = a.toLowerCase() + '|' + p;
+    const s = String(subprojectNumber == null ? '' : subprojectNumber).trim();
+    // Identity is scoped by subproject: a project and each of its subprojects have independent hint
+    // sets, so the same alias can exist at the whole-project level AND under a specific subproject.
+    const key = a.toLowerCase() + '|' + p + '|' + normalizeNumberKey_(s);
     if (seen[key]) return;
     seen[key] = true;
-    out.push({ alias: a, projectNumber: p, subprojectNumber: String(subprojectNumber == null ? '' : subprojectNumber).trim(), base: !!base });
+    out.push({ alias: a, projectNumber: p, subprojectNumber: s, base: !!base });
   };
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
@@ -223,48 +226,57 @@ function getAliasData_() {
   return out;
 }
 
+/** Scope-match: does a row's project+subproject equal this project+subproject (leading-zero safe)? */
+function aliasScopeMatches_(rowProject, rowSub, projectNumber, subprojectNumber) {
+  return normalizeNumberKey_(rowProject) === normalizeNumberKey_(projectNumber) &&
+         normalizeNumberKey_(rowSub) === normalizeNumberKey_(subprojectNumber);
+}
+
 /**
  * Appends one alias row to the "Project Aliases" tab (header-keyed, so column order can evolve), if
- * an identical alias+project isn't already present. Returns true if a row was added, false if it was
- * a duplicate. Used by the dashboard's "Manage hints" manager and the learn-while-fixing field.
+ * an identical alias isn't already present IN THE SAME SCOPE (project + subproject). Returns true if
+ * a row was added, false if it was a duplicate. Each subproject is its own scope, independent of the
+ * whole-project set. Used by the dashboard's "Manage hints" manager and the learn-while-fixing field.
  */
 function appendAliasRow_(alias, projectNumber, subprojectNumber) {
   const a = String(alias == null ? '' : alias).trim();
   const p = String(projectNumber == null ? '' : projectNumber).trim();
   if (!a || !p) return false;
+  const s = String(subprojectNumber == null ? '' : subprojectNumber).trim();
   const sheet = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
   ensureSheetHasColumns_(sheet, CONFIG.ALIAS_COLUMNS);
   const values = sheet.getDataRange().getValues();
   const header = values.shift() || [];
   const ai = header.indexOf('Alias');
   const pi = header.indexOf('Project Number');
+  const si = header.indexOf('Subproject Number');
   if (ai > -1 && pi > -1) {
     const dup = values.some(row =>
       String(row[ai] || '').trim().toLowerCase() === a.toLowerCase() &&
-      String(row[pi] || '').trim() === p);
+      aliasScopeMatches_(row[pi], si === -1 ? '' : row[si], p, s));
     if (dup) return false;
   }
   sheet.appendRow(buildRowByHeader_(sheet, {
-    'Alias': a, 'Project Number': p, 'Subproject Number': String(subprojectNumber == null ? '' : subprojectNumber).trim(), 'Base': ''
+    'Alias': a, 'Project Number': p, 'Subproject Number': s, 'Base': ''
   }));
   return true;
 }
 
-/** True if the "Project Aliases" row for this alias+project is flagged Base (canon). */
-function aliasRowIsBase_(alias, projectNumber) {
+/** True if the "Project Aliases" row for this alias in this scope (project + subproject) is Base. */
+function aliasRowIsBase_(alias, projectNumber, subprojectNumber) {
   const a = String(alias == null ? '' : alias).trim().toLowerCase();
-  const p = normalizeNumberKey_(projectNumber);
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
   if (!sheet) return false;
   const values = sheet.getDataRange().getValues();
   const header = values[0] || [];
   const ai = header.indexOf('Alias');
   const pi = header.indexOf('Project Number');
+  const si = header.indexOf('Subproject Number');
   const bi = header.indexOf('Base');
   if (ai === -1 || pi === -1 || bi === -1) return false;
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][ai] || '').trim().toLowerCase() === a &&
-        normalizeNumberKey_(values[r][pi]) === p) {
+        aliasScopeMatches_(values[r][pi], si === -1 ? '' : values[r][si], projectNumber, subprojectNumber)) {
       return isBaseFlag_(values[r][bi]);
     }
   }
@@ -272,15 +284,15 @@ function aliasRowIsBase_(alias, projectNumber) {
 }
 
 /**
- * Edits an existing "Project Aliases" row IN PLACE: finds the row by its current alias+project and
- * rewrites its Alias and Subproject Number (the Base flag is preserved). Returns true if a row was
- * updated. Used by Manage hints to refine a hint — including a canon (Base) one — without deleting it.
+ * Edits an existing "Project Aliases" row IN PLACE: finds the row by its current alias within a scope
+ * (project + subproject) and rewrites only its Alias text (the subproject scope and Base flag are
+ * preserved). Returns true if a row was updated. Used by Manage hints to refine a hint — including a
+ * canon (Base) one — without deleting it or moving it out of its scope.
  */
-function updateAliasRow_(oldAlias, projectNumber, newAlias, newSubprojectNumber) {
+function updateAliasRow_(oldAlias, projectNumber, subprojectNumber, newAlias) {
   const oa = String(oldAlias == null ? '' : oldAlias).trim().toLowerCase();
-  const p = normalizeNumberKey_(projectNumber);
   const na = String(newAlias == null ? '' : newAlias).trim();
-  if (!oa || !p || !na) return false;
+  if (!oa || !na) return false;
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
   if (!sheet) return false;
   const values = sheet.getDataRange().getValues();
@@ -291,9 +303,8 @@ function updateAliasRow_(oldAlias, projectNumber, newAlias, newSubprojectNumber)
   if (ai === -1 || pi === -1) return false;
   for (let r = 1; r < values.length; r++) {
     if (String(values[r][ai] || '').trim().toLowerCase() === oa &&
-        normalizeNumberKey_(values[r][pi]) === p) {
+        aliasScopeMatches_(values[r][pi], si === -1 ? '' : values[r][si], projectNumber, subprojectNumber)) {
       sheet.getRange(r + 1, ai + 1).setValue(na);
-      if (si > -1) sheet.getRange(r + 1, si + 1).setValue(String(newSubprojectNumber == null ? '' : newSubprojectNumber).trim());
       return true;
     }
   }
@@ -301,12 +312,12 @@ function updateAliasRow_(oldAlias, projectNumber, newAlias, newSubprojectNumber)
 }
 
 /**
- * Deletes every "Project Aliases" row matching alias (case-insensitive) + project number. Returns
- * the number of rows removed. Deletes from the bottom up so earlier row indices stay valid. Used by
- * the dashboard's "Manage hints" manager. Canon (Base) rows are protected at the server layer
- * (removeProjectAlias refuses them) — this low-level helper does not itself check the flag.
+ * Deletes every "Project Aliases" row matching alias (case-insensitive) IN A GIVEN SCOPE (project +
+ * subproject). Returns the number of rows removed. Deletes from the bottom up so earlier row indices
+ * stay valid. Used by the dashboard's "Manage hints" manager. Canon (Base) rows are protected at the
+ * server layer (removeProjectAlias refuses them) — this low-level helper does not itself check.
  */
-function deleteAliasRow_(alias, projectNumber) {
+function deleteAliasRow_(alias, projectNumber, subprojectNumber) {
   const a = String(alias == null ? '' : alias).trim().toLowerCase();
   const p = String(projectNumber == null ? '' : projectNumber).trim();
   if (!a || !p) return 0;
@@ -316,11 +327,12 @@ function deleteAliasRow_(alias, projectNumber) {
   const header = values[0] || [];
   const ai = header.indexOf('Alias');
   const pi = header.indexOf('Project Number');
+  const si = header.indexOf('Subproject Number');
   if (ai === -1 || pi === -1) return 0;
   let removed = 0;
   for (let r = values.length - 1; r >= 1; r--) {
     if (String(values[r][ai] || '').trim().toLowerCase() === a &&
-        String(values[r][pi] || '').trim() === p) {
+        aliasScopeMatches_(values[r][pi], si === -1 ? '' : values[r][si], p, subprojectNumber)) {
       sheet.deleteRow(r + 1);
       removed++;
     }

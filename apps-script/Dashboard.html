@@ -333,9 +333,10 @@
     .hint-edit-row { display: flex; flex-direction: column; gap: 6px; width: 100%; }
     .hint-edit-row input[type="text"], .hint-edit-row select { font-family: inherit; font-size: 12.5px; padding: 5px 7px; border: 1px solid #d1d5db; border-radius: 5px; }
     .hint-edit-controls { display: flex; gap: 6px; }
-    .hint-edit-controls select { flex: 1 1 auto; }
-    .hints-add-sub { display: flex; gap: 8px; align-items: center; margin-top: 6px; }
-    .hints-add-sub select { flex: 1 1 auto; font-family: inherit; font-size: 12.5px; padding: 6px 8px; border: 1px solid #d1d5db; border-radius: 6px; background: #fff; }
+    .hint-edit-row input[type="text"] { width: 100%; }
+    .hints-add-sub { display: flex; gap: 8px; align-items: center; }
+    .hints-add-sub input[type="text"] { flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid #d1d5db; border-radius: 6px; }
+    .hints-add-sub .btn-primary { flex: 0 0 auto; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     .btn-primary {
       font-family: inherit; font-size: 13px; font-weight: 600;
@@ -761,18 +762,21 @@
   <div class="modal-overlay" id="hintsModalOverlay" style="display:none">
     <div class="modal-box">
       <h3>Manage matching hints</h3>
-      <p class="modal-subtitle">Hints tell the automation that a name or address on an invoice belongs to a project — so invoices that don't spell out the project still file correctly. Pick a project to see and edit its hints.</p>
+      <p class="modal-subtitle">Hints tell the automation that a name or address on an invoice belongs to a project (or a specific subproject) — so invoices that don't spell out the number still file correctly. Pick a project, then choose whether you're managing the whole project or one of its subprojects — each has its own hint list.</p>
       <div class="modal-field">
         <label for="hintsProject">Project</label>
         <input type="text" class="select-search" id="hintsProjectSearch" placeholder="Type to search projects…">
         <select id="hintsProject" size="6"></select>
       </div>
+      <div class="modal-field" id="hintsScopeField">
+        <label for="hintsScope">Manage hints for</label>
+        <select id="hintsScope"></select>
+      </div>
       <ul class="hints-list" id="hintsList"></ul>
       <div class="modal-field">
-        <label for="hintsNewAlias">Add a hint (name or address on the invoice)</label>
-        <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
+        <label for="hintsNewAlias" id="hintsAddLabel">Add a hint to this scope (name or address on the invoice)</label>
         <div class="hints-add-sub">
-          <select id="hintsNewSub" title="Subproject this hint points to (optional)"></select>
+          <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
           <button type="button" class="btn-primary" id="hintsAddBtn">Add</button>
         </div>
       </div>
@@ -1780,17 +1784,24 @@
     var HINTS_ALL = []; // last-loaded full alias list: [{alias, projectNumber, subprojectNumber, base, projectLabel}]
     var HINT_EDITING = null; // alias currently being inline-edited (so a re-render keeps the editor open)
 
-    // Fills a subproject <select> with the given project's subprojects (plus a "(no subproject)" first
-    // option), pre-selecting selectedSub. Shared by the Add row and the inline editor.
-    function fillHintSubSelect(selectEl, projectNumber, selectedSub) {
+    // The subproject scope currently being managed ('' = whole project). The project + this scope
+    // together pick out one independent hint set.
+    function currentHintScope() { return document.getElementById('hintsScope').value || ''; }
+
+    // Populates the scope picker with "Whole project" plus each subproject of the given project, and
+    // hides the whole picker when the project has no subprojects. Resets the scope to whole-project.
+    function fillHintScopeSelect(projectNumber) {
       var tree = buildReferenceTree();
-      selectEl.innerHTML = '';
-      var none = document.createElement('option'); none.value = ''; none.textContent = '(no subproject)'; selectEl.appendChild(none);
+      var sel = document.getElementById('hintsScope');
+      sel.innerHTML = '';
+      var whole = document.createElement('option'); whole.value = ''; whole.textContent = 'Whole project'; sel.appendChild(whole);
       var proj = tree[normalizeKey(projectNumber)];
-      if (proj) Object.keys(proj.subs).sort(compareDotted).forEach(function (sKey) {
-        var o = document.createElement('option'); o.value = proj.subs[sKey].number; o.textContent = proj.subs[sKey].label; selectEl.appendChild(o);
+      var keys = proj ? Object.keys(proj.subs).sort(compareDotted) : [];
+      keys.forEach(function (sKey) {
+        var o = document.createElement('option'); o.value = proj.subs[sKey].number; o.textContent = proj.subs[sKey].label; sel.appendChild(o);
       });
-      selectEl.value = selectedSub || '';
+      sel.value = '';
+      document.getElementById('hintsScopeField').style.display = keys.length ? '' : 'none';
     }
 
     function openHintsModal() {
@@ -1809,16 +1820,22 @@
       });
       document.getElementById('hintsProjectSearch').value = '';
       filterSelectByText(sel, '');
-      fillHintSubSelect(document.getElementById('hintsNewSub'), sel.value, '');
+      fillHintScopeSelect(sel.value);
       document.getElementById('hintsList').innerHTML = '<li class="hints-empty">Loading hints…</li>';
       document.getElementById('hintsModalOverlay').style.display = 'flex';
       loadHints();
     }
 
-    // Called when the project picker changes: refresh the list and the Add row's subproject options.
+    // Project changed: rebuild the scope picker (back to Whole project) and refresh the list.
     function onHintsProjectChange() {
       HINT_EDITING = null;
-      fillHintSubSelect(document.getElementById('hintsNewSub'), document.getElementById('hintsProject').value, '');
+      fillHintScopeSelect(document.getElementById('hintsProject').value);
+      renderHintsList();
+    }
+
+    // Scope (whole project vs a subproject) changed: refresh the list for the new scope.
+    function onHintsScopeChange() {
+      HINT_EDITING = null;
       renderHintsList();
     }
 
@@ -1837,15 +1854,28 @@
         .getProjectAliases();
     }
 
-    // Shows the hints for the project currently selected in the picker. Base (canon) hints get a badge
-    // and no delete button — they can be edited but never removed or blanked.
+    // A short label for the current scope, e.g. "the whole project" or "subproject 46.02".
+    function hintScopeLabel() {
+      var scope = currentHintScope();
+      if (!scope) return 'the whole project';
+      var opt = document.getElementById('hintsScope').selectedOptions[0];
+      return 'subproject ' + (opt ? opt.textContent : scope);
+    }
+
+    // Shows the hints for the currently selected project + scope (each is an independent set). Base
+    // (canon) hints get a badge and no delete button — they can be edited but never removed or blanked.
     function renderHintsList() {
       var proj = document.getElementById('hintsProject').value;
+      var scope = currentHintScope();
       var list = document.getElementById('hintsList');
+      document.getElementById('hintsAddLabel').textContent = 'Add a hint for ' + hintScopeLabel() + ' (name or address on the invoice)';
       if (!proj) { list.innerHTML = '<li class="hints-empty">Pick a project above to see its hints.</li>'; return; }
       var pKey = normalizeKey(proj);
-      var rows = HINTS_ALL.filter(function (a) { return normalizeKey(a.projectNumber) === pKey; });
-      if (!rows.length) { list.innerHTML = '<li class="hints-empty">No hints yet for this project. Add one below.</li>'; return; }
+      var sKey = normalizeKey(scope);
+      var rows = HINTS_ALL.filter(function (a) {
+        return normalizeKey(a.projectNumber) === pKey && normalizeKey(a.subprojectNumber) === sKey;
+      });
+      if (!rows.length) { list.innerHTML = '<li class="hints-empty">No hints yet for ' + escapeHtml(hintScopeLabel()) + '. Add one below.</li>'; return; }
       list.innerHTML = '';
       rows.forEach(function (a) {
         var li = document.createElement('li');
@@ -1857,8 +1887,7 @@
         var main = document.createElement('div');
         main.className = 'hint-main';
         main.innerHTML = (a.base ? '<span class="hint-base-badge" title="Base hint — can be edited but not removed">Base</span>' : '') +
-          '<span class="hint-alias" title="' + escapeHtml(a.alias) + '">' + escapeHtml(a.alias) + '</span>' +
-          (a.subprojectNumber ? '<span class="hint-sub">→ sub ' + escapeHtml(a.subprojectNumber) + '</span>' : '');
+          '<span class="hint-alias" title="' + escapeHtml(a.alias) + '">' + escapeHtml(a.alias) + '</span>';
         var actions = document.createElement('div');
         actions.className = 'hint-actions';
         var editBtn = document.createElement('button');
@@ -1868,7 +1897,7 @@
         if (!a.base) {
           var rmBtn = document.createElement('button');
           rmBtn.type = 'button'; rmBtn.className = 'hint-btn hint-remove'; rmBtn.title = 'Remove this hint'; rmBtn.textContent = '×';
-          rmBtn.addEventListener('click', function () { removeHint(a.alias, a.projectNumber); });
+          rmBtn.addEventListener('click', function () { removeHint(a); });
           actions.appendChild(rmBtn);
         }
         li.appendChild(main); li.appendChild(actions);
@@ -1876,7 +1905,7 @@
       });
     }
 
-    // Turns one <li> into an inline editor for hint `a`.
+    // Turns one <li> into an inline editor for hint `a` (edits the alias text only; the scope is fixed).
     function renderHintEditor(li, a) {
       var wrap = document.createElement('div');
       wrap.className = 'hint-edit-row';
@@ -1884,22 +1913,20 @@
       input.type = 'text'; input.value = a.alias; input.placeholder = 'Name or address (can’t be blank)';
       var controls = document.createElement('div');
       controls.className = 'hint-edit-controls';
-      var subSel = document.createElement('select');
-      fillHintSubSelect(subSel, a.projectNumber, a.subprojectNumber);
       var saveBtn = document.createElement('button');
       saveBtn.type = 'button'; saveBtn.className = 'btn-primary'; saveBtn.textContent = 'Save';
-      saveBtn.addEventListener('click', function () { saveHintEdit(a, input.value, subSel.value, saveBtn); });
+      saveBtn.addEventListener('click', function () { saveHintEdit(a, input.value, saveBtn); });
       var cancelBtn = document.createElement('button');
       cancelBtn.type = 'button'; cancelBtn.className = 'btn-secondary'; cancelBtn.textContent = 'Cancel';
       cancelBtn.addEventListener('click', function () { HINT_EDITING = null; renderHintsList(); });
-      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveHintEdit(a, input.value, subSel.value, saveBtn); } });
-      controls.appendChild(subSel); controls.appendChild(saveBtn); controls.appendChild(cancelBtn);
+      input.addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); saveHintEdit(a, input.value, saveBtn); } });
+      controls.appendChild(saveBtn); controls.appendChild(cancelBtn);
       wrap.appendChild(input); wrap.appendChild(controls);
       li.appendChild(wrap);
       input.focus();
     }
 
-    function saveHintEdit(a, newAlias, newSub, btn) {
+    function saveHintEdit(a, newAlias, btn) {
       var errorEl = document.getElementById('hintsModalError');
       errorEl.style.color = ''; errorEl.textContent = '';
       if (!String(newAlias).trim()) { errorEl.textContent = 'A hint can’t be blank.'; return; }
@@ -1915,13 +1942,13 @@
           btn.disabled = false; btn.textContent = 'Save';
           errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateProjectAlias(a.alias, a.projectNumber, newAlias, newSub);
+        .updateProjectAlias(a.alias, a.projectNumber, a.subprojectNumber, newAlias);
     }
 
     function addHint() {
       var proj = document.getElementById('hintsProject').value;
       var alias = document.getElementById('hintsNewAlias').value;
-      var sub = document.getElementById('hintsNewSub').value;
+      var scope = currentHintScope();
       var errorEl = document.getElementById('hintsModalError');
       errorEl.style.color = ''; errorEl.textContent = '';
       if (!proj) { errorEl.textContent = 'Pick a project first.'; return; }
@@ -1941,10 +1968,10 @@
           btn.disabled = false; btn.textContent = 'Add';
           errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not add — try again.';
         })
-        .addProjectAlias(alias, proj, sub);
+        .addProjectAlias(alias, proj, scope);
     }
 
-    function removeHint(alias, projectNumber) {
+    function removeHint(a) {
       var errorEl = document.getElementById('hintsModalError');
       errorEl.style.color = ''; errorEl.textContent = '';
       google.script.run
@@ -1955,7 +1982,7 @@
         .withFailureHandler(function (err) {
           errorEl.textContent = err && err.message ? err.message : 'Could not remove — try again.';
         })
-        .removeProjectAlias(alias, projectNumber);
+        .removeProjectAlias(a.alias, a.projectNumber, a.subprojectNumber);
     }
 
     // --- Multi-select + bulk edit ---------------------------------------------------------------
@@ -2287,6 +2314,7 @@
       document.getElementById('hintsCloseBtn').addEventListener('click', closeHintsModal);
       document.getElementById('hintsAddBtn').addEventListener('click', addHint);
       document.getElementById('hintsProject').addEventListener('change', onHintsProjectChange);
+      document.getElementById('hintsScope').addEventListener('change', onHintsScopeChange);
       document.getElementById('hintsProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('hintsProject'), this.value); });
       document.getElementById('hintsNewAlias').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addHint(); } });
       document.getElementById('hintsModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeHintsModal(); });

@@ -77,17 +77,18 @@ If a batch of invoices all need the same fix (say, several from one vendor that 
 
 ## Managing project hints
 
-A **hint** tells the automation that a certain name or address printed on an invoice belongs to a particular project — so invoices that don't spell out the project number still file correctly (many vendors only print a job-site address). You don't need spreadsheet access to manage them.
+A **hint** tells the automation that a certain name or address printed on an invoice belongs to a particular project — or to a specific **subproject** — so invoices that don't spell out the number still file correctly (many vendors only print a job-site address). You don't need spreadsheet access to manage them.
 
 If you have edit permission, a **Manage hints** button appears in the header (next to Start/Pause):
 
 1. Click **Manage hints**.
-2. Pick a **project** — you'll see the hints it already has.
-3. Type a name or address in **Add a hint**, optionally pick a **subproject** it points to, and click **Add** (e.g. `952 Southdale Rd`). Edit any hint with the **✎** pencil; remove your own with the **×**.
+2. Pick a **project**.
+3. Choose what you're managing under **"Manage hints for"**: the **Whole project**, or one of its **subprojects**. Each has its **own, separate hint list** — a subproject's hints are not mixed with the project's. (Projects with no subprojects skip this step.)
+4. Type a name or address in **Add a hint** and click **Add** (e.g. `952 Southdale Rd`) — it's saved to whichever scope you selected. Edit any hint's text with the **✎** pencil; remove your own with the **×**.
 
-**Base hints** (marked with a small **Base** badge) are the shipped defaults for known properties. They can be **edited** (✎) — for example to refine an address or point it at a subproject — but can't be removed or left blank, so the essential address→project mappings can't be broken by accident.
+**Base hints** (marked with a small **Base** badge) are the shipped defaults for known properties. They can be **edited** (✎) to refine the wording, but can't be removed or left blank, so the essential address→project mappings can't be broken by accident.
 
-That's the same list the *"what identifies this project?"* box feeds when you fix an invoice — two ways into one place. Add a hint whenever you notice invoices for a project keep arriving under a name the system doesn't recognize.
+That's the same list the *"what identifies this project?"* box feeds when you fix an invoice — two ways into one place. Add a hint whenever you notice invoices for a project (or subproject) keep arriving under a name the system doesn't recognize.
 
 ## Where filed invoices live in Drive
 

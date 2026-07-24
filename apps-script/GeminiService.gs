@@ -111,7 +111,8 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   ).join('\n');
 
   const aliasListText = aliasRows.map(a =>
-    `"${a.alias}" -> Project ${a.projectNumber}${a.subprojectNumber ? ' / Subproject ' + a.subprojectNumber : ''}`
+    `"${a.alias}" => Project ${a.projectNumber}` +
+    (a.subprojectNumber ? `, Subproject ${a.subprojectNumber}` : ` (project level — no specific subproject)`)
   ).join('\n');
 
   const emailDateIso = (emailDate instanceof Date && !isNaN(emailDate.getTime()))
@@ -130,8 +131,13 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
       : '') +
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
     (aliasListText
-      ? `Known aliases — alternate names/addresses invoices sometimes use instead of the project's listed name ` +
-        `(if the invoice mentions one of these, use the project/subproject it points to directly):\n${aliasListText}\n\n`
+      ? `Confirmed aliases — specific names or addresses the WCM team has verified belong to a given project ` +
+        `(and, where a Subproject is shown, to that exact subproject). These are AUTHORITATIVE and take precedence ` +
+        `over your own guess: if the invoice's ship-to / job-site / project reference matches one of these aliases, ` +
+        `use exactly the Project it maps to — and, when a Subproject is given, use that exact Subproject too (do NOT ` +
+        `downgrade it to NONE, and do not substitute a similar-sounding subproject from the reference list). When an ` +
+        `alias is marked "project level — no specific subproject", apply the project and choose the subproject ` +
+        `separately from the invoice as usual. Each alias maps to exactly one project/subproject — never blend two:\n${aliasListText}\n\n`
       : '') +
     `First, classify what kind of document this actually is (document_type) — this distinction really matters, ` +
     `since a Purchase Order or Agreement can look deceptively invoice-like (it may still show a $ total, taxes, ` +
