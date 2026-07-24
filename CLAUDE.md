@@ -140,14 +140,25 @@ downgraded to NONE.
 
 ## Batch download (dashboard)
 
-`downloadInvoicesZip(rowIds, zipName)` (DashboardServer.gs) zips the selected rows' filed PDFs and
-returns the zip as **base64** for the browser to save (client `base64ToBlob` + an `<a download>`), so
-a viewer with no Drive access can still export (it runs as the owner, like Preview — read-only, not
-gated). De-dupes by Drive file ID (a `Duplicate` row shares the canon's file — never zipped twice);
-skips unreadable files and counts them; capped by `DOWNLOAD_MAX_FILES` (100) / `DOWNLOAD_MAX_TOTAL_BYTES`
-(30 MB) so the base64 response stays transferable. `sanitizeZipName_` strips only illegal filename
-chars (keeps hyphens), caps length, ensures one `.zip`. UI: a **Download as zip** button in the
-multi-select bulk bar → name-the-zip modal.
+`downloadInvoicesZip(rowIds, zipName)` (DashboardServer.gs) returns the selected rows' filed PDFs as
+**base64** for the browser to save (client `base64ToBlob`+`triggerDownload` → an `<a download>`), so a
+viewer with no Drive access can still export (it runs as the owner, like Preview — read-only, not
+gated). De-dupes by Drive file ID (a `Duplicate` row shares the canon's file — never downloaded
+twice); skips unreadable files and counts them; capped by `DOWNLOAD_MAX_FILES` (100) /
+`DOWNLOAD_MAX_TOTAL_BYTES` (30 MB). **After de-dup, one file returns AS-IS** (`single:true`, its own
+name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips only illegal chars —
+keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
+bar — one selected downloads directly, multiple open the name-the-zip modal.
+
+## Review Note sequencing (dashboard)
+
+Review Note accumulates events: the initial reason, then each `Manually updated <stamp> — …` edit and
+`Merged as duplicate …` — appended with **`\n`** now (was a space, which jammed them into one blob).
+The client `noteLinesFrom(reviewNote, matchNote)` renders them as a chronological one-line-per-event
+sequence in the ⓘ popover (`.note-line`) and the preview note; it splits on `\n` AND, for older
+space-joined notes still in the sheet, on the `Manually updated <date>` / `Merged as duplicate`
+markers — so no data migration is needed. The match note is shown last as `AI read: …`. The ⓘ button
+carries `data-review`/`data-match` (not a pre-joined `data-note`) so the popover can format them.
 
 ## Docs to keep in sync when behavior changes
 

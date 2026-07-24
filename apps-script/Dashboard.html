@@ -274,7 +274,9 @@
     .note-info:hover { background: #d1d5db; color: #374151; }
     .invnum-cell { white-space: nowrap; }
     .muted-dash { color: #cbd5e1; }
-    #notePopover { display: none; position: absolute; z-index: 60; max-width: 340px; background: #1f2937; color: #f9fafb; font-size: 12px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); word-break: break-word; }
+    #notePopover { display: none; position: absolute; z-index: 60; max-width: 360px; max-height: 300px; overflow-y: auto; background: #1f2937; color: #f9fafb; font-size: 12px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); word-break: break-word; }
+    #notePopover .note-line, .preview-note .note-line { padding: 3px 0; border-top: 1px solid rgba(148,163,184,0.22); }
+    #notePopover .note-line:first-child, .preview-note .note-line:first-child { border-top: none; padding-top: 0; }
     .links-cell { white-space: nowrap; }
     .icon-link { display: inline-flex; align-items: center; color: var(--wcm-blue); vertical-align: middle; }
     .icon-link + .icon-link { margin-left: 12px; }
@@ -580,7 +582,7 @@
       <div class="bulk-bar" id="bulkBar">
         <span><span class="bulk-count" id="bulkCount">0</span> selected</span>
         <button type="button" class="btn-primary" id="bulkEditBtn">Edit selected</button>
-        <button type="button" class="btn-secondary" id="bulkDownloadBtn">Download as zip</button>
+        <button type="button" class="btn-secondary" id="bulkDownloadBtn">Download</button>
         <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
       </div>
 
@@ -1272,9 +1274,40 @@
 
     // Small popover showing a row's review/match note — opened from the gray "i" mark, closed by
     // clicking anywhere else. One shared element for all rows.
+    // Splits a review note into its chronological entries — one per "Manually updated…" / "Merged as
+    // duplicate…" event, with the original review reason first — then appends the AI's match note. Works
+    // for both the newline-separated notes written now and older space-joined ones. Returns display lines.
+    function noteLinesFrom(reviewNote, matchNote) {
+      var lines = [];
+      var rn = String(reviewNote || '').trim();
+      if (rn) {
+        rn = rn.replace(/\s*\n\s*/g, '\n')
+               .replace(/\s+(?=Manually updated \d|Merged as duplicate\b)/g, '\n');
+        rn.split('\n').forEach(function (s) { s = s.trim(); if (s) lines.push(s); });
+      }
+      var mn = String(matchNote || '').trim();
+      if (mn) lines.push('AI read: ' + mn);
+      return lines;
+    }
+
+    // Renders the preview panel's note area as a labeled, one-line-per-event sequence (or hides it).
+    function renderPreviewNote(reviewNote, matchNote) {
+      var noteEl = document.getElementById('previewNote');
+      var lines = noteLinesFrom(reviewNote, matchNote);
+      if (lines.length) {
+        noteEl.innerHTML = '<strong>Note</strong>' +
+          lines.map(function (l) { return '<div class="note-line">' + escapeHtml(l) + '</div>'; }).join('');
+        noteEl.style.display = '';
+      } else {
+        noteEl.textContent = ''; noteEl.style.display = 'none';
+      }
+    }
+
     function showNotePopover(btn) {
       var pop = document.getElementById('notePopover');
-      pop.textContent = btn.getAttribute('data-note') || '';
+      var lines = noteLinesFrom(btn.getAttribute('data-review'), btn.getAttribute('data-match'));
+      pop.innerHTML = lines.map(function (l) { return '<div class="note-line">' + escapeHtml(l) + '</div>'; }).join('') ||
+        escapeHtml(btn.getAttribute('data-note') || '');
       pop.style.display = 'block';
       var rect = btn.getBoundingClientRect();
       var left = rect.left + window.scrollX;
@@ -1305,7 +1338,8 @@
         var statusBadge = '<span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span>';
         // Prefer the short "why it's flagged" review note in the tooltip; fall back to Gemini's
         // match reasoning. Show both when both exist.
-        var note = [r.reviewNote, r.matchNote].filter(function (n) { return n; }).join(' — ');
+        var noteLines = noteLinesFrom(r.reviewNote, r.matchNote);
+        var note = noteLines.join('\n'); // multi-line title tooltip + presence check
         html += '<tr>' +
           '<td class="select-cell">' + (r.rowId
             ? '<input type="checkbox" data-select-id="' + escapeHtml(r.rowId) + '"' + (SELECTED_ROWIDS[r.rowId] ? ' checked' : '') + '>'
@@ -1320,7 +1354,7 @@
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
           '<td>' + statusBadge + '</td>' +
           '<td class="note-col">' + (note
-            ? '<button type="button" class="note-info" data-note="' + escapeHtml(note) + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
+            ? '<button type="button" class="note-info" data-review="' + escapeHtml(r.reviewNote || '') + '" data-match="' + escapeHtml(r.matchNote || '') + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
             : '') + '</td>' +
           '<td class="links-cell">' +
             (r.driveLink ? '<button type="button" class="icon-btn icon-link" data-preview-id="' + escapeHtml(r.rowId) + '" title="Preview filed PDF" aria-label="Preview filed PDF">' + ICON_FILE + '</button>' : '') +
@@ -1534,11 +1568,9 @@
       document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
       document.getElementById('previewFrame').src = parsed.url;
       document.getElementById('previewLocation').textContent = 'Looking up file location…';
-      // Surface the review/log note (why it was flagged, correction history) right in the preview.
-      var noteEl = document.getElementById('previewNote');
-      var pnote = [record.reviewNote, record.matchNote].filter(function (n) { return n; }).join(' — ');
-      if (pnote) { noteEl.innerHTML = '<strong>Note:</strong> ' + escapeHtml(pnote); noteEl.style.display = ''; }
-      else { noteEl.textContent = ''; noteEl.style.display = 'none'; }
+      // Surface the review/log note (why it was flagged, correction history) right in the preview,
+      // as a readable sequence — one line per event.
+      renderPreviewNote(record.reviewNote, record.matchNote);
       populatePreviewEditControls(record);
       updatePreviewNav();
       document.getElementById('previewModalOverlay').style.display = 'flex';
@@ -1659,9 +1691,8 @@
           if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
           applyFilters(); // refresh the table behind the modal
           document.getElementById('previewLearnAlias').value = '';
-          var pNoteEl = document.getElementById('previewNote');
-          var upNote = updated ? [updated.reviewNote, updated.matchNote].filter(function (n) { return n; }).join(' — ') : '';
-          if (upNote) { pNoteEl.innerHTML = '<strong>Note:</strong> ' + escapeHtml(upNote); pNoteEl.style.display = ''; }
+          var rec = idx > -1 ? ALL_RECORDS[idx] : updated;
+          renderPreviewNote(rec.reviewNote, rec.matchNote);
           errorEl.style.color = '#059669';
           errorEl.textContent = (updated && updated.learnedAlias) ? 'Saved ✓ — hint remembered' : 'Saved ✓';
           // The file may have moved to a new project folder — refresh the location line.
@@ -2037,13 +2068,52 @@
       renderResults(LAST_RENDERED);
     }
 
-    // --- Batch download (zip the selected invoices' PDFs) ---------------------------------------
+    // --- Download selected invoices -------------------------------------------------------------
+    // One selected file downloads AS-IS (its own name); two or more are zipped under a name you pick.
+
+    // Base64 -> Blob, then trigger a real browser "Save" of the file the server returned.
+    function base64ToBlob(b64, type) {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: type || 'application/octet-stream' });
+    }
+    function triggerDownload(res) {
+      var blob = base64ToBlob(res.base64, res.mimeType);
+      var url = URL.createObjectURL(blob);
+      var a = document.createElement('a');
+      a.href = url; a.download = res.fileName;
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+    }
+
+    // Bulk-bar "Download": a single selected invoice downloads directly (no zip, no naming); multiple
+    // open the name-the-zip modal.
+    function handleBulkDownload() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      if (ids.length > 1) { openDownloadModal(); return; }
+      var btn = document.getElementById('bulkDownloadBtn');
+      var label = btn.textContent;
+      btn.disabled = true; btn.textContent = 'Downloading…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = label;
+          try { triggerDownload(res); }
+          catch (e) { alert('The file was fetched but the browser could not save it: ' + (e && e.message ? e.message : e)); }
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = label;
+          alert(err && err.message ? err.message : 'Could not download that invoice — try again.');
+        })
+        .downloadInvoicesZip(ids, '');
+    }
 
     function openDownloadModal() {
       var ids = selectedIds();
       if (!ids.length) return;
       document.getElementById('downloadModalSubtitle').textContent =
-        ids.length + ' invoice' + (ids.length === 1 ? '' : 's') + ' selected. They’ll be zipped into one file.';
+        ids.length + ' invoices selected. They’ll be zipped into one file.';
       // Default name: WCM-Invoices-YYYY-MM-DD (today, in the viewer's locale calendar).
       var d = new Date();
       var pad = function (x) { return (x < 10 ? '0' : '') + x; };
@@ -2058,14 +2128,6 @@
 
     function closeDownloadModal() { document.getElementById('downloadModalOverlay').style.display = 'none'; }
 
-    // Base64 -> Blob (for triggering a real browser download of the zip the server built).
-    function base64ToBlob(b64, type) {
-      var bin = atob(b64);
-      var bytes = new Uint8Array(bin.length);
-      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-      return new Blob([bytes], { type: type || 'application/zip' });
-    }
-
     function doDownloadZip() {
       var ids = selectedIds();
       if (!ids.length) return;
@@ -2075,23 +2137,18 @@
       var statusEl = document.getElementById('downloadStatus');
       errorEl.textContent = '';
       btn.disabled = true; btn.textContent = 'Zipping…';
-      statusEl.textContent = 'Preparing ' + ids.length + ' file' + (ids.length === 1 ? '' : 's') + '… this can take a moment.';
+      statusEl.style.color = '';
+      statusEl.textContent = 'Preparing ' + ids.length + ' files… this can take a moment.';
       google.script.run
         .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'Download zip';
           try {
-            var blob = base64ToBlob(res.base64, 'application/zip');
-            var url = URL.createObjectURL(blob);
-            var a = document.createElement('a');
-            a.href = url; a.download = res.fileName;
-            document.body.appendChild(a); a.click(); document.body.removeChild(a);
-            setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+            triggerDownload(res);
             statusEl.style.color = '#059669';
             statusEl.textContent = 'Downloaded ' + res.fileCount + ' file' + (res.fileCount === 1 ? '' : 's') +
               (res.skipped ? ' (' + res.skipped + ' skipped — file missing or no access)' : '') + ' ✓';
-            btn.disabled = false; btn.textContent = 'Download zip';
           } catch (e) {
-            errorEl.textContent = 'The zip was built but the browser could not save it: ' + (e && e.message ? e.message : e);
-            btn.disabled = false; btn.textContent = 'Download zip';
+            errorEl.textContent = 'The file was built but the browser could not save it: ' + (e && e.message ? e.message : e);
           }
         })
         .withFailureHandler(function (err) {
@@ -2379,7 +2436,7 @@
       document.getElementById('summaryTimeframe').addEventListener('change', updateSummaryCards);
       document.getElementById('selectAllBox').addEventListener('change', toggleSelectAll);
       document.getElementById('bulkEditBtn').addEventListener('click', openBulkModal);
-      document.getElementById('bulkDownloadBtn').addEventListener('click', openDownloadModal);
+      document.getElementById('bulkDownloadBtn').addEventListener('click', handleBulkDownload);
       document.getElementById('bulkClearBtn').addEventListener('click', clearSelection);
       document.getElementById('downloadCancelBtn').addEventListener('click', closeDownloadModal);
       document.getElementById('downloadConfirmBtn').addEventListener('click', doDownloadZip);

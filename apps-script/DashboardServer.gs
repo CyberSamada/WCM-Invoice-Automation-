@@ -455,7 +455,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   setCell('Drive Link', newDriveLink);
   if (idx['Review Note'] > -1) {
     const existingNote = String(row[idx['Review Note']] || '');
-    setCell('Review Note', existingNote ? existingNote + ' ' + overrideNote : overrideNote);
+    setCell('Review Note', existingNote ? existingNote + '\n' + overrideNote : overrideNote);
   }
 
   // Record the correction (what the automation had vs. what the human set it to) for the Override
@@ -615,7 +615,7 @@ function mergeInvoiceAsDuplicate(dupRowId, canonRowId) {
   setCell('Drive Link', canonLink);
   setCell('Drive File ID', canonFileId);
   const existingNote = idx['Review Note'] > -1 ? String(dupRow[idx['Review Note']] || '') : '';
-  setCell('Review Note', existingNote ? existingNote + ' ' + mergeNote : mergeNote);
+  setCell('Review Note', existingNote ? existingNote + '\n' + mergeNote : mergeNote);
 
   try {
     logOverride_({
@@ -638,7 +638,7 @@ function mergeInvoiceAsDuplicate(dupRowId, canonRowId) {
     status: 'Duplicate',
     statusClass: statusToClass_('Duplicate'),
     driveLink: canonLink,
-    reviewNote: existingNote ? existingNote + ' ' + mergeNote : mergeNote
+    reviewNote: existingNote ? existingNote + '\n' + mergeNote : mergeNote
   };
 }
 
@@ -847,11 +847,27 @@ function downloadInvoicesZip(rowIds, zipName) {
   }
   if (!blobs.length) throw new Error('Could not read any of the selected files (they may have been moved or deleted).');
 
+  // Exactly one file (after de-dup) — return it as-is, not zipped, so a single download opens the
+  // PDF directly under its own name.
+  if (blobs.length === 1) {
+    const only = blobs[0];
+    return {
+      single: true,
+      base64: Utilities.base64Encode(only.getBytes()),
+      fileName: only.getName(),
+      mimeType: only.getContentType() || 'application/pdf',
+      fileCount: 1,
+      skipped: skipped
+    };
+  }
+
   const safeName = sanitizeZipName_(zipName);
   const zipBlob = Utilities.zip(blobs, safeName);
   return {
+    single: false,
     base64: Utilities.base64Encode(zipBlob.getBytes()),
     fileName: safeName,
+    mimeType: 'application/zip',
     fileCount: blobs.length,
     skipped: skipped
   };
