@@ -47,6 +47,12 @@ BRAND-NEW install starts with; to restore a default someone deleted, run `reseed
   force-push is blocked — instead run
   `git merge -s recursive -X ours origin/<branch> --no-edit` (keeps your tree, adds ancestry), then
   a normal fast-forward push. Verify `git diff <your-commit> HEAD` is empty before pushing.
+- **`-X ours` is not "keep my tree verbatim" — it only wins on CONFLICTING hunks.** A change the
+  stale remote branch still has but you deleted (a block you removed elsewhere in the file) is a
+  *non-conflicting* addition from the merge base's view, so git silently re-adds it. That's exactly
+  how a dead `notesSheet` block came back into Setup.gs this session. So the "`git diff <your-commit>
+  HEAD` is empty" check is load-bearing, not a formality: if it's non-empty, the merge re-introduced
+  stale content — strip it in a follow-up commit until the diff is empty, THEN push.
 
 ## Code rules (each one exists because of a real incident)
 
@@ -86,6 +92,13 @@ BRAND-NEW install starts with; to restore a default someone deleted, run `reseed
   from a `.gs` file by brace counting; `eval()` it into the test's scope). **Never put
   `'use strict'` in a test file** — strict-mode eval doesn't leak declarations. If the toolkit is
   missing (ephemeral container), recreate it or inline the same extract-and-eval pattern.
+- **Only `var`/`function` declarations leak out of `eval()`; `const`/`let` do not** (they're
+  block-scoped to the eval). So a function-under-test that references a file-level `const` (e.g.
+  `KNOWLEDGE_SEEDED_PROPERTY`, `CONFIG`) will throw "X is not defined" if you `eval` the const from
+  the source — define those in the test scope as `var` (or a plain assignment) instead. A silent
+  try/catch in the function-under-test will swallow that ReferenceError and make every assertion fail
+  at once; if a whole test file "does nothing," temporarily replace the catch body with a log to see
+  the real error.
 - Mock `SpreadsheetApp`/`DriveApp`/`Utilities`/`CONFIG` per test; make fake folder IDs be their
   own "parent/name" paths so assertions read like expected paths.
 - `Dashboard.html` contains em-dashes/arrows that defeat exact-match string edits — for edits there,
@@ -97,8 +110,10 @@ BRAND-NEW install starts with; to restore a default someone deleted, run `reseed
   + step-by-step section must match reality).
 - `EMPLOYEE_GUIDE.md` — end-user how-to (statuses, folder tree, dashboard actions).
 - `apps-script/SETUP.md` — deploy/config internals.
-- `property_addresses.md` + `AliasSeed.gs` — canonical addresses; aliases live in code and load on
-  deploy (no manual sheet import). `project_aliases_seed.csv` is the human-readable mirror.
+- `property_addresses.md` + `AliasSeed.gs` — canonical addresses. `AliasSeed.gs`/`SEED_EXTRACTION_NOTES`
+  are shipped DEFAULTS seeded into the **Project Aliases**/**AI Notes** tabs once (see the knowledge
+  rule up top); the live home is the tabs, edited via the dashboard's **Manage hints** panel.
+  `property_addresses.md` + `project_aliases_seed.csv` are human-readable mirrors of the defaults.
 - `apps-script/ExtractionNotes.gs` — standing domain notes injected into every Gemini extraction
   prompt (merged with the optional "AI Notes" sheet tab, which lets the team add hints without a
   deploy). This is the extractor's CLAUDE.md.
