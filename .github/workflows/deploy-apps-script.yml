@@ -5,15 +5,22 @@
 #   1. Put your Apps Script project's Script ID in apps-script/.clasp.json
 #   2. Run `clasp login` locally once, then save the contents of ~/.clasprc.json
 #      as a repository secret named CLASPRC_JSON (Settings > Secrets and variables > Actions).
+#   3. To also auto-redeploy the dashboard web app (so no manual "New version" is needed), set a
+#      repository secret WEBAPP_DEPLOYMENT_ID to the live web app's deployment ID
+#      (Deploy > Manage deployments > your Web app > the AKfyc... ID, or `clasp deployments`).
 #
-# This pushes the script's code (like pressing Save in the editor). It deliberately does NOT also
-# bump the live dashboard web app deployment: `clasp deploy --deploymentId <id>` was tried for
-# that and turned out to silently strip the deployment's "Web app" configuration down to
-# library-only, breaking the live /exec URL — apparently the Apps Script API's deployments.update
-# (which is what clasp deploy calls) doesn't reliably preserve entry-point config the way the
-# Apps Script UI's own "Deploy" button does. So: after a push, still bump the version manually —
-# Deploy > Manage deployments > pencil icon > confirm Web app / Execute as Me / access setting >
-# New version > Deploy. See SETUP.md, "Keeping Apps Script in sync," for the full explanation.
+# Two steps run on each push to apps-script/**:
+#   - `clasp push -f` updates the script's code (like pressing Save in the editor). Backend changes
+#     are live on the next trigger run with no further action.
+#   - `clasp deploy -i <WEBAPP_DEPLOYMENT_ID>` redeploys THAT SAME deployment to a new version,
+#     keeping the exact deployment ID and /exec URL — the CLI equivalent of Manage deployments >
+#     New version. This is why the web app entry point now lives in appsscript.json ("webapp":
+#     executeAs USER_DEPLOYING, access DOMAIN): an earlier attempt stripped the deployment to
+#     library-only because the manifest carried no web-app config, so a new version had nothing to
+#     preserve. With that config in the manifest, the redeploy keeps "Web app / Execute as Me /
+#     domain access" intact. The redeploy step is SKIPPED (code still pushes) when
+#     WEBAPP_DEPLOYMENT_ID is unset, and it only ever updates that existing ID — it never creates a
+#     new deployment, so the shared URL can't change out from under anyone.
 
 name: Deploy to Apps Script
 
@@ -50,3 +57,18 @@ jobs:
       - name: Push code to Apps Script
         working-directory: apps-script
         run: clasp push -f
+
+      # Redeploy the SAME web app deployment (same ID + /exec URL) to a fresh version, so the live
+      # dashboard updates without a manual "New version". Skipped (leaving the code push in place)
+      # when WEBAPP_DEPLOYMENT_ID isn't set. Only ever updates the given deployment ID — never mints
+      # a new one — so the shared link stays exact.
+      - name: Redeploy dashboard web app
+        working-directory: apps-script
+        env:
+          DEPLOYMENT_ID: ${{ secrets.WEBAPP_DEPLOYMENT_ID }}
+        run: |
+          if [ -z "$DEPLOYMENT_ID" ]; then
+            echo "::warning::WEBAPP_DEPLOYMENT_ID secret not set — code was pushed, but the web app was not redeployed. Republish manually (Deploy > Manage deployments > New version) or set the secret to automate this."
+            exit 0
+          fi
+          clasp deploy -i "$DEPLOYMENT_ID" -d "Invoice_Dashboard_v${{ github.run_number }}"

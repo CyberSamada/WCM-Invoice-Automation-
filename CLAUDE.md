@@ -51,10 +51,16 @@ downgraded to NONE.
   script ID in `apps-script/.clasp.json`. **Backend changes** (Gmail/Drive/Sheets processing, editor
   functions) are live on the next trigger run — no manual step.
 - **The dashboard is different.** The web app (`Dashboard.html` + everything called via
-  `google.script.run`) executes a **pinned deployment version**, NOT HEAD. The user must republish:
-  Deploy → Manage deployments → ✏️ → New version → Deploy. If a dashboard change or a
-  `updateInvoiceRow`-style server call behaves like old code, the republish is pending — that's the
-  answer, not a code bug.
+  `google.script.run`) executes a **pinned deployment version**, NOT HEAD. The workflow now
+  auto-redeploys it: after `clasp push -f` it runs `clasp deploy -i <WEBAPP_DEPLOYMENT_ID>` (a repo
+  secret) to bump THAT SAME deployment to a new version, keeping the exact deployment ID and `/exec`
+  URL. This only works because `appsscript.json` now carries the web-app entry point
+  (`"webapp": { executeAs: USER_DEPLOYING, access: DOMAIN }`) — without it, `clasp deploy` strips the
+  deployment to library-only and kills the `/exec` URL (the reason this was manual before). If the
+  `WEBAPP_DEPLOYMENT_ID` secret is unset the redeploy step is SKIPPED (code still pushes) and you
+  republish by hand: Deploy → Manage deployments → ✏️ → New version → Deploy. So if a dashboard
+  change behaves like old code, check the Action's redeploy step (and that the secret is set) before
+  suspecting a code bug.
 - The Apps Script **editor caches files** per browser tab. After a deploy, the tab must be reloaded
   before new files/functions appear. Run always executes the latest *saved* server code regardless.
 - The workflow only triggers on `apps-script/**` paths. Doc-only PRs deploy nothing.
