@@ -83,7 +83,9 @@ If you have edit permission, a **Manage hints** button appears in the header (ne
 
 1. Click **Manage hints**.
 2. Pick a **project** — you'll see the hints it already has.
-3. Type a name or address in **Add a hint** and click **Add** (e.g. `952 Southdale Rd`). Remove one with the **×** beside it.
+3. Type a name or address in **Add a hint**, optionally pick a **subproject** it points to, and click **Add** (e.g. `952 Southdale Rd`). Edit any hint with the **✎** pencil; remove your own with the **×**.
+
+**Base hints** (marked with a small **Base** badge) are the shipped defaults for known properties. They can be **edited** (✎) — for example to refine an address or point it at a subproject — but can't be removed or left blank, so the essential address→project mappings can't be broken by accident.
 
 That's the same list the *"what identifies this project?"* box feeds when you fix an invoice — two ways into one place. Add a hint whenever you notice invoices for a project keep arriving under a name the system doesn't recognize.
 

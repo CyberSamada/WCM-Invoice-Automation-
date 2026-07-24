@@ -18,11 +18,19 @@ Aliases** and **AI Notes** sheet tabs. `SEED_ALIASES` (AliasSeed.gs) and `SEED_E
 `SheetService.gs/ensureKnowledgeSeeded_` (guarded by the `KNOWLEDGE_SEEDED` Script Property), then
 never read directly again — `getAliasData_`/`getExtractionNotes_` read only the tabs. So a
 hand-deleted row stays deleted (the seed won't re-add it), and coordinators tune aliases themselves
-from the dashboard's **Manage hints** panel (`getProjectAliases`/`addProjectAlias`/
-`removeProjectAlias` in DashboardServer.gs write to the tab AS THE OWNER — no spreadsheet access
+from the dashboard's **Manage hints** panel (`getProjectAliases`/`addProjectAlias`/`removeProjectAlias`/
+`updateProjectAlias` in DashboardServer.gs write to the tab AS THE OWNER — no spreadsheet access
 needed) or by typing the identifying address in the **learn-while-fixing** field on the edit/preview
 panels (`updates.learnAlias` → `saveProjectAliasInternal_`). Editing a seed array only changes what a
 BRAND-NEW install starts with; to restore a default someone deleted, run `reseedKnowledge()` (Setup.gs).
+
+**Base (canon) aliases** — the "Project Aliases" tab has a **Base** column. Rows from `SEED_ALIASES`
+are marked `Base=TRUE` (once, by `ensureBaseAliases_`, guarded by `BASE_ALIASES_ENSURED` — a separate
+pass from `ensureKnowledgeSeeded_` because the tab was seeded before the column existed). Base rows
+show in Manage hints but can't be **removed** (`removeProjectAlias` refuses them) or **blanked**
+(`updateProjectAlias` rejects an empty alias) — only edited. Base-ness lives on the row's Base cell,
+so an edited base hint keeps it; membership is NOT re-derived from seed text after the one-time pass
+(that would duplicate an edited row). Manage hints supports **subproject** on add and inline **edit**.
 
 ## Deploy model — read this before debugging "it's not working"
 
