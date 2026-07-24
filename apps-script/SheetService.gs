@@ -93,7 +93,7 @@ function ensureKnowledgeSeeded_() {
         if (!alias || !proj) return;
         if (existing[alias.toLowerCase() + '|' + proj]) return;
         sheet.appendRow(buildRowByHeader_(sheet, {
-          'Alias': alias, 'Project Number': proj, 'Subproject Number': String(a[2] || '').trim()
+          'Alias': alias, 'Project Number': proj, 'Subproject Number': String(a[2] || '').trim(), 'Base': 'TRUE'
         }));
       });
     }
@@ -122,6 +122,68 @@ function ensureKnowledgeSeeded_() {
   } catch (e) { /* leave the flag unset so a later call retries — never block the caller */ }
 }
 
+/** True for a "Base" cell that means canon — a boolean checkbox TRUE or the text "TRUE"/"yes"/"1". */
+function isBaseFlag_(value) {
+  if (value === true) return true;
+  const s = String(value == null ? '' : value).trim().toLowerCase();
+  return s === 'true' || s === 'yes' || s === '1';
+}
+
+/** Guard flag for the one-time base-alias backfill (see ensureBaseAliases_). */
+const BASE_ALIASES_ENSURED_PROPERTY = 'BASE_ALIASES_ENSURED';
+
+/**
+ * One-time backfill that establishes the CANON ("Base") alias set in the "Project Aliases" tab: for
+ * every shipped SEED_ALIASES entry, make sure a matching (alias+project) row exists and its "Base"
+ * cell is TRUE. This is what makes the shipped address→project defaults un-deletable in Manage hints
+ * (removeProjectAlias refuses a Base row) while still editable. Runs ONCE (guarded), because after
+ * the flag is stamped base-ness lives on the row's Base cell — so a coordinator who EDITS a base
+ * hint's text keeps it canon, and we never re-derive membership from the seed text again (which would
+ * duplicate an edited row). Needed as a separate pass from ensureKnowledgeSeeded_ because the tab was
+ * seeded before the Base column existed. Best-effort; a hiccup leaves the flag unset to retry.
+ */
+function ensureBaseAliases_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(BASE_ALIASES_ENSURED_PROPERTY) === 'true') return;
+    if (typeof SEED_ALIASES === 'undefined' || !SEED_ALIASES.length) { props.setProperty(BASE_ALIASES_ENSURED_PROPERTY, 'true'); return; }
+
+    const sheet = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
+    ensureSheetHasColumns_(sheet, CONFIG.ALIAS_COLUMNS);
+    const values = sheet.getDataRange().getValues();
+    const header = values[0] || [];
+    const ai = header.indexOf('Alias');
+    const pi = header.indexOf('Project Number');
+    const bi = header.indexOf('Base');
+    if (ai === -1 || pi === -1 || bi === -1) return; // columns not ready — retry next call
+
+    // Index existing rows by normalized alias+project.
+    const rowByKey = {};
+    for (let r = 1; r < values.length; r++) {
+      const k = String(values[r][ai] || '').trim().toLowerCase() + '|' + normalizeNumberKey_(values[r][pi]);
+      if (k !== '|') rowByKey[k] = r + 1; // 1-based sheet row
+    }
+
+    SEED_ALIASES.forEach(a => {
+      const alias = String(a[0] || '').trim();
+      const proj = String(a[1] || '').trim();
+      if (!alias || !proj) return;
+      const key = alias.toLowerCase() + '|' + normalizeNumberKey_(proj);
+      const rowNum = rowByKey[key];
+      if (rowNum) {
+        sheet.getRange(rowNum, bi + 1).setValue('TRUE'); // flag the existing seeded row as canon
+      } else {
+        // A canon default someone removed before it was protected — restore it, flagged.
+        sheet.appendRow(buildRowByHeader_(sheet, {
+          'Alias': alias, 'Project Number': proj, 'Subproject Number': String(a[2] || '').trim(), 'Base': 'TRUE'
+        }));
+      }
+    });
+
+    props.setProperty(BASE_ALIASES_ENSURED_PROPERTY, 'true');
+  } catch (e) { /* additive — never block the caller; leave flag unset to retry */ }
+}
+
 /**
  * Known alternate names/addresses that map straight to a project (e.g. a street address invoices use
  * instead of the project's marketing name), for cases Gemini can't reliably infer from the Project
@@ -132,16 +194,17 @@ function ensureKnowledgeSeeded_() {
  */
 function getAliasData_() {
   ensureKnowledgeSeeded_();
+  ensureBaseAliases_();
   const out = [];
   const seen = {};
-  const add = (alias, projectNumber, subprojectNumber) => {
+  const add = (alias, projectNumber, subprojectNumber, base) => {
     const a = String(alias == null ? '' : alias).trim();
     const p = String(projectNumber == null ? '' : projectNumber).trim();
     if (!a || !p) return;
     const key = a.toLowerCase() + '|' + p;
     if (seen[key]) return;
     seen[key] = true;
-    out.push({ alias: a, projectNumber: p, subprojectNumber: String(subprojectNumber == null ? '' : subprojectNumber).trim() });
+    out.push({ alias: a, projectNumber: p, subprojectNumber: String(subprojectNumber == null ? '' : subprojectNumber).trim(), base: !!base });
   };
 
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
@@ -151,8 +214,9 @@ function getAliasData_() {
     const ai = header.indexOf('Alias');
     const pi = header.indexOf('Project Number');
     const si = header.indexOf('Subproject Number');
+    const bi = header.indexOf('Base');
     if (ai > -1 && pi > -1) {
-      values.forEach(row => add(row[ai], row[pi], si === -1 ? '' : row[si]));
+      values.forEach(row => add(row[ai], row[pi], si === -1 ? '' : row[si], bi === -1 ? false : isBaseFlag_(row[bi])));
     }
   }
 
@@ -181,15 +245,66 @@ function appendAliasRow_(alias, projectNumber, subprojectNumber) {
     if (dup) return false;
   }
   sheet.appendRow(buildRowByHeader_(sheet, {
-    'Alias': a, 'Project Number': p, 'Subproject Number': String(subprojectNumber == null ? '' : subprojectNumber).trim()
+    'Alias': a, 'Project Number': p, 'Subproject Number': String(subprojectNumber == null ? '' : subprojectNumber).trim(), 'Base': ''
   }));
   return true;
+}
+
+/** True if the "Project Aliases" row for this alias+project is flagged Base (canon). */
+function aliasRowIsBase_(alias, projectNumber) {
+  const a = String(alias == null ? '' : alias).trim().toLowerCase();
+  const p = normalizeNumberKey_(projectNumber);
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (!sheet) return false;
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const ai = header.indexOf('Alias');
+  const pi = header.indexOf('Project Number');
+  const bi = header.indexOf('Base');
+  if (ai === -1 || pi === -1 || bi === -1) return false;
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][ai] || '').trim().toLowerCase() === a &&
+        normalizeNumberKey_(values[r][pi]) === p) {
+      return isBaseFlag_(values[r][bi]);
+    }
+  }
+  return false;
+}
+
+/**
+ * Edits an existing "Project Aliases" row IN PLACE: finds the row by its current alias+project and
+ * rewrites its Alias and Subproject Number (the Base flag is preserved). Returns true if a row was
+ * updated. Used by Manage hints to refine a hint — including a canon (Base) one — without deleting it.
+ */
+function updateAliasRow_(oldAlias, projectNumber, newAlias, newSubprojectNumber) {
+  const oa = String(oldAlias == null ? '' : oldAlias).trim().toLowerCase();
+  const p = normalizeNumberKey_(projectNumber);
+  const na = String(newAlias == null ? '' : newAlias).trim();
+  if (!oa || !p || !na) return false;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (!sheet) return false;
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const ai = header.indexOf('Alias');
+  const pi = header.indexOf('Project Number');
+  const si = header.indexOf('Subproject Number');
+  if (ai === -1 || pi === -1) return false;
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][ai] || '').trim().toLowerCase() === oa &&
+        normalizeNumberKey_(values[r][pi]) === p) {
+      sheet.getRange(r + 1, ai + 1).setValue(na);
+      if (si > -1) sheet.getRange(r + 1, si + 1).setValue(String(newSubprojectNumber == null ? '' : newSubprojectNumber).trim());
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
  * Deletes every "Project Aliases" row matching alias (case-insensitive) + project number. Returns
  * the number of rows removed. Deletes from the bottom up so earlier row indices stay valid. Used by
- * the dashboard's "Manage hints" manager.
+ * the dashboard's "Manage hints" manager. Canon (Base) rows are protected at the server layer
+ * (removeProjectAlias refuses them) — this low-level helper does not itself check the flag.
  */
 function deleteAliasRow_(alias, projectNumber) {
   const a = String(alias == null ? '' : alias).trim().toLowerCase();

@@ -151,8 +151,10 @@ const CONFIG = {
 
   // Project Aliases columns — a small lookup table for known alternate names/addresses that
   // Gemini couldn't otherwise infer from the Project Reference sheet alone (e.g. a building's
-  // street address rather than its marketing name). See SheetService.gs/getAliasData_.
-  ALIAS_COLUMNS: ['Alias', 'Project Number', 'Subproject Number'],
+  // street address rather than its marketing name). See SheetService.gs/getAliasData_. The "Base"
+  // column marks the shipped canon defaults (TRUE): those show in Manage hints but can't be deleted
+  // or blanked — only edited — so the essential address→project mappings can't be broken by mistake.
+  ALIAS_COLUMNS: ['Alias', 'Project Number', 'Subproject Number', 'Base'],
 
   // Test mode (see Test.gs) — never touches real project folders or the real Invoice Log.
   TEST_FOLDER_ID: '1C-AH90kifz_S8M0fHvORYzlihDo0lGle', // "Test_Output_Folder" in Drive
