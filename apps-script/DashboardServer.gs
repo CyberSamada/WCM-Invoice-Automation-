@@ -743,6 +743,30 @@ function updateProjectAlias(oldAlias, projectNumber, subprojectNumber, newAlias)
   return getProjectAliases();
 }
 
+// Cap for the text-select preview (PDF bytes returned to the browser for PDF.js). Typical invoices
+// are well under this; larger ones stay on the fast Drive viewer.
+const PDF_SELECT_MAX_BYTES = 25 * 1024 * 1024;
+
+/**
+ * Returns a filed invoice PDF's raw bytes as base64, for the dashboard's "Select text" preview mode
+ * (client-side PDF.js renders it with a selectable text layer). Read-only — runs as the owner, so a
+ * viewer without Drive access can still use it, same as Preview. Called lazily only when the user
+ * turns on text-select mode.
+ *
+ * @param {string} fileId
+ * @return {{base64: string, mimeType: string}}
+ */
+function getInvoicePdfData(fileId) {
+  const id = String(fileId || '').trim();
+  if (!/^[A-Za-z0-9_-]{10,}$/.test(id)) throw new Error('Invalid file ID.');
+  const blob = DriveApp.getFileById(id).getBlob();
+  const bytes = blob.getBytes();
+  if (bytes.length > PDF_SELECT_MAX_BYTES) {
+    throw new Error('This PDF is too large to open in text-select mode — use the normal viewer or Open in Drive.');
+  }
+  return { base64: Utilities.base64Encode(bytes), mimeType: blob.getContentType() || 'application/pdf' };
+}
+
 /**
  * Where a filed invoice PDF actually lives in Drive, as a human-readable folder path (walked up
  * from the file to the Invoice Archive root) — for the dashboard's preview modal, so someone can

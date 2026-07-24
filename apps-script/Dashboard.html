@@ -357,6 +357,16 @@
     .preview-body { display: flex; gap: 16px; align-items: flex-start; margin-top: 4px; }
     .preview-frame-wrap { flex: 1 1 auto; min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: #f3f4f6; }
     .preview-frame-wrap iframe { display: block; width: 100%; height: 68vh; border: none; }
+    /* Text-select preview (PDF.js): scrollable stack of page canvases, each with a selectable text layer. */
+    #previewPdfSelect { width: 100%; height: 68vh; overflow: auto; background: #e5e7eb; text-align: center; padding: 10px 0; }
+    #previewPdfSelect .pdf-page { position: relative; margin: 0 auto 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); background: #fff; }
+    #previewPdfSelect .pdf-page canvas { display: block; }
+    #previewPdfSelect .pdf-status { color: #6b7280; font-size: 13px; padding: 24px 12px; }
+    /* PDF.js text layer: transparent, absolutely-positioned spans over the canvas so text is selectable. */
+    #previewPdfSelect .textLayer { position: absolute; left: 0; top: 0; right: 0; bottom: 0; overflow: hidden; opacity: 1; line-height: 1; }
+    #previewPdfSelect .textLayer > span { color: transparent; position: absolute; white-space: pre; cursor: text; transform-origin: 0% 0%; }
+    #previewPdfSelect .textLayer ::selection { background: rgba(37,99,235,0.35); }
+    #previewPdfSelect .textLayer ::-moz-selection { background: rgba(37,99,235,0.35); }
     .preview-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; max-height: 68vh; overflow-y: auto; }
     .preview-location { font-size: 12px; color: #6b7280; margin: 0; word-break: break-word; }
     .preview-location strong { color: #374151; font-weight: 600; }
@@ -687,6 +697,8 @@
       <div class="preview-body">
         <div class="preview-frame-wrap">
           <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
+          <!-- Text-select mode: PDF.js renders pages here with a selectable text layer over each canvas. -->
+          <div id="previewPdfSelect" style="display:none"></div>
         </div>
         <div class="preview-side">
           <p class="preview-location" id="previewLocation">Looking up file location…</p>
@@ -735,6 +747,7 @@
         </div>
         <div class="preview-action-btns">
           <button type="button" class="btn-secondary" id="previewCloseBtn">Close</button>
+          <button type="button" class="btn-secondary" id="previewTextBtn" title="Switch to a text-selectable view so you can highlight and copy from the PDF">Select text</button>
           <button type="button" class="btn-secondary" id="previewOpenDriveBtn">Open in Drive</button>
           <button type="button" class="btn-primary" id="previewSaveBtn">Save changes</button>
         </div>
@@ -865,6 +878,9 @@
     </div>
   </div>
 
+  <!-- PDF.js (text-selectable preview mode only) — loaded from CDN; if it can't load, the preview
+       silently stays on the Drive viewer and the "Select text" button reports it. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
     var ALL_ERROR_TIMESTAMPS = <?!= data.errorTimestampsJson ?>;
@@ -1548,6 +1564,9 @@
 
     var previewDriveLink = '';
     var previewRowId = null;
+    var previewFileId = '';        // Drive file ID of the previewed PDF (for text-select mode)
+    var previewTextMode = false;   // false = Drive viewer, true = PDF.js selectable render (session-sticky)
+    var previewPdfToken = 0;       // bumped to cancel stale/in-flight PDF.js renders
     var previewNavList = []; // snapshot of the shown list when the preview opened, for Prev/Next
 
     // Opens the preview for a table row and snapshots the current list order, so Prev/Next stays stable
@@ -1565,6 +1584,7 @@
 
       previewDriveLink = record.driveLink;
       previewRowId = rowId;
+      previewFileId = parsed.fileId;
       document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
       document.getElementById('previewFrame').src = parsed.url;
       document.getElementById('previewLocation').textContent = 'Looking up file location…';
@@ -1574,6 +1594,7 @@
       populatePreviewEditControls(record);
       updatePreviewNav();
       document.getElementById('previewModalOverlay').style.display = 'flex';
+      applyPreviewMode(); // Drive viewer, or the text-selectable render if that mode is on (modal is laid out now)
 
       google.script.run
         .withSuccessHandler(function (info) {
@@ -1590,8 +1611,116 @@
     function closePreviewModal() {
       document.getElementById('previewModalOverlay').style.display = 'none';
       document.getElementById('previewFrame').src = 'about:blank'; // stop the embedded viewer
+      document.getElementById('previewPdfSelect').innerHTML = '';   // drop rendered pages
+      previewPdfToken++;                                            // cancel any in-flight render
       previewDriveLink = '';
       previewRowId = null;
+      previewFileId = '';
+    }
+
+    // --- Text-select preview (PDF.js) -----------------------------------------------------------
+    // "Select text" swaps the Drive viewer for a PDF.js render whose text layer is selectable, so
+    // values can be highlighted and copied. previewTextMode persists across previews in the session.
+
+    // Shows the Drive iframe or the selectable render, per previewTextMode, and renders if needed.
+    function applyPreviewMode() {
+      var frame = document.getElementById('previewFrame');
+      var sel = document.getElementById('previewPdfSelect');
+      var btn = document.getElementById('previewTextBtn');
+      if (previewTextMode) {
+        frame.style.display = 'none';
+        sel.style.display = 'block';
+        btn.textContent = 'Back to view';
+        renderSelectablePdf(previewFileId);
+      } else {
+        sel.style.display = 'none';
+        sel.innerHTML = '';
+        frame.style.display = 'block';
+        btn.textContent = 'Select text';
+      }
+    }
+
+    function togglePreviewText() {
+      if (!previewTextMode && typeof pdfjsLib === 'undefined') {
+        alert('The text-select viewer could not load (no internet access to the PDF library). The normal viewer and Open in Drive still work.');
+        return;
+      }
+      previewTextMode = !previewTextMode;
+      applyPreviewMode();
+    }
+
+    // Fetches the PDF bytes and renders every page to a canvas with a selectable text layer over it.
+    function renderSelectablePdf(fileId) {
+      var container = document.getElementById('previewPdfSelect');
+      if (!fileId || typeof pdfjsLib === 'undefined') {
+        container.innerHTML = '<div class="pdf-status">Text-select view isn’t available for this file.</div>';
+        return;
+      }
+      var token = ++previewPdfToken; // guards against a stale render finishing after a fast Next/close
+      container.innerHTML = '<div class="pdf-status">Loading selectable text…</div>';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (token !== previewPdfToken) return; // superseded
+          try {
+            var bin = atob(res.base64);
+            var bytes = new Uint8Array(bin.length);
+            for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+            try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
+            pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
+              if (token !== previewPdfToken) return;
+              container.innerHTML = '';
+              renderPdfPage(pdf, 1, container, token);
+            }).catch(function () {
+              if (token !== previewPdfToken) return;
+              container.innerHTML = '<div class="pdf-status">Couldn’t render this PDF for text selection (it may be a scanned image). Use “Back to view” or Open in Drive.</div>';
+            });
+          } catch (e) {
+            container.innerHTML = '<div class="pdf-status">Couldn’t read this PDF for text selection.</div>';
+          }
+        })
+        .withFailureHandler(function (err) {
+          if (token !== previewPdfToken) return;
+          container.innerHTML = '<div class="pdf-status">' + escapeHtml(err && err.message ? err.message : 'Could not load the PDF for text selection.') + '</div>';
+        })
+        .getInvoicePdfData(fileId);
+    }
+
+    // Renders one page (canvas + text layer), then recurses to the next — keeps memory bounded and
+    // lets the first page appear fast. Scale fits the container width.
+    function renderPdfPage(pdf, pageNum, container, token) {
+      if (token !== previewPdfToken || pageNum > pdf.numPages) return;
+      pdf.getPage(pageNum).then(function (page) {
+        if (token !== previewPdfToken) return;
+        var targetW = container.clientWidth - 20;
+        if (!(targetW > 0)) targetW = 700; // modal not laid out yet — use a sensible default width
+        targetW = Math.min(targetW, 900);
+        var base = page.getViewport({ scale: 1 });
+        var scale = targetW / base.width;
+        var viewport = page.getViewport({ scale: scale });
+
+        var pageDiv = document.createElement('div');
+        pageDiv.className = 'pdf-page';
+        pageDiv.style.width = viewport.width + 'px';
+        pageDiv.style.height = viewport.height + 'px';
+        var canvas = document.createElement('canvas');
+        canvas.width = viewport.width; canvas.height = viewport.height;
+        pageDiv.appendChild(canvas);
+        var textDiv = document.createElement('div');
+        textDiv.className = 'textLayer';
+        textDiv.style.width = viewport.width + 'px';
+        textDiv.style.height = viewport.height + 'px';
+        pageDiv.appendChild(textDiv);
+        container.appendChild(pageDiv);
+
+        page.render({ canvasContext: canvas.getContext('2d'), viewport: viewport }).promise.then(function () {
+          if (token !== previewPdfToken) return;
+          return page.getTextContent();
+        }).then(function (textContent) {
+          if (!textContent || token !== previewPdfToken) return;
+          pdfjsLib.renderTextLayer({ textContent: textContent, container: textDiv, viewport: viewport, textDivs: [] });
+          renderPdfPage(pdf, pageNum + 1, container, token); // next page
+        }).catch(function () { /* skip a bad page, keep going */ if (token === previewPdfToken) renderPdfPage(pdf, pageNum + 1, container, token); });
+      });
     }
 
     // True if there's a previewable (has row id + Drive link) invoice `delta` steps from index `i` in
@@ -1807,7 +1936,9 @@
           pe.style.color = '#059669'; pe.textContent = 'Merged \u2713 \u2014 now showing the kept copy';
           var parsed = drivePreviewUrl(previewDriveLink);
           if (parsed) {
+            previewFileId = parsed.fileId;
             document.getElementById('previewFrame').src = parsed.url;
+            if (previewTextMode) applyPreviewMode(); // re-render the kept copy in text-select mode
             document.getElementById('previewLocation').textContent = 'Updating file location\u2026';
             google.script.run
               .withSuccessHandler(function (info) {
@@ -2447,6 +2578,7 @@
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
       document.getElementById('previewCloseBtn').addEventListener('click', closePreviewModal);
       document.getElementById('previewOpenDriveBtn').addEventListener('click', function () { if (previewDriveLink) window.open(previewDriveLink, '_blank'); });
+      document.getElementById('previewTextBtn').addEventListener('click', togglePreviewText);
       document.getElementById('previewProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('previewProject'), this.value); });
       document.getElementById('previewSaveBtn').addEventListener('click', savePreviewEdit);
       document.getElementById('previewPrevBtn').addEventListener('click', function () { navigatePreview(-1); });
