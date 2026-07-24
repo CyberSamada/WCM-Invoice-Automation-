@@ -150,6 +150,20 @@ name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips
 keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
 bar — one selected downloads directly, multiple open the name-the-zip modal.
 
+## Theming / dark mode (dashboard)
+
+Colors are driven by CSS tokens in `:root` (`--surface`, `--surface-alt`, `--surface-hover`, `--text`,
+`--text-muted`, `--input-border`, plus existing `--bg`/`--border`) with LIGHT values matching the
+original look; `:root[data-theme="dark"]` redefines those tokens (+ a few accent tweaks for card
+values / stat strip / hint buttons). The rules were tokenized by a scoped transform (only inside
+`<style>`) that swapped the recurring hardcoded surface/text/border hexes for `var(--…)` — so adding a
+color to a rule should use a token, not a raw hex, or it won't theme. `data-theme` is set on
+`document.documentElement` by a tiny inline script in `<head>` BEFORE paint (no flash), and again by
+`initSettings()`. Preference (`light`/`dark`/`system`) is per-viewer in `localStorage['wcm_theme']`
+(NOT a Script Property — that'd be shared); `system` follows `prefers-color-scheme` live. The **⚙
+Settings** menu in the header holds the theme radios. Note: the brand logo can be low-contrast on the
+dark header depending on the uploaded image — no auto-fix.
+
 ## Text-select preview (dashboard)
 
 The PDF preview defaults to the Drive `/preview` iframe (fast, cross-origin — its text selection we
