@@ -773,6 +773,100 @@ function getInvoiceFileInfo(fileId) {
   return { fileName: file.getName(), folderPath: segments.join(' / ') };
 }
 
+// Batch download caps — keep the base64 response within what google.script.run can return to the
+// browser in one call. PDFs barely compress, so the byte cap is effectively the sum of file sizes.
+const DOWNLOAD_MAX_FILES = 100;
+const DOWNLOAD_MAX_TOTAL_BYTES = 30 * 1024 * 1024; // ~30 MB of source PDFs
+
+/**
+ * Batch download — zips the filed PDFs for the selected invoice rows and returns the zip as base64
+ * for the browser to save under a user-chosen name. Runs as the owner (like the rest of the
+ * dashboard), so a viewer who can't reach the Drive archive directly can still export. Read-only
+ * (never moves/renames the source files), so it's open to any dashboard viewer, same as Preview.
+ *
+ * De-dupes by Drive file ID, so a "Duplicate" row (which points at the canon invoice's file) never
+ * zips the same bill twice. Files that can't be read are skipped and counted. Guarded by
+ * DOWNLOAD_MAX_FILES / DOWNLOAD_MAX_TOTAL_BYTES so the response stays transferable.
+ *
+ * @param {string[]} rowIds - Row IDs of the invoices to include
+ * @param {string} zipName - user-entered name for the zip (sanitized here; ".zip" ensured)
+ * @return {{base64:string, fileName:string, fileCount:number, skipped:number}}
+ */
+function downloadInvoicesZip(rowIds, zipName) {
+  if (!rowIds || !rowIds.length) throw new Error('No invoices selected to download.');
+  if (rowIds.length > DOWNLOAD_MAX_FILES) {
+    throw new Error(`Too many at once — select ${DOWNLOAD_MAX_FILES} or fewer to download as one zip.`);
+  }
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const idIdx = header.indexOf('Row ID');
+  const fileIdx = header.indexOf('Drive File ID');
+  const linkIdx = header.indexOf('Drive Link');
+  if (idIdx === -1) throw new Error("This sheet has no Row ID column yet — reprocess an invoice first.");
+
+  const wanted = {};
+  rowIds.forEach(id => { wanted[String(id)] = true; });
+  const fileIds = [];
+  const seenFile = {};
+  for (let r = 1; r < values.length; r++) {
+    const id = String(values[r][idIdx]);
+    if (!wanted[id]) continue;
+    let fid = fileIdx > -1 ? String(values[r][fileIdx] || '').trim() : '';
+    if (!fid && linkIdx > -1) fid = driveFileIdFromUrl_(values[r][linkIdx]);
+    if (fid && !seenFile[fid]) { seenFile[fid] = true; fileIds.push(fid); }
+  }
+  if (!fileIds.length) throw new Error('None of the selected invoices have a downloadable file.');
+
+  const blobs = [];
+  const nameCounts = {}; // lower-cased filename -> times used, so duplicate names get " (2)" etc.
+  let total = 0, skipped = 0;
+  for (let i = 0; i < fileIds.length; i++) {
+    let file;
+    try { file = DriveApp.getFileById(fileIds[i]); }
+    catch (e) { skipped++; continue; } // missing / no access — skip, keep going
+    const blob = file.getBlob();
+    total += blob.getBytes().length;
+    if (total > DOWNLOAD_MAX_TOTAL_BYTES) {
+      throw new Error('That selection is too large to zip in one download (over 30 MB). Select fewer invoices and try again.');
+    }
+    const original = file.getName() || (fileIds[i] + '.pdf');
+    const key = original.toLowerCase();
+    let name = original;
+    if (nameCounts[key]) {
+      const dot = original.lastIndexOf('.');
+      const base = dot > 0 ? original.slice(0, dot) : original;
+      const ext = dot > 0 ? original.slice(dot) : '';
+      name = `${base} (${nameCounts[key] + 1})${ext}`;
+    }
+    nameCounts[key] = (nameCounts[key] || 0) + 1;
+    blob.setName(name);
+    blobs.push(blob);
+  }
+  if (!blobs.length) throw new Error('Could not read any of the selected files (they may have been moved or deleted).');
+
+  const safeName = sanitizeZipName_(zipName);
+  const zipBlob = Utilities.zip(blobs, safeName);
+  return {
+    base64: Utilities.base64Encode(zipBlob.getBytes()),
+    fileName: safeName,
+    fileCount: blobs.length,
+    skipped: skipped
+  };
+}
+
+/** Cleans a user-entered zip name: strips path/illegal characters, caps length, ensures ".zip". */
+function sanitizeZipName_(name) {
+  let n = String(name == null ? '' : name).trim();
+  n = n.replace(/\.zip$/i, '');                 // drop a trailing .zip so we can re-add exactly one
+  n = n.replace(/[\/\\:*?"<>|]+/g, ' ').replace(/\s+/g, ' ').trim(); // strip illegal filename chars only
+  if (!n) n = 'WCM-Invoices';
+  if (n.length > 120) n = n.slice(0, 120).trim();
+  return n + '.zip';
+}
+
 /** Called from Dashboard.html via google.script.run. Open to any viewer — feedback isn't gated. */
 function submitFeedback(message, pageContext) {
   const text = String(message || '').trim();

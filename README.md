@@ -127,6 +127,7 @@ flowchart TD
 - **Fix a misfile in one click** — the system moves the actual file in Drive to match (and renames it if you corrected the invoice #). While fixing, an optional box lets you record *what on the invoice identifies the project* — saved as a hint for next time.
 - **Manage hints** — a panel to add or remove the name/address → project hints that drive matching, straight from the dashboard (no spreadsheet access).
 - **Bulk edit** — select many rows (shift-click selects a range) and re-file them all at once, with a progress bar.
+- **Batch download** — select rows and download their PDFs as a single **zip** you name yourself; works even without Google Drive access.
 - **Send feedback** straight from the dashboard.
 - **Start / Pause** the automation, and swap the dashboard logo — no code needed.
 

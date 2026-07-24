@@ -580,6 +580,7 @@
       <div class="bulk-bar" id="bulkBar">
         <span><span class="bulk-count" id="bulkCount">0</span> selected</span>
         <button type="button" class="btn-primary" id="bulkEditBtn">Edit selected</button>
+        <button type="button" class="btn-secondary" id="bulkDownloadBtn">Download as zip</button>
         <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
       </div>
 
@@ -821,6 +822,24 @@
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="bulkCancelBtn">Cancel</button>
         <button type="button" class="btn-primary" id="bulkApplyBtn">Apply to selected</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Batch download: name the zip, then zip + download the selected invoices' PDFs -->
+  <div class="modal-overlay" id="downloadModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Download invoices as a zip</h3>
+      <p class="modal-subtitle" id="downloadModalSubtitle"></p>
+      <div class="modal-field">
+        <label for="downloadZipName">Name the zip file</label>
+        <input type="text" id="downloadZipName" placeholder="e.g. WCM-Invoices-2026-07">
+      </div>
+      <p class="modal-error" id="downloadModalError"></p>
+      <p class="bulk-progress-text" id="downloadStatus" style="min-height:16px"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="downloadCancelBtn">Cancel</button>
+        <button type="button" class="btn-primary" id="downloadConfirmBtn">Download zip</button>
       </div>
     </div>
   </div>
@@ -2018,6 +2037,71 @@
       renderResults(LAST_RENDERED);
     }
 
+    // --- Batch download (zip the selected invoices' PDFs) ---------------------------------------
+
+    function openDownloadModal() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      document.getElementById('downloadModalSubtitle').textContent =
+        ids.length + ' invoice' + (ids.length === 1 ? '' : 's') + ' selected. They’ll be zipped into one file.';
+      // Default name: WCM-Invoices-YYYY-MM-DD (today, in the viewer's locale calendar).
+      var d = new Date();
+      var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+      document.getElementById('downloadZipName').value =
+        'WCM-Invoices-' + d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+      document.getElementById('downloadModalError').textContent = '';
+      document.getElementById('downloadStatus').textContent = '';
+      var btn = document.getElementById('downloadConfirmBtn');
+      btn.disabled = false; btn.textContent = 'Download zip';
+      document.getElementById('downloadModalOverlay').style.display = 'flex';
+    }
+
+    function closeDownloadModal() { document.getElementById('downloadModalOverlay').style.display = 'none'; }
+
+    // Base64 -> Blob (for triggering a real browser download of the zip the server built).
+    function base64ToBlob(b64, type) {
+      var bin = atob(b64);
+      var bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new Blob([bytes], { type: type || 'application/zip' });
+    }
+
+    function doDownloadZip() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      var name = document.getElementById('downloadZipName').value;
+      var btn = document.getElementById('downloadConfirmBtn');
+      var errorEl = document.getElementById('downloadModalError');
+      var statusEl = document.getElementById('downloadStatus');
+      errorEl.textContent = '';
+      btn.disabled = true; btn.textContent = 'Zipping…';
+      statusEl.textContent = 'Preparing ' + ids.length + ' file' + (ids.length === 1 ? '' : 's') + '… this can take a moment.';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          try {
+            var blob = base64ToBlob(res.base64, 'application/zip');
+            var url = URL.createObjectURL(blob);
+            var a = document.createElement('a');
+            a.href = url; a.download = res.fileName;
+            document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+            statusEl.style.color = '#059669';
+            statusEl.textContent = 'Downloaded ' + res.fileCount + ' file' + (res.fileCount === 1 ? '' : 's') +
+              (res.skipped ? ' (' + res.skipped + ' skipped — file missing or no access)' : '') + ' ✓';
+            btn.disabled = false; btn.textContent = 'Download zip';
+          } catch (e) {
+            errorEl.textContent = 'The zip was built but the browser could not save it: ' + (e && e.message ? e.message : e);
+            btn.disabled = false; btn.textContent = 'Download zip';
+          }
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = 'Download zip';
+          statusEl.textContent = '';
+          errorEl.textContent = err && err.message ? err.message : 'Could not build the zip — try again, or select fewer invoices.';
+        })
+        .downloadInvoicesZip(ids, name);
+    }
+
     function openBulkModal() {
       var n = selectedIds().length;
       if (!n) return;
@@ -2295,7 +2379,12 @@
       document.getElementById('summaryTimeframe').addEventListener('change', updateSummaryCards);
       document.getElementById('selectAllBox').addEventListener('change', toggleSelectAll);
       document.getElementById('bulkEditBtn').addEventListener('click', openBulkModal);
+      document.getElementById('bulkDownloadBtn').addEventListener('click', openDownloadModal);
       document.getElementById('bulkClearBtn').addEventListener('click', clearSelection);
+      document.getElementById('downloadCancelBtn').addEventListener('click', closeDownloadModal);
+      document.getElementById('downloadConfirmBtn').addEventListener('click', doDownloadZip);
+      document.getElementById('downloadZipName').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doDownloadZip(); } });
+      document.getElementById('downloadModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeDownloadModal(); });
       document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
       document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
