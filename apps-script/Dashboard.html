@@ -267,6 +267,10 @@
     a:hover { text-decoration: underline; }
 
     .status-note { border-bottom: 1px dotted #9ca3af; cursor: help; }
+    /* Tiny gray info mark on rows that have a review/match note; click for the full note */
+    .note-info { display: inline-block; margin-left: 5px; width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 50%; background: #e5e7eb; color: #6b7280; font-size: 10.5px; font-weight: 700; border: none; padding: 0; cursor: pointer; vertical-align: middle; }
+    .note-info:hover { background: #d1d5db; color: #374151; }
+    #notePopover { display: none; position: absolute; z-index: 60; max-width: 340px; background: #1f2937; color: #f9fafb; font-size: 12px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); word-break: break-word; }
     .links-cell { white-space: nowrap; }
     .icon-link { display: inline-flex; align-items: center; color: var(--wcm-blue); vertical-align: middle; }
     .icon-link + .icon-link { margin-left: 12px; }
@@ -582,6 +586,8 @@
 
     <p class="note">WCM Invoice Automation — automatically filed and logged from billing@wcmcon.com</p>
   </div>
+
+  <div id="notePopover" role="tooltip"></div>
 
   <!-- Manual-override edit modal (populated/opened via JS; one shared instance, not per-row) -->
   <div class="modal-overlay" id="editModalOverlay" style="display:none">
@@ -1152,6 +1158,24 @@
       btn.title = dir === 'asc' ? 'Ascending (oldest / A-Z / low first) - click to flip' : 'Descending (newest / Z-A / high first) - click to flip';
     }
 
+    // Small popover showing a row's review/match note — opened from the gray "i" mark, closed by
+    // clicking anywhere else. One shared element for all rows.
+    function showNotePopover(btn) {
+      var pop = document.getElementById('notePopover');
+      pop.textContent = btn.getAttribute('data-note') || '';
+      pop.style.display = 'block';
+      var rect = btn.getBoundingClientRect();
+      var left = rect.left + window.scrollX;
+      var maxLeft = window.scrollX + document.documentElement.clientWidth - 360;
+      pop.style.left = Math.max(8, Math.min(left, maxLeft)) + 'px';
+      pop.style.top = (rect.bottom + window.scrollY + 6) + 'px';
+    }
+
+    function hideNotePopover() {
+      var pop = document.getElementById('notePopover');
+      if (pop) pop.style.display = 'none';
+    }
+
     function renderResults(list) {
       var tbody = document.getElementById('resultsBody');
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
@@ -1182,9 +1206,9 @@
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
-          '<td>' + (note
-            ? '<span class="status-note" title="' + escapeHtml(note) + '">' + statusBadge + '</span>'
-            : statusBadge) + '</td>' +
+          '<td>' + statusBadge + (note
+            ? '<button type="button" class="note-info" data-note="' + escapeHtml(note) + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
+            : '') + '</td>' +
           '<td class="links-cell">' +
             (r.driveLink ? '<button type="button" class="icon-btn icon-link" data-preview-id="' + escapeHtml(r.rowId) + '" title="Preview filed PDF" aria-label="Preview filed PDF">' + ICON_FILE + '</button>' : '') +
             (r.gmailLink ? '<a class="icon-link" href="' + escapeHtml(r.gmailLink) + '" target="_blank" title="Open email" aria-label="Open email">' + ICON_EMAIL + '</a>' : '') +
@@ -1200,6 +1224,10 @@
       });
       tbody.querySelectorAll('[data-preview-id]').forEach(function (btn) {
         btn.addEventListener('click', function () { openPreviewModal(btn.getAttribute('data-preview-id')); });
+      });
+      hideNotePopover();
+      tbody.querySelectorAll('.note-info').forEach(function (btn) {
+        btn.addEventListener('click', function (e) { e.stopPropagation(); showNotePopover(btn); });
       });
       // Checkbox selection, with shift-click range support. Using 'click' (not 'change') so we can
       // read e.shiftKey; click fires for both mouse and keyboard (space) activation. The index is
@@ -1798,6 +1826,7 @@
         });
       });
       document.addEventListener('click', function (e) {
+        if (!e.target.closest || !e.target.closest('#notePopover')) hideNotePopover();
         document.querySelectorAll('.proj-dropdown.open').forEach(function (dd) {
           if (!dd.contains(e.target)) {
             dd.classList.remove('open');
