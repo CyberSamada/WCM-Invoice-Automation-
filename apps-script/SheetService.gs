@@ -351,10 +351,46 @@ function deleteAliasRow_(alias, projectNumber, subprojectNumber) {
 function logInvoiceRow_(data) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_LOG_TAB, CONFIG.LOG_COLUMNS);
   ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
+  ensureLogTextFormatsOnce_(); // force ID/code columns to text BEFORE appending, so nothing coerces
   const filled = Object.assign({}, data);
   if (!filled['Row ID']) filled['Row ID'] = Utilities.getUuid();
   if (!filled['Drive File ID']) filled['Drive File ID'] = driveFileIdFromUrl_(filled['Drive Link']);
   sheet.appendRow(buildRowByHeader_(sheet, filled));
+}
+
+/** Script Property guarding the one-time whole-column text-format pass. */
+const LOG_TEXT_FORMAT_PROPERTY = 'LOG_TEXT_FORMAT_ENSURED';
+
+/**
+ * Forces every CONFIG.LOG_TEXT_COLUMNS column to plain-text number format ("@") on the Invoice Log
+ * (and its archive), for ALL current rows and every future one (whole-column format), so Sheets can
+ * never coerce an ID/code into a date or number — the cause of invoice "3050-4" reading back as
+ * "Mon Apr 01 3050". Idempotent and safe to run any time. Note: a cell that was ALREADY coerced to a
+ * date keeps its bad value (its original text is gone) — re-enter those from the dashboard; this
+ * only guarantees it won't happen again.
+ */
+function ensureLogTextFormats_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  [CONFIG.SHEET_LOG_TAB, CONFIG.SHEET_LOG_ARCHIVE_TAB].forEach(name => {
+    const sheet = ss.getSheetByName(name);
+    if (!sheet || sheet.getLastColumn() < 1) return;
+    const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    (CONFIG.LOG_TEXT_COLUMNS || []).forEach(col => {
+      const i = header.indexOf(col);
+      if (i > -1) sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
+    });
+  });
+}
+
+/** Runs ensureLogTextFormats_ at most once (guarded), so normal processing/dashboard loads self-heal
+ *  the column formats without a manual step. Best-effort — never blocks the caller. */
+function ensureLogTextFormatsOnce_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(LOG_TEXT_FORMAT_PROPERTY) === 'true') return;
+    ensureLogTextFormats_();
+    props.setProperty(LOG_TEXT_FORMAT_PROPERTY, 'true');
+  } catch (e) { /* leave unset so a later call retries */ }
 }
 
 /**

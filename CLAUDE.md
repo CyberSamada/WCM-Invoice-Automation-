@@ -90,6 +90,15 @@ downgraded to NONE.
 - **Sheets coerces `"06"` to the number 6.** Never strict-compare project/subproject numbers; always
   compare through `normalizeNumberKey_` (leading zeros stripped). `findReferenceMatch_` already does
   this — route matching through it.
+- **Sheets also coerces ID-like strings into DATES on write** — invoice `"3050-4"` is read as
+  `YYYY-M` → April 3050 → the cell reads back `Mon Apr 01 3050…`. Any column holding IDs/codes must be
+  forced to plain-text format (`setNumberFormat('@')`). `CONFIG.LOG_TEXT_COLUMNS` (Invoice Number,
+  Project/Subproject Number, Row ID, Drive File ID) is set to `@` whole-column by
+  `SheetService.gs/ensureLogTextFormats_` (self-heals once via `ensureLogTextFormatsOnce_` from
+  `logInvoiceRow_` + `buildDashboardData_`; manual `ensureLogColumnFormats()` in Setup.gs), and
+  `updateInvoiceRow` writes those cells via a text-forcing `setTextCell`. NEVER put a real date column
+  (Invoice/Due/Processed/Received) or Amount in that list. An already-coerced cell keeps its bad value
+  (original text lost) — re-enter from the dashboard; the format only prevents recurrence.
 - **One resolver decides every Drive destination**: `resolveInvoiceDestinationFolderId_`
   (DriveService.gs), shared by automatic filing (Main.gs), dashboard edits (DashboardServer.gs), and
   the refile reconciler (Refile.gs). Never compute a destination anywhere else.
