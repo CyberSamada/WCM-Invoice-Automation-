@@ -1,20 +1,20 @@
 # WCM / Westdell Property Address List
 
-The canonical street address(es) for each property, used to **strengthen the Project Aliases**
-lookup: invoices often print a job-site or ship-to *address* instead of the property's name, and an
-address the automation doesn't recognize can't be matched. Loading these addresses as aliases (see
-`project_aliases_seed.csv` and the **Project Aliases** tab) lets an invoice that mentions only the
-address file to the right project.
+The canonical street address(es) for each property, used to **strengthen the matching hints**:
+invoices often print a job-site or ship-to *address* instead of the property's name, and an address
+the automation doesn't recognize can't be matched. Loading these addresses as hints lets an invoice
+that mentions only the address file to the right project.
 
 > **Note:** This file and `project_aliases_seed.csv` are human-readable **mirrors** of the shipped
-> defaults in `apps-script/AliasSeed.gs`. The live, editable home is the **Project Aliases** sheet
-> tab — coordinators add/remove aliases there via the dashboard's **Manage hints** panel (or the
-> "what identifies this project?" box when fixing an invoice), no code change needed. Keep these
-> mirrors roughly in step with the defaults, but the tab is the source of truth at runtime.
+> default hints in `apps-script/AliasSeed.gs`. Those defaults are copied **once** into the hints
+> storage (the "Project Aliases" sheet tab) and from then on that's the live, editable home —
+> coordinators add/remove/edit hints via the dashboard's **Manage hints** panel (or the "what
+> identifies this project?" box when fixing an invoice), no code change needed. Editing the seed only
+> changes what a brand-new install starts with. Keep these mirrors roughly in step with the defaults.
 
 **Source legend**
 - `name` — the address is already embedded in the project name in `project_reference.csv` (so Gemini
-  already sees it; no alias strictly needed).
+  already sees it; no hint strictly needed).
 - `records` — from another file in this repo (`site_coordinators_PRIVATE.md`).
 - `owner` — confirmed directly by WCM/Westdell staff.
 - `web` — researched from public listings; treated as good but not owner-confirmed.
@@ -60,16 +60,17 @@ address file to the right project.
 - **Hyde Park Square ≠ Hyde Park Plaza.** Project 02 is Westdell's **Hyde Park Square, 1175 Hyde Park
   Rd**. "Hyde Park Plaza" at 1180 Oxford St W is a *different company's* property — never map it to 02.
 
-## Aliases seeded from this list
+## Hints seeded from this list
 
-Properties whose address is **not already in the project name** are seeded as aliases. A few
+Properties whose address is **not already in the project name** are seeded as hints. A few
 name-embedded ones are also seeded because the matcher was still getting them wrong in practice, and
-an explicit alias is a stronger, more direct signal than the reference name:
+an explicit hint is a stronger, more direct signal than the reference name:
 
 - **06 Forest Edge Commons — 952 Southdale Rd** (invoices for 952 Southdale were misfiling)
 - **12 Sereno — 15 Capulet Walk** (the name abbreviates "Walk" to "WK")
 
-These aliases live in code (`apps-script/AliasSeed.gs`) and are merged in automatically by
-`getAliasData_` — **no manual import needed**; they're active on the next deploy. `project_aliases_seed.csv`
-is kept as a human-readable mirror. To add/change an alias, edit `AliasSeed.gs` (a row hand-added to the
-"Project Aliases" tab still wins over a code seed on the same alias + project).
+These are shipped **defaults** in `apps-script/AliasSeed.gs`, copied **once** into the hints storage
+(the "Project Aliases" sheet tab) and edited from then on via the dashboard's **Manage hints** panel —
+no manual import, no code change needed. `project_aliases_seed.csv` is a human-readable mirror. Edit
+`AliasSeed.gs` only to change what a brand-new install starts with; day-to-day, add/edit hints in the
+dashboard.
