@@ -30,7 +30,20 @@ pass from `ensureKnowledgeSeeded_` because the tab was seeded before the column 
 show in Manage hints but can't be **removed** (`removeProjectAlias` refuses them) or **blanked**
 (`updateProjectAlias` rejects an empty alias) — only edited. Base-ness lives on the row's Base cell,
 so an edited base hint keeps it; membership is NOT re-derived from seed text after the one-time pass
-(that would duplicate an edited row). Manage hints supports **subproject** on add and inline **edit**.
+(that would duplicate an edited row).
+
+**Alias identity is scoped by subproject** — a project and each of its subprojects have INDEPENDENT
+hint sets (the same alias text may exist at project level AND under a subproject). Every alias helper
+matches on project **+ subproject** via `aliasScopeMatches_` (leading-zero safe): `getAliasData_`
+dedup key, `appendAliasRow_`, `updateAliasRow_` (edits alias TEXT only, scope fixed), `deleteAliasRow_`,
+`aliasRowIsBase_`. Server endpoints carry the scope: `addProjectAlias(alias, project, sub)`,
+`removeProjectAlias(alias, project, sub)`, `updateProjectAlias(oldAlias, project, sub, newAlias)`.
+Manage hints picks the scope with a **"Manage hints for"** selector (Whole project / a subproject);
+the list, add, edit, and remove all act on that one scope. The learn-while-fixing field saves the
+alias at the corrected invoice's project+subproject scope. In the Gemini prompt (GeminiService.gs),
+each alias renders as `"text" => Project P, Subproject S` (or `(project level — no specific
+subproject)`) and is described as AUTHORITATIVE — a subproject-scoped alias must be used exactly, not
+downgraded to NONE.
 
 ## Deploy model — read this before debugging "it's not working"
 

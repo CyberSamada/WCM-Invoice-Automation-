@@ -699,42 +699,46 @@ function addProjectAlias(alias, projectNumber, subprojectNumber) {
   return list;
 }
 
-/** Manage-hints "✕ remove" — deletes the matching alias row(s), then returns the refreshed list. Gated.
- * Refuses a canon (Base) hint: those are the shipped address→project defaults and stay un-deletable so
- * the essential mappings can't be broken — edit one instead. */
-function removeProjectAlias(alias, projectNumber) {
+/** Manage-hints "✕ remove" — deletes the matching alias in its scope (project + subproject), then
+ * returns the refreshed list. Gated. Refuses a canon (Base) hint: those are the shipped
+ * address→project defaults and stay un-deletable so the essential mappings can't be broken — edit
+ * one instead. */
+function removeProjectAlias(alias, projectNumber, subprojectNumber) {
   if (!canControlAutomation_()) throw new Error('You are not allowed to edit matching hints.');
   if (!String(alias || '').trim() || !String(projectNumber || '').trim()) throw new Error('Missing alias to remove.');
-  if (aliasRowIsBase_(alias, projectNumber)) {
+  if (aliasRowIsBase_(alias, projectNumber, subprojectNumber)) {
     throw new Error('This is a base hint and can’t be removed — edit it instead if it needs to change.');
   }
-  deleteAliasRow_(alias, projectNumber);
+  deleteAliasRow_(alias, projectNumber, subprojectNumber);
   return getProjectAliases();
 }
 
 /**
- * Manage-hints inline edit — rewrites an existing hint's text and/or subproject in place, keeping its
- * canon (Base) status. Enforces the rules the UI relies on: the new alias can't be blank (so a base
- * hint can't be emptied out to effectively delete it), the project/subproject must be real, and the
- * edited alias can't collide with a DIFFERENT existing hint on the same project. Gated.
+ * Manage-hints inline edit — rewrites an existing hint's TEXT in place within its scope (project +
+ * subproject), keeping its scope and canon (Base) status. Enforces the rules the UI relies on: the
+ * new alias can't be blank (so a base hint can't be emptied out to effectively delete it), the
+ * project/subproject scope must be real, and the edited alias can't collide with a DIFFERENT existing
+ * hint in the same scope. Gated.
  */
-function updateProjectAlias(oldAlias, projectNumber, newAlias, newSubprojectNumber) {
+function updateProjectAlias(oldAlias, projectNumber, subprojectNumber, newAlias) {
   if (!canControlAutomation_()) throw new Error('You are not allowed to edit matching hints.');
   const oa = String(oldAlias == null ? '' : oldAlias).trim();
   const p = String(projectNumber == null ? '' : projectNumber).trim();
+  const sub = String(subprojectNumber == null ? '' : subprojectNumber).trim();
   const na = String(newAlias == null ? '' : newAlias).trim();
   if (!oa || !p) throw new Error('Missing the hint to edit.');
   if (!na) throw new Error('A hint can’t be blank — type the name or address, or leave it unchanged.');
-  const matched = findReferenceMatch_(getReferenceData_(), p, newSubprojectNumber);
-  if (!matched) throw new Error(`Project "${p}"${newSubprojectNumber ? ' / subproject ' + newSubprojectNumber : ''} wasn't found in the Project Reference sheet.`);
-  // Guard against renaming onto a different existing hint for the same project.
+  const matched = findReferenceMatch_(getReferenceData_(), p, sub);
+  if (!matched) throw new Error(`Project "${p}"${sub ? ' / subproject ' + sub : ''} wasn't found in the Project Reference sheet.`);
+  // Guard against renaming onto a different existing hint in the SAME scope (project + subproject).
   if (na.toLowerCase() !== oa.toLowerCase()) {
     const clash = getAliasData_().some(x =>
       normalizeNumberKey_(x.projectNumber) === normalizeNumberKey_(p) &&
+      normalizeNumberKey_(x.subprojectNumber) === normalizeNumberKey_(sub) &&
       x.alias.toLowerCase() === na.toLowerCase());
-    if (clash) throw new Error('That project already has a hint with this name.');
+    if (clash) throw new Error('That scope already has a hint with this name.');
   }
-  const ok = updateAliasRow_(oa, p, na, matched.subprojectNumber || '');
+  const ok = updateAliasRow_(oa, p, sub, na);
   if (!ok) throw new Error('Could not find that hint to edit — reload and try again.');
   return getProjectAliases();
 }
