@@ -118,8 +118,16 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
     ? Utilities.formatDate(emailDate, Session.getScriptTimeZone(), 'yyyy-MM-dd')
     : '';
 
+  // Standing domain knowledge (ExtractionNotes.gs + the optional "AI Notes" sheet tab) — the
+  // extractor's equivalent of a project handbook, so hard-won lessons apply to every invoice.
+  const notes = getExtractionNotes_();
+  const notesText = notes.length ? notes.map(n => `- ${n}`).join('\n') : '';
+
   const prompt = `You are matching a construction-company invoice PDF to the correct project and subproject.\n\n` +
     (emailDateIso ? `This invoice was received by email on ${emailDateIso}.\n\n` : '') +
+    (notesText
+      ? `Standing notes from the WCM team about how their invoices actually look — treat these as reliable domain context:\n${notesText}\n\n`
+      : '') +
     `Reference list (Project Number | Project Name | Subproject Number | Subproject Name):\n${referenceListText}\n\n` +
     (aliasListText
       ? `Known aliases — alternate names/addresses invoices sometimes use instead of the project's listed name ` +
