@@ -114,12 +114,13 @@ function testOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, threadLin
     const testBaseFolder = (matchedRef.exactSubproject && matchedRef.subprojectNumber)
       ? getOrCreateNamedSubfolder_(testProjectFolder.getId(), `${matchedRef.subprojectNumber} - ${matchedRef.subprojectName}`)
       : getOrCreateNamedSubfolder_(testProjectFolder.getId(), CONFIG.NO_SUBPROJECT_FOLDER_NAME);
+    const testMonthFolderId = getMonthSubfolderId_(testBaseFolder.getId(), new Date()); // processed date, matching Main.gs
     if (wouldAutoFile) {
-      testDestFolder = DriveApp.getFolderById(getMonthSubfolderId_(testBaseFolder.getId(), new Date())); // processed date, matching Main.gs
+      testDestFolder = DriveApp.getFolderById(testMonthFolderId);
     } else if (!extracted.is_invoice) {
-      testDestFolder = getOrCreateNamedSubfolder_(testBaseFolder.getId(), CONFIG.STATEMENTS_SUBFOLDER_NAME);
+      testDestFolder = getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME);
     } else {
-      testDestFolder = getOrCreateNamedSubfolder_(testBaseFolder.getId(), CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME);
+      testDestFolder = getOrCreateNamedSubfolder_(testMonthFolderId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME);
     }
   } else {
     testDestFolder = getOrCreateNamedSubfolder_(CONFIG.TEST_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME);

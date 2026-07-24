@@ -40,6 +40,8 @@ Each row shows the invoice's processed date, received date, invoice date, vendor
 - **Filed** — done, no action needed. Filed into the project's folder, organized by month.
 - **Needs Review** — the system filed a copy (into the **Needs Review** folder) but wants a human to confirm: it wasn't sure about the project, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period). Check it and correct it if needed (see below).
 - **Duplicate** — the same invoice arrived again (a vendor re-send). It was **not** filed twice; the row's file link points at the original copy. Nothing to do unless the re-send was actually a *revised* invoice — then edit the row.
+- **Captured** — the coordinator has captured this invoice and uploaded it to Procore/SmartBuild. Set it from the edit panel when that's done.
+- **Paid** — confirmed paid (in Nexus). The file stays in its month folder either way.
 - **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a Purchase Order / Agreement, a statement, a receipt, a "your account info changed" email, etc.). It's filed under **Statements & Others**. Worth a quick glance to confirm it agrees with you.
 - **Errors** — something prevented processing (most often: the email matched the billing label but didn't actually have a PDF attached). Open the Gmail link to see the original email and handle it manually.
 
@@ -71,14 +73,14 @@ Invoices are organized like this:
 Invoice Archive
 └── <Project Number> - <Project Name>
     ├── <Subproject Number> - <Subproject Name>   (when the invoice is tied to a subproject)
-    │   ├── <Year-Month>                          (Filed invoices, e.g. 2026-07 — the month processed)
-    │   ├── Needs Review                          (invoices awaiting a person)
-    │   └── Statements & Others                   (non-invoices: statements, POs, notices)
-    └── No Subprojects                            (invoices with no subproject assigned)
-        ├── <Year-Month>  ·  Needs Review  ·  Statements & Others   (same three, by status)
+    │   └── <Year-Month>                          (e.g. 2026-07 — the month processed)
+    │       ├── (real invoices — Filed/Captured/Paid — sit right here)
+    │       ├── Needs Review                      (invoices awaiting a person)
+    │       └── Statements & Others               (non-invoices: statements, POs, notices)
+    └── No Subprojects                            (invoices with no subproject assigned — same months inside)
 ```
 
-Statuses never mix: a folder holds only one kind of thing, so "what still needs review" is always one folder, not scattered.
+Statuses never mix inside a month: real invoices at the month's root, review items in its Needs Review, non-invoices in its Statements & Others.
 
 Files are named consistently: **`YYMMDD - InvoiceNumber - Vendor.pdf`** (the date is when it was processed) — so a folder of invoices sorts and reads cleanly.
 

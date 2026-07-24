@@ -4,11 +4,10 @@
  *
  *   <project folder>/
  *     <subproject folder>/            (when a subproject is assigned)
- *       YYYY-MM/                      Filed invoices, by processed month (matches the filename date)
- *       Needs Review/                 invoices awaiting review — never mixed with statements
- *       Statements & Others/          ONLY "Not an Invoice" documents
- *     No Subprojects/                 (when NO subproject is assigned)
- *       YYYY-MM/  ·  Needs Review/  ·  Statements & Others/
+ *       YYYY-MM/                      real invoices (Filed/Captured/Paid), by processed month
+ *         Needs Review/               invoices awaiting review — never mixed with statements
+ *         Statements & Others/        ONLY "Not an Invoice" documents
+ *     No Subprojects/                 (when NO subproject is assigned — same months inside)
  *
  * refileToCorrectFolders() recomputes each Invoice Log row's destination with
  * resolveInvoiceDestinationFolderId_ — the exact same resolver automatic filing and the dashboard
@@ -77,9 +76,10 @@ function refileToCorrectFoldersInner_() {
         }
         const matchedRef = matchCache[matchKey];
 
-        // Statuses collapse to three folder buckets; month only matters for Filed.
-        const bucket = status === 'Filed' ? 'Filed' : (status === 'Not an Invoice' ? 'Not an Invoice' : 'Needs Review');
-        const destKey = matchKey + '|' + bucket + '|' + (bucket === 'Filed' ? monthFolderKey_(row[idx['Date Processed']]) : '');
+        // Statuses collapse to three folder buckets, all nested under the processed-month folder.
+        const bucket = (status === 'Filed' || status === 'Captured' || status === 'Paid') ? 'Filed'
+          : (status === 'Not an Invoice' ? 'Not an Invoice' : 'Needs Review');
+        const destKey = matchKey + '|' + bucket + '|' + monthFolderKey_(row[idx['Date Processed']]);
         if (!(destKey in destCache)) {
           destCache[destKey] = resolveInvoiceDestinationFolderId_(matchedRef, bucket, row[idx['Date Processed']]);
         }

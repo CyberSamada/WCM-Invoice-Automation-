@@ -55,15 +55,13 @@ Everything lands in the **Invoice Archive**. Each file has exactly one correct h
 ├── 📁 06 - FOREST EDGE CMNS. - 952 SOUTHDALE        ← one folder per project
 │   │
 │   ├── 📁 6.4 - Forest Edge Commons (CRU3)          ← one folder per subproject
-│   │   ├── 📁 2026-07                               ← FILED invoices, by month processed
-│   │   │   └── 📄 260722 - 1163 - Outer Construction.pdf
-│   │   ├── 📁 Needs Review                          ← invoices waiting on a person
-│   │   └── 📁 Statements & Others                   ← non-invoices ONLY (POs, statements, notices)
+│   │   └── 📁 2026-07                               ← everything for a month lives inside it
+│   │       ├── 📄 260722 - 1163 - Outer Construction.pdf   (Filed / Captured / Paid invoices)
+│   │       ├── 📁 Needs Review                      ← invoices waiting on a person
+│   │       └── 📁 Statements & Others               ← non-invoices ONLY (POs, statements, notices)
 │   │
 │   └── 📁 No Subprojects                            ← invoices not tied to any subproject
-│       ├── 📁 2026-07
-│       ├── 📁 Needs Review
-│       └── 📁 Statements & Others
+│       └── 📁 2026-07  (same layout inside)
 │
 └── 📁 _Unmatched                                    ← couldn't be placed at all — needs a person
 ```
@@ -71,7 +69,7 @@ Everything lands in the **Invoice Archive**. Each file has exactly one correct h
 Three rules make it predictable:
 
 1. **Subproject first.** An invoice lives under its subproject's folder — or under **No Subprojects** when it isn't tied to one.
-2. **Statuses never mix.** **Filed** invoices go in a month folder (`YYYY-MM` — the month processed, the same date the filename starts with). **Needs Review** items have their own folder. **Statements & Others** holds *only* non-invoices.
+2. **Statuses never mix.** Everything for a month lives in its `YYYY-MM` folder (the month processed — the same date the filename starts with): real invoices at the month's root, review items in that month's **Needs Review**, and *only* non-invoices in its **Statements & Others**.
 3. **Nowhere to hide.** Anything that can't be matched to a project at all goes to the top-level **_Unmatched** folder — visible, never lost.
 
 ---
@@ -110,13 +108,14 @@ flowchart TD
 
 **Sorting & filing**
 - Matches each invoice to the right project **and** subproject from the official project list — including by **known site addresses**, not just project names.
-- Files into the strict structure above: subproject (or *No Subprojects*) → month / Needs Review / Statements & Others. **Statuses never mix.**
+- Files into the strict structure above: subproject (or *No Subprojects*) → month → invoices at the root, *Needs Review* and *Statements & Others* inside. **Statuses never mix.**
 - Standardized, consistent file naming (`YYMMDD - InvoiceNumber - Vendor.pdf`).
 - **Vendor name standardization** — one canonical spelling per company, while genuinely different divisions (e.g. *J-AAR Civil* vs *J-AAR Structure*) stay separate.
 
 **Flagging what needs a human**
 - **Needs Review** — the system wasn't confident about the match, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period).
 - **Duplicate** — the same invoice arrived again.
+- **Captured** / **Paid** — set by your team as an invoice moves through the workflow: *Captured* = uploaded to Procore/SmartBuild by the coordinator; *Paid* = confirmed paid.
 - Every flag comes with a short plain-language note explaining *why*.
 
 **The dashboard**

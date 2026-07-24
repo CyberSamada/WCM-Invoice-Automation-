@@ -41,11 +41,12 @@ const CONFIG = {
   // always routes to human review, never auto-files. See Main.gs/applyVendorMemory_. null = disable.
   VENDOR_MEMORY_MIN_CORRECTIONS: 2,
 
-  // Drive filing is separated strictly BY STATUS under a base folder (the subproject's folder, or
-  // "No Subprojects" under the project when none is assigned) — see DriveService.gs:
-  //   Filed           -> <base>/YYYY-MM (processed month)
-  //   Needs Review    -> <base>/Needs Review
-  //   Not an Invoice  -> <base>/Statements & Others
+  // Drive filing: everything nests under the processed-month folder of its base (the subproject's
+  // folder, or "No Subprojects" under the project), strictly separated BY STATUS inside the month —
+  // see DriveService.gs:
+  //   Filed / Captured / Paid -> <base>/YYYY-MM (real invoices, at the month's root)
+  //   Needs Review            -> <base>/YYYY-MM/Needs Review
+  //   Not an Invoice          -> <base>/YYYY-MM/Statements & Others
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // ONLY "Not an Invoice" documents live here
   NEEDS_REVIEW_SUBFOLDER_NAME: 'Needs Review',      // invoices awaiting human review — never mixed with statements
   NO_SUBPROJECT_FOLDER_NAME: 'No Subprojects',      // base folder under the project when no subproject is assigned
