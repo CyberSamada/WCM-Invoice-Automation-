@@ -57,6 +57,14 @@ This doesn't just update the log — it also moves the actual file in Google Dri
 
 Working through a pile? In the preview, use **‹ Prev / Next ›** to move to the next invoice without closing it — review, fix, Save, Next.
 
+### Merging a duplicate
+
+If the same invoice ended up as **two rows with two files** (not just a "Duplicate" notice), you can merge them:
+
+1. Open the **preview of the copy you *don't* want to keep**.
+2. Click **"Merge as duplicate of…"** and pick the invoice to **keep** (the list starts with the closest matches; a warning appears if the amounts differ — a *revised* invoice usually shouldn't be merged).
+3. Click **Merge**. The open row becomes a **Duplicate** pointing at the kept copy's PDF, and its own extra file is moved to Drive's **Trash** (recoverable for ~30 days). The kept invoice is untouched.
+
 ### Fixing several at once
 
 If a batch of invoices all need the same fix (say, several from one vendor that all went to the wrong project):
