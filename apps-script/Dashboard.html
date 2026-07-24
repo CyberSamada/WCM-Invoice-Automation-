@@ -678,6 +678,7 @@
             </div>
           </div>
           <p class="modal-error" id="previewEditError"></p>
+          <button type="button" class="btn-secondary" id="previewMergeBtn" style="margin-top:4px">Merge as duplicate of&hellip;</button>
         </div>
       </div>
 
@@ -692,6 +693,25 @@
           <button type="button" class="btn-secondary" id="previewOpenDriveBtn">Open in Drive</button>
           <button type="button" class="btn-primary" id="previewSaveBtn">Save changes</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Duplicate merge: the previewed row (the extra copy) merges INTO a chosen canon row -->
+  <div class="modal-overlay" id="mergeModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Merge as duplicate</h3>
+      <p class="modal-subtitle" id="mergeModalSubtitle"></p>
+      <div class="modal-field">
+        <label for="mergeCanon">Keep this one (the original)</label>
+        <input type="text" class="select-search" id="mergeCanonSearch" placeholder="Search vendor / invoice # / project&hellip;">
+        <select id="mergeCanon" size="8"></select>
+      </div>
+      <p class="modal-subtitle" id="mergeSummary" style="margin:0 0 6px"></p>
+      <p class="modal-error" id="mergeModalError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="mergeCancelBtn">Cancel</button>
+        <button type="button" class="btn-primary" id="mergeConfirmBtn" disabled>Merge</button>
       </div>
     </div>
   </div>
@@ -1560,6 +1580,114 @@
         .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency });
     }
 
+    // --- Duplicate merge ------------------------------------------------------------------------
+    // The previewed row is the EXTRA copy; the user picks the canon to keep. See
+    // DashboardServer.gs/mergeInvoiceAsDuplicate for what happens server-side.
+
+    function openMergeModal() {
+      if (!previewRowId) return;
+      var dup = ALL_RECORDS.find(function (r) { return r.rowId === previewRowId; });
+      if (!dup) return;
+
+      document.getElementById('mergeModalSubtitle').textContent =
+        'This copy — ' + dup.vendor + (dup.invoiceNumber ? ' Inv# ' + dup.invoiceNumber : '') + ' — will become a Duplicate. Pick the invoice to KEEP; this copy\u2019s PDF goes to Trash.';
+      document.getElementById('mergeModalError').textContent = '';
+      document.getElementById('mergeSummary').textContent = '';
+      document.getElementById('mergeConfirmBtn').disabled = true;
+
+      // Candidates: any other real row with a file — never a Duplicate (no chains). Likely matches
+      // first: same invoice #, then same vendor, then everything else (newest first).
+      var candidates = ALL_RECORDS.filter(function (r) {
+        return r.rowId && r.rowId !== dup.rowId && r.status !== 'Duplicate' && r.driveLink;
+      });
+      var dupInv = String(dup.invoiceNumber || '').toLowerCase();
+      var dupVendor = String(dup.vendor || '').toLowerCase();
+      function rank(r) {
+        if (dupInv && String(r.invoiceNumber || '').toLowerCase() === dupInv && String(r.vendor || '').toLowerCase() === dupVendor) return 0;
+        if (String(r.vendor || '').toLowerCase() === dupVendor) return 1;
+        return 2;
+      }
+      candidates.sort(function (a, b) {
+        var d = rank(a) - rank(b);
+        return d !== 0 ? d : (b.dateProcessedRaw || 0) - (a.dateProcessedRaw || 0);
+      });
+
+      var select = document.getElementById('mergeCanon');
+      select.innerHTML = '';
+      candidates.forEach(function (r) {
+        var opt = document.createElement('option');
+        opt.value = r.rowId;
+        opt.textContent = r.vendor + ' \u00b7 Inv# ' + (r.invoiceNumber || '\u2014') + ' \u00b7 ' + formatMoney(r.amount, r.currency) +
+          ' \u00b7 ' + r.status + (r.projectNumber ? ' \u00b7 ' + r.projectNumber : '');
+        select.appendChild(opt);
+      });
+      var search = document.getElementById('mergeCanonSearch');
+      search.value = '';
+      filterSelectByText(select, '');
+      document.getElementById('mergeModalOverlay').style.display = 'flex';
+    }
+
+    function closeMergeModal() {
+      document.getElementById('mergeModalOverlay').style.display = 'none';
+    }
+
+    function updateMergeSummary() {
+      var dup = ALL_RECORDS.find(function (r) { return r.rowId === previewRowId; });
+      var canonId = document.getElementById('mergeCanon').value;
+      var canon = ALL_RECORDS.find(function (r) { return r.rowId === canonId; });
+      var el = document.getElementById('mergeSummary');
+      var btn = document.getElementById('mergeConfirmBtn');
+      if (!dup || !canon) { el.textContent = ''; btn.disabled = true; return; }
+      var text = 'Keep: ' + canon.vendor + (canon.invoiceNumber ? ' Inv# ' + canon.invoiceNumber : '') + ' (' + canon.status + ').';
+      if (Math.abs((dup.amount || 0) - (canon.amount || 0)) > 0.01) {
+        text += ' \u26a0 Amounts differ (' + formatMoney(dup.amount, dup.currency) + ' vs ' + formatMoney(canon.amount, canon.currency) + ') \u2014 if this is a REVISED invoice, don\u2019t merge; keep both.';
+      }
+      el.textContent = text;
+      btn.disabled = false;
+    }
+
+    function doMerge() {
+      var canonId = document.getElementById('mergeCanon').value;
+      if (!previewRowId || !canonId) return;
+      var btn = document.getElementById('mergeConfirmBtn');
+      var errorEl = document.getElementById('mergeModalError');
+      errorEl.textContent = '';
+      btn.disabled = true; btn.textContent = 'Merging\u2026';
+
+      var rowId = previewRowId;
+      google.script.run
+        .withSuccessHandler(function (updated) {
+          btn.disabled = false; btn.textContent = 'Merge';
+          var i = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
+          if (i > -1) Object.assign(ALL_RECORDS[i], updated);
+          applyFilters();
+          closeMergeModal();
+          // Refresh the preview in place: it now shows the KEPT copy's PDF and Duplicate status.
+          previewDriveLink = updated.driveLink || previewDriveLink;
+          document.getElementById('previewStatus').value = 'Duplicate';
+          var pe = document.getElementById('previewEditError');
+          pe.style.color = '#059669'; pe.textContent = 'Merged \u2713 \u2014 now showing the kept copy';
+          var parsed = drivePreviewUrl(previewDriveLink);
+          if (parsed) {
+            document.getElementById('previewFrame').src = parsed.url;
+            document.getElementById('previewLocation').textContent = 'Updating file location\u2026';
+            google.script.run
+              .withSuccessHandler(function (info) {
+                document.getElementById('previewLocation').innerHTML =
+                  '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
+                  ' &nbsp;\u00b7&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+              })
+              .withFailureHandler(function () {})
+              .getInvoiceFileInfo(parsed.fileId);
+          }
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = 'Merge';
+          errorEl.textContent = err && err.message ? err.message : 'Could not merge \u2014 try again.';
+        })
+        .mergeInvoiceAsDuplicate(rowId, canonId);
+    }
+
     // --- Multi-select + bulk edit ---------------------------------------------------------------
 
     function selectedIds() { return Object.keys(SELECTED_ROWIDS); }
@@ -1879,6 +2007,12 @@
       document.getElementById('previewProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('previewProject'), this.value); });
       document.getElementById('previewSaveBtn').addEventListener('click', savePreviewEdit);
       document.getElementById('previewPrevBtn').addEventListener('click', function () { navigatePreview(-1); });
+      document.getElementById('previewMergeBtn').addEventListener('click', openMergeModal);
+      document.getElementById('mergeCancelBtn').addEventListener('click', closeMergeModal);
+      document.getElementById('mergeConfirmBtn').addEventListener('click', doMerge);
+      document.getElementById('mergeCanon').addEventListener('change', updateMergeSummary);
+      document.getElementById('mergeCanonSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('mergeCanon'), this.value); });
+      document.getElementById('mergeModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeMergeModal(); });
       document.getElementById('previewNextBtn').addEventListener('click', function () { navigatePreview(1); });
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();

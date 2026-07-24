@@ -528,6 +528,106 @@ function updateInvoiceRows(rowIds, updates) {
 }
 
 /**
+ * Duplicate merge — called from the dashboard's preview panel. The row being viewed (dupRowId, the
+ * extra copy) is merged INTO a chosen canon row (canonRowId, the one to keep):
+ *   - the dup row's Status becomes "Duplicate" and its file link/ID are repointed at the CANON's PDF
+ *   - the dup's own now-redundant PDF is moved to Trash (recoverable ~30 days; skipped when both rows
+ *     already share one file)
+ *   - the canon row is left completely untouched — a merge never blesses or demotes the keeper
+ *   - the merge is stamped on the dup row's Review Note and recorded in the Override Log
+ * Guardrails: no self-merge, and the canon can't itself be a "Duplicate" row (no duplicate chains).
+ *
+ * @param {string} dupRowId - Row ID of the copy being demoted (the row the user has open)
+ * @param {string} canonRowId - Row ID of the invoice to keep
+ * @return {Object} the dup row's updated fields, for the dashboard to refresh in place
+ */
+function mergeInvoiceAsDuplicate(dupRowId, canonRowId) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to edit invoice records.');
+  }
+  if (!dupRowId || !canonRowId) throw new Error('Missing row ID.');
+  if (String(dupRowId) === String(canonRowId)) throw new Error('Pick a different invoice — a row cannot be merged into itself.');
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  ensureSheetHasColumns_(sheet, CONFIG.LOG_COLUMNS);
+
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const idx = {};
+  CONFIG.LOG_COLUMNS.forEach(col => { idx[col] = header.indexOf(col); });
+
+  let dupRowNum = -1, canonRowNum = -1;
+  for (let i = 1; i < values.length; i++) {
+    const id = String(values[i][idx['Row ID']]);
+    if (id === String(dupRowId)) dupRowNum = i + 1;
+    if (id === String(canonRowId)) canonRowNum = i + 1;
+  }
+  if (dupRowNum === -1 || canonRowNum === -1) {
+    throw new Error('Could not find one of the invoice rows — the sheet may have changed since the page loaded. Reload and try again.');
+  }
+  const dupRow = values[dupRowNum - 1];
+  const canonRow = values[canonRowNum - 1];
+
+  if (String(canonRow[idx['Status']] || '').trim() === 'Duplicate') {
+    throw new Error('That invoice is itself marked Duplicate — pick the original it points to instead.');
+  }
+  const canonLink = String(canonRow[idx['Drive Link']] || '').trim();
+  const canonFileId = (idx['Drive File ID'] > -1 ? String(canonRow[idx['Drive File ID']] || '').trim() : '') || driveFileIdFromUrl_(canonLink);
+  if (!canonLink && !canonFileId) {
+    throw new Error('The selected invoice has no filed PDF to point at — pick a row with a file.');
+  }
+
+  // Trash the dup's own PDF, but only when it's genuinely a separate file from the canon's.
+  const dupFileId = idx['Drive File ID'] > -1 ? String(dupRow[idx['Drive File ID']] || '').trim() : '';
+  let trashNote = '';
+  if (dupFileId && dupFileId !== canonFileId) {
+    try {
+      DriveApp.getFileById(dupFileId).setTrashed(true);
+    } catch (err) {
+      trashNote = ` (The extra file could not be moved to Trash: ${err.message} — remove it by hand if it still exists.)`;
+    }
+  }
+
+  const stamp = Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd HH:mm');
+  const canonLabel = [String(canonRow[idx['Vendor']] || '').trim(),
+    idx['Invoice Number'] > -1 && canonRow[idx['Invoice Number']] ? 'Inv# ' + canonRow[idx['Invoice Number']] : '']
+    .filter(p => p).join(' ');
+  const mergeNote = `Merged as duplicate of ${canonLabel || 'the selected invoice'} ${stamp} — the file link now points at the kept copy.${trashNote}`;
+
+  const setCell = (col, value) => { if (idx[col] > -1) sheet.getRange(dupRowNum, idx[col] + 1).setValue(value); };
+  setCell('Status', 'Duplicate');
+  setCell('Drive Link', canonLink);
+  setCell('Drive File ID', canonFileId);
+  const existingNote = idx['Review Note'] > -1 ? String(dupRow[idx['Review Note']] || '') : '';
+  setCell('Review Note', existingNote ? existingNote + ' ' + mergeNote : mergeNote);
+
+  try {
+    logOverride_({
+      rowId: dupRowId,
+      vendor: dupRow[idx['Vendor']],
+      invoiceNumber: idx['Invoice Number'] > -1 ? dupRow[idx['Invoice Number']] : '',
+      amount: dupRow[idx['Amount']],
+      fromProject: String(dupRow[idx['Project Number']] || '').trim(),
+      fromSubproject: String(dupRow[idx['Subproject Number']] || '').trim(),
+      fromStatus: String(dupRow[idx['Status']] || '').trim(),
+      originalConfidence: idx['Confidence'] > -1 ? dupRow[idx['Confidence']] : '',
+      toProject: String(dupRow[idx['Project Number']] || '').trim(),
+      toSubproject: String(dupRow[idx['Subproject Number']] || '').trim(),
+      toStatus: 'Duplicate'
+    });
+  } catch (e) { /* audit logging is best-effort — the merge itself already succeeded */ }
+
+  return {
+    rowId: dupRowId,
+    status: 'Duplicate',
+    statusClass: statusToClass_('Duplicate'),
+    driveLink: canonLink,
+    reviewNote: existingNote ? existingNote + ' ' + mergeNote : mergeNote
+  };
+}
+
+/**
  * Where a filed invoice PDF actually lives in Drive, as a human-readable folder path (walked up
  * from the file to the Invoice Archive root) — for the dashboard's preview modal, so someone can
  * see the filing location without leaving the page. Read-only, so open to any dashboard viewer,
