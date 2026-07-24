@@ -124,6 +124,24 @@ downgraded to NONE.
   own "parent/name" paths so assertions read like expected paths.
 - `Dashboard.html` contains em-dashes/arrows that defeat exact-match string edits — for edits there,
   prefer short unique anchors or a Node replace script, and re-verify with grep afterwards.
+- **A stray NUL/control byte can get injected into a regex char class while editing** (happened this
+  session inside `[\/\\:*?"<>|]` in `sanitizeZipName_`). Tell-tale: `grep` reports `binary file
+  matches` and `node --check` may still PASS while the class is silently wrong (e.g. a control-char
+  range that eats hyphens). Fix by writing a Node fixer **to a file** — an inline `node -e '…'` that
+  contains control chars is rejected by the Bash tool ("command contains control characters") — that
+  strips bytes `<32` except tab/newline/CR and rewrites the offending line, then re-`node --check`
+  and confirm `readFileSync(f).indexOf(0) === -1`.
+
+## Batch download (dashboard)
+
+`downloadInvoicesZip(rowIds, zipName)` (DashboardServer.gs) zips the selected rows' filed PDFs and
+returns the zip as **base64** for the browser to save (client `base64ToBlob` + an `<a download>`), so
+a viewer with no Drive access can still export (it runs as the owner, like Preview — read-only, not
+gated). De-dupes by Drive file ID (a `Duplicate` row shares the canon's file — never zipped twice);
+skips unreadable files and counts them; capped by `DOWNLOAD_MAX_FILES` (100) / `DOWNLOAD_MAX_TOTAL_BYTES`
+(30 MB) so the base64 response stays transferable. `sanitizeZipName_` strips only illegal filename
+chars (keeps hyphens), caps length, ensures one `.zip`. UI: a **Download as zip** button in the
+multi-select bulk bar → name-the-zip modal.
 
 ## Docs to keep in sync when behavior changes
 

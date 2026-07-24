@@ -75,6 +75,16 @@ If a batch of invoices all need the same fix (say, several from one vendor that 
 2. Click **Edit selected** in the bar that appears.
 3. Choose the project/subproject/status to apply, and Save. A progress bar shows them being re-filed one by one.
 
+## Downloading invoices in a batch
+
+Need the actual PDFs — say, every invoice for a project this month — as files on your computer?
+
+1. Tick the **checkboxes** on the rows you want (Shift-click for a range, or the header checkbox for all shown).
+2. Click **Download as zip** in the selection bar.
+3. **Name the zip** (it suggests a dated name like `WCM-Invoices-2026-07`), then click **Download zip**.
+
+The system gathers those PDFs into a single zip and your browser saves it under the name you chose — no Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is zipped twice.
+
 ## Managing project hints
 
 A **hint** tells the automation that a certain name or address printed on an invoice belongs to a particular project — or to a specific **subproject** — so invoices that don't spell out the number still file correctly (many vendors only print a job-site address). You don't need spreadsheet access to manage them.
