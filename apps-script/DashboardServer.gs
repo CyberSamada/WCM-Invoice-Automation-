@@ -32,6 +32,7 @@ function doGet(e) {
 function buildDashboardData_() {
   const timezone = Session.getScriptTimeZone();
   const ss = SpreadsheetApp.getActiveSpreadsheet();
+  try { ensureLogTextFormatsOnce_(); } catch (e) { /* format self-heal is best-effort */ }
 
   const logSheet = ss.getSheetByName(CONFIG.SHEET_LOG_TAB);
   const rawRows = logSheet ? logSheet.getDataRange().getValues() : [];
@@ -444,12 +445,20 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   const overrideNote = `Manually updated ${stamp} — ${changeParts.join('; ') || 'no change'}.`;
 
   const setCell = (col, value) => { if (idx[col] > -1) sheet.getRange(rowNum, idx[col] + 1).setValue(value); };
-  setCell('Project Number', newProjectNumber);
+  // Write ID/code fields as LITERAL TEXT so Sheets can't coerce e.g. "3050-4" into a date (which then
+  // reads back as "Mon Apr 01 3050"). Belt to the whole-column format ensured by ensureLogTextFormats_.
+  const setTextCell = (col, value) => {
+    if (idx[col] === -1) return;
+    const cell = sheet.getRange(rowNum, idx[col] + 1);
+    cell.setNumberFormat('@');
+    cell.setValue(String(value == null ? '' : value));
+  };
+  setTextCell('Project Number', newProjectNumber);
   setCell('Project Name', matchedRef ? matchedRef.projectName : '');
-  setCell('Subproject Number', matchedRef ? matchedRef.subprojectNumber : '');
+  setTextCell('Subproject Number', matchedRef ? matchedRef.subprojectNumber : '');
   setCell('Subproject Name', matchedRef ? matchedRef.subprojectName : '');
   setCell('Status', newStatus);
-  setCell('Invoice Number', newInvoiceNumber);
+  setTextCell('Invoice Number', newInvoiceNumber);
   setCell('Amount', newAmount);
   setCell('Currency', newCurrency);
   setCell('Drive Link', newDriveLink);

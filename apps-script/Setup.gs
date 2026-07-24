@@ -41,6 +41,19 @@ function reseedKnowledge() {
   Logger.log('Re-seeded: any missing shipped-default aliases/notes were added back to their tabs. Hand-added rows were left untouched.');
 }
 
+/**
+ * Forces the Invoice Log's ID/code columns (CONFIG.LOG_TEXT_COLUMNS: invoice #, project/subproject
+ * numbers, row/file IDs) to plain-text format so Sheets never coerces a value like "3050-4" into a
+ * date. This runs automatically (once) on the next processing run or dashboard load; run it by hand
+ * only if you want to apply it immediately. Safe to re-run.
+ */
+function ensureLogColumnFormats() {
+  PropertiesService.getScriptProperties().deleteProperty(LOG_TEXT_FORMAT_PROPERTY);
+  ensureLogTextFormats_();
+  PropertiesService.getScriptProperties().setProperty(LOG_TEXT_FORMAT_PROPERTY, 'true');
+  Logger.log('Forced text format on: ' + (CONFIG.LOG_TEXT_COLUMNS || []).join(', ') + '. Future values in these columns will no longer be coerced to dates/numbers.');
+}
+
 /** Optional helper: creates the time-driven trigger from code instead of the Triggers UI. Run once. */
 function createTimeTrigger() {
   // Remove any existing trigger for this function first, so re-running doesn't create duplicates.
