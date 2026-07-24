@@ -331,9 +331,11 @@ function setAutomationPaused(paused) {
  * see DriveService.gs — so this can never disagree with what a fresh automatic run would do).
  *
  * @param {string} rowId
- * @param {{projectNumber:?string, subprojectNumber:?string, status:?string}} updates - any
- *   subset; omitted (null/undefined) fields are left unchanged. subprojectNumber '' means "no
- *   subproject" explicitly.
+ * @param {{projectNumber:?string, subprojectNumber:?string, status:?string, invoiceNumber:?string,
+ *   amount:?string, currency:?string, learnAlias:?string}} updates - any subset; omitted
+ *   (null/undefined) fields are left unchanged. subprojectNumber '' means "no subproject" explicitly.
+ *   learnAlias (optional) is a name/address to remember as an alias for the row's corrected project
+ *   — the learn-while-fixing hint; saved best-effort, never fails the edit.
  */
 function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   if (!canControlAutomation_()) {
@@ -477,6 +479,18 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
     } catch (e) { /* audit logging is best-effort — the edit itself already succeeded */ }
   }
 
+  // Learn-while-fixing: if the user typed what on this invoice identifies the project, save it as an
+  // alias mapped to the row's (corrected) project — so the NEXT invoice that mentions the same
+  // address/phrase matches on its own. Best-effort: a bad/duplicate hint never fails the edit.
+  let learnedAlias = false;
+  const learnAlias = updates.learnAlias != null ? String(updates.learnAlias).trim() : '';
+  if (learnAlias && newProjectNumber) {
+    try {
+      const res = saveProjectAliasInternal_(learnAlias, newProjectNumber, newSubprojectNumber, cachedReferenceRows);
+      learnedAlias = !!res.added;
+    } catch (e) { /* the correction itself already succeeded — a hint that can't be saved is non-fatal */ }
+  }
+
   return {
     rowId: rowId,
     projectNumber: newProjectNumber,
@@ -489,6 +503,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
     amount: newAmount,
     currency: newCurrency,
     driveLink: newDriveLink,
+    learnedAlias: learnedAlias,
     reviewNote: idx['Review Note'] > -1 ? String(sheet.getRange(rowNum, idx['Review Note'] + 1).getValue() || '') : ''
   };
 }
@@ -625,6 +640,70 @@ function mergeInvoiceAsDuplicate(dupRowId, canonRowId) {
     driveLink: canonLink,
     reviewNote: existingNote ? existingNote + ' ' + mergeNote : mergeNote
   };
+}
+
+/**
+ * "Manage hints" — the dashboard's alias manager. Aliases (alternate name/address -> project) are
+ * the one piece of matching knowledge coordinators routinely tune, and this lets them do it from the
+ * dashboard link they already have: the server reads/writes the "Project Aliases" tab AS THE OWNER
+ * (the web app runs "Execute as: Me"), so no viewer needs any spreadsheet access. Writes are gated by
+ * canControlAutomation_ exactly like the other edit endpoints; the read is open like the rest of the
+ * page data.
+ */
+
+/** The current alias list, each tagged with a human-readable project label. Called on modal open. */
+function getProjectAliases() {
+  const aliases = getAliasData_(); // [{alias, projectNumber, subprojectNumber}]
+  const labels = {};
+  try {
+    getReferenceData_().forEach(r => {
+      const p = normalizeNumberKey_(r.projectNumber);
+      if (r.projectName && !labels[p]) labels[p] = r.projectName;
+    });
+  } catch (e) { /* Reference tab missing — labels just come up blank */ }
+  return {
+    canControl: canControlAutomation_(),
+    aliases: aliases.map(a => ({
+      alias: a.alias,
+      projectNumber: a.projectNumber,
+      subprojectNumber: a.subprojectNumber,
+      projectLabel: labels[normalizeNumberKey_(a.projectNumber)] || ''
+    }))
+  };
+}
+
+/**
+ * Validates and saves one alias to the "Project Aliases" tab. Shared by the Manage-hints "Add"
+ * button and the learn-while-fixing field (see updateInvoiceRow). Confirms the project/subproject
+ * exists in the Project Reference, then appends (skipping an exact alias+project duplicate).
+ * Returns { added: boolean } — added:false means it was already there.
+ */
+function saveProjectAliasInternal_(alias, projectNumber, subprojectNumber, cachedReferenceRows) {
+  const a = String(alias == null ? '' : alias).trim();
+  const p = String(projectNumber == null ? '' : projectNumber).trim();
+  if (!a) throw new Error('Enter the name or address that identifies the project.');
+  if (!p) throw new Error('Pick the project this hint points to.');
+  const matched = findReferenceMatch_(cachedReferenceRows || getReferenceData_(), p, subprojectNumber);
+  if (!matched) throw new Error(`Project "${p}"${subprojectNumber ? ' / subproject ' + subprojectNumber : ''} wasn't found in the Project Reference sheet.`);
+  const added = appendAliasRow_(a, matched.projectNumber || p, matched.subprojectNumber || '');
+  return { added: added };
+}
+
+/** Manage-hints "Add" — validates + saves an alias, then returns the refreshed list. Gated. */
+function addProjectAlias(alias, projectNumber, subprojectNumber) {
+  if (!canControlAutomation_()) throw new Error('You are not allowed to edit matching hints.');
+  const result = saveProjectAliasInternal_(alias, projectNumber, subprojectNumber);
+  const list = getProjectAliases();
+  list.added = result.added;
+  return list;
+}
+
+/** Manage-hints "✕ remove" — deletes the matching alias row(s), then returns the refreshed list. Gated. */
+function removeProjectAlias(alias, projectNumber) {
+  if (!canControlAutomation_()) throw new Error('You are not allowed to edit matching hints.');
+  if (!String(alias || '').trim() || !String(projectNumber || '').trim()) throw new Error('Missing alias to remove.');
+  deleteAliasRow_(alias, projectNumber);
+  return getProjectAliases();
 }
 
 /**

@@ -14,6 +14,7 @@
 - **One place to see everything.** A live dashboard shows every invoice, its status, its amount, and where it was filed — no need to dig through Drive or a spreadsheet.
 - **Catches what matters.** Non-invoices (POs, statements), tight due dates, duplicates, and anything the system wasn't confident about all get flagged for a person to check before money moves.
 - **Learns your corrections.** When you fix a misfiled invoice, the system remembers — the next time that vendor's invoice arrives, it applies what it learned (and still asks you to confirm).
+- **You can teach it, right from the dashboard.** Tell it which address or name on an invoice belongs to which project — while fixing an invoice, or in a **Manage hints** panel — so future invoices that only show that address file themselves. No spreadsheet or code access needed.
 
 ---
 
@@ -123,7 +124,8 @@ flowchart TD
 - **Powerful filters** — pick multiple statuses at once, tick whole projects or individual subprojects, search by vendor or invoice #, filter by amount, and filter any date range by *processed*, *received*, or *invoice* date.
 - **Sort control** — reorder the list by any date, vendor, project, amount, or status, ascending or descending.
 - **Preview a filed PDF in place**, with its live Drive folder location — and edit the project, subproject, status, invoice #, amount, or currency *right next to the PDF*. **Prev / Next** buttons let you work through a stack without closing the preview.
-- **Fix a misfile in one click** — the system moves the actual file in Drive to match (and renames it if you corrected the invoice #).
+- **Fix a misfile in one click** — the system moves the actual file in Drive to match (and renames it if you corrected the invoice #). While fixing, an optional box lets you record *what on the invoice identifies the project* — saved as a hint for next time.
+- **Manage hints** — a panel to add or remove the name/address → project hints that drive matching, straight from the dashboard (no spreadsheet access).
 - **Bulk edit** — select many rows (shift-click selects a range) and re-file them all at once, with a progress bar.
 - **Send feedback** straight from the dashboard.
 - **Start / Pause** the automation, and swap the dashboard logo — no code needed.
@@ -151,12 +153,15 @@ Open the **Status** dropdown and tick "Needs Review" to see just the invoices wa
 Click the **file icon** on a row to preview the PDF right on the page — the panel beside it shows exactly where the file lives in Drive, with an **Open in Drive** button.
 
 **4. Fix one that's filed wrong — without leaving the preview.**
-The panel beside the PDF lets you correct the **project, subproject, status, invoice #, amount, or currency**, then **Save changes**. The system moves (and if needed renames) the actual PDF in Drive — and remembers the correction for that vendor. Then hit **Next ›** to roll straight to the following invoice.
+The panel beside the PDF lets you correct the **project, subproject, status, invoice #, amount, or currency**, then **Save changes**. The system moves (and if needed renames) the actual PDF in Drive — and remembers the correction for that vendor. If you're fixing the project, the optional **"What identifies this project?"** box lets you type the address or name printed on the invoice, so the next one matches on its own. Then hit **Next ›** to roll straight to the following invoice.
 
 **5. Fix several at once.**
 Tick the **checkboxes** on multiple rows (hold **Shift** to select a range), then **Edit selected** to re-file them all in one go — a progress bar shows it working through the batch.
 
-**6. Flag anything odd.**
+**6. Teach it a hint (optional).**
+If invoices for a project keep arriving under an address the system doesn't recognize, click **Manage hints** in the header, pick the project, and add the name or address. From then on, invoices that mention it file to the right project automatically.
+
+**7. Flag anything odd.**
 Use the **Send feedback** button in the corner for anything confusing or wrong — it's tracked for follow-up.
 
 For more detail on each of these, see the [**Employee Guide**](./EMPLOYEE_GUIDE.md).

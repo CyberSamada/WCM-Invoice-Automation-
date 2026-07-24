@@ -8,9 +8,21 @@ HTML dashboard). **This repo is the source of truth**; the live Apps Script proj
 When a change alters behavior, conventions, or structure — or debugging uncovers a new gotcha —
 **update this file in the same PR as the change.** Don't leave lessons in chat. The same applies to
 the extractor's knowledge: when a misread teaches a durable lesson about how WCM's invoices look,
-add it to `apps-script/ExtractionNotes.gs` (SEED_EXTRACTION_NOTES — injected into every Gemini
-prompt, deployed automatically) in the same PR as the fix. Addresses go in `AliasSeed.gs` +
-`property_addresses.md`.
+add it to `apps-script/ExtractionNotes.gs` (SEED_EXTRACTION_NOTES) in the same PR as the fix.
+Addresses go in `AliasSeed.gs` + `property_addresses.md`.
+
+**Knowledge lives in the sheet tabs now — the code seeds are just shipped defaults.** Aliases
+(address/alt-name → project) and extraction notes have ONE runtime home each: the **Project
+Aliases** and **AI Notes** sheet tabs. `SEED_ALIASES` (AliasSeed.gs) and `SEED_EXTRACTION_NOTES`
+(ExtractionNotes.gs) are copied into those tabs exactly once by
+`SheetService.gs/ensureKnowledgeSeeded_` (guarded by the `KNOWLEDGE_SEEDED` Script Property), then
+never read directly again — `getAliasData_`/`getExtractionNotes_` read only the tabs. So a
+hand-deleted row stays deleted (the seed won't re-add it), and coordinators tune aliases themselves
+from the dashboard's **Manage hints** panel (`getProjectAliases`/`addProjectAlias`/
+`removeProjectAlias` in DashboardServer.gs write to the tab AS THE OWNER — no spreadsheet access
+needed) or by typing the identifying address in the **learn-while-fixing** field on the edit/preview
+panels (`updates.learnAlias` → `saveProjectAliasInternal_`). Editing a seed array only changes what a
+BRAND-NEW install starts with; to restore a default someone deleted, run `reseedKnowledge()` (Setup.gs).
 
 ## Deploy model — read this before debugging "it's not working"
 
@@ -35,6 +47,12 @@ prompt, deployed automatically) in the same PR as the fix. Addresses go in `Alia
   force-push is blocked — instead run
   `git merge -s recursive -X ours origin/<branch> --no-edit` (keeps your tree, adds ancestry), then
   a normal fast-forward push. Verify `git diff <your-commit> HEAD` is empty before pushing.
+- **`-X ours` is not "keep my tree verbatim" — it only wins on CONFLICTING hunks.** A change the
+  stale remote branch still has but you deleted (a block you removed elsewhere in the file) is a
+  *non-conflicting* addition from the merge base's view, so git silently re-adds it. That's exactly
+  how a dead `notesSheet` block came back into Setup.gs this session. So the "`git diff <your-commit>
+  HEAD` is empty" check is load-bearing, not a formality: if it's non-empty, the merge re-introduced
+  stale content — strip it in a follow-up commit until the diff is empty, THEN push.
 
 ## Code rules (each one exists because of a real incident)
 
@@ -74,6 +92,13 @@ prompt, deployed automatically) in the same PR as the fix. Addresses go in `Alia
   from a `.gs` file by brace counting; `eval()` it into the test's scope). **Never put
   `'use strict'` in a test file** — strict-mode eval doesn't leak declarations. If the toolkit is
   missing (ephemeral container), recreate it or inline the same extract-and-eval pattern.
+- **Only `var`/`function` declarations leak out of `eval()`; `const`/`let` do not** (they're
+  block-scoped to the eval). So a function-under-test that references a file-level `const` (e.g.
+  `KNOWLEDGE_SEEDED_PROPERTY`, `CONFIG`) will throw "X is not defined" if you `eval` the const from
+  the source — define those in the test scope as `var` (or a plain assignment) instead. A silent
+  try/catch in the function-under-test will swallow that ReferenceError and make every assertion fail
+  at once; if a whole test file "does nothing," temporarily replace the catch body with a log to see
+  the real error.
 - Mock `SpreadsheetApp`/`DriveApp`/`Utilities`/`CONFIG` per test; make fake folder IDs be their
   own "parent/name" paths so assertions read like expected paths.
 - `Dashboard.html` contains em-dashes/arrows that defeat exact-match string edits — for edits there,
@@ -85,8 +110,10 @@ prompt, deployed automatically) in the same PR as the fix. Addresses go in `Alia
   + step-by-step section must match reality).
 - `EMPLOYEE_GUIDE.md` — end-user how-to (statuses, folder tree, dashboard actions).
 - `apps-script/SETUP.md` — deploy/config internals.
-- `property_addresses.md` + `AliasSeed.gs` — canonical addresses; aliases live in code and load on
-  deploy (no manual sheet import). `project_aliases_seed.csv` is the human-readable mirror.
+- `property_addresses.md` + `AliasSeed.gs` — canonical addresses. `AliasSeed.gs`/`SEED_EXTRACTION_NOTES`
+  are shipped DEFAULTS seeded into the **Project Aliases**/**AI Notes** tabs once (see the knowledge
+  rule up top); the live home is the tabs, edited via the dashboard's **Manage hints** panel.
+  `property_addresses.md` + `project_aliases_seed.csv` are human-readable mirrors of the defaults.
 - `apps-script/ExtractionNotes.gs` — standing domain notes injected into every Gemini extraction
   prompt (merged with the optional "AI Notes" sheet tab, which lets the team add hints without a
   deploy). This is the extractor's CLAUDE.md.
