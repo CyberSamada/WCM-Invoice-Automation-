@@ -31,7 +31,7 @@ At the top you'll see summary cards, with a **time-frame selector** (top right) 
 Below that, filters narrow the invoice list. The **Status** and **Project** filters are dropdowns where you can tick **several at once** (ticking a main project includes all its subprojects). You can also search by **vendor** or **invoice #**, set an **amount** range, and pick a **date range** — filtered by processed, received, or invoice date. A **Sort by** control reorders whatever the filters found (newest/oldest, by vendor, project, amount, or status).
 
 Each row shows the invoice's processed date, received date, invoice date, vendor, invoice #, project/subproject, amount, status, and a small gray **ⓘ** note mark (its own column) you can click to read why it was flagged or what was changed. Quick actions:
-- 📄 **Preview** the filed PDF right on the page — with an edit panel beside it, the note shown above the panel, and **Prev / Next** buttons to work through a stack without closing it
+- 📄 **Preview** the filed PDF right on the page — with an edit panel beside it, the note shown above the panel, and **Prev / Next** buttons to work through a stack without closing it. Click **Select text** in the preview to switch to a text-selectable view where you can highlight and copy values straight off the invoice (works on normal PDFs; scanned/image invoices have no selectable text — those you'd read manually).
 - ✉️ open the original email in Gmail
 - ✏️ **edit** the row (fix the project, subproject, status, invoice #, amount, or currency)
 

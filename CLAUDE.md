@@ -150,6 +150,19 @@ name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips
 keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
 bar — one selected downloads directly, multiple open the name-the-zip modal.
 
+## Text-select preview (dashboard)
+
+The PDF preview defaults to the Drive `/preview` iframe (fast, cross-origin — its text selection we
+can't control). A **"Select text"** toggle swaps in a **PDF.js** render (`pdf.min.js` 3.11.174 from
+cdnjs) whose text layer is selectable, so values can be highlighted/copied. Bytes come from
+`getInvoicePdfData(fileId)` (DashboardServer.gs — base64, owner-run/read-only, capped at
+`PDF_SELECT_MAX_BYTES` 25 MB). Client: `renderSelectablePdf`/`renderPdfPage` build one canvas + a
+`.textLayer` per page; `previewTextMode` is session-sticky; `previewPdfToken` cancels stale renders on
+fast Next/close. Everything degrades to the Drive viewer: if the CDN lib doesn't load (CSP/offline)
+the toggle says so, and scanned/image PDFs (no text) show a "use Back to view" message. `pdfjsLib` is
+loaded via a plain `<script src>` OUTSIDE the main `<script>` block — the node syntax-check extractor
+matches `  <script>` (indented, no attrs), so it skips the CDN tag.
+
 ## Review Note sequencing (dashboard)
 
 Review Note accumulates events: the initial reason, then each `Manually updated <stamp> — …` edit and
