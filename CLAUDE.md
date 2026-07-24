@@ -3,6 +3,15 @@
 Google Apps Script invoice automation (Gmail → Gemini extraction → Drive filing → Sheets log +
 HTML dashboard). **This repo is the source of truth**; the live Apps Script project is a mirror.
 
+## Standing rule: keep the knowledge files current
+
+When a change alters behavior, conventions, or structure — or debugging uncovers a new gotcha —
+**update this file in the same PR as the change.** Don't leave lessons in chat. The same applies to
+the extractor's knowledge: when a misread teaches a durable lesson about how WCM's invoices look,
+add it to `apps-script/ExtractionNotes.gs` (SEED_EXTRACTION_NOTES — injected into every Gemini
+prompt, deployed automatically) in the same PR as the fix. Addresses go in `AliasSeed.gs` +
+`property_addresses.md`.
+
 ## Deploy model — read this before debugging "it's not working"
 
 - Merging to `main` auto-runs `.github/workflows/deploy-apps-script.yml` → `clasp push -f` to the
@@ -78,6 +87,9 @@ HTML dashboard). **This repo is the source of truth**; the live Apps Script proj
 - `apps-script/SETUP.md` — deploy/config internals.
 - `property_addresses.md` + `AliasSeed.gs` — canonical addresses; aliases live in code and load on
   deploy (no manual sheet import). `project_aliases_seed.csv` is the human-readable mirror.
+- `apps-script/ExtractionNotes.gs` — standing domain notes injected into every Gemini extraction
+  prompt (merged with the optional "AI Notes" sheet tab, which lets the team add hints without a
+  deploy). This is the extractor's CLAUDE.md.
 
 ## Known future roadmap (user-stated)
 

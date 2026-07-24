@@ -101,6 +101,8 @@ const CONFIG = {
   SHEET_ERRORS_TAB: 'Errors',
   SHEET_REFERENCE_TAB: 'Project Reference', // import project_reference.csv here, then add a "Drive Folder ID" column
   SHEET_ALIASES_TAB: 'Project Aliases', // optional — known alternate names/addresses that map straight to a project (see SheetService.gs/getAliasData_)
+  SHEET_AI_NOTES_TAB: 'AI Notes', // optional — standing hints for the AI extractor, one per row (see ExtractionNotes.gs); merged with the code-seeded notes
+  AI_NOTES_COLUMNS: ['Note'],
 
   // Invoice Log columns, in order — keep this in sync with the actual sheet header row. New
   // columns appended here are added to an EXISTING sheet automatically (see
