@@ -247,6 +247,8 @@
 
     .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
     .badge-filed { background: #e8f7ee; color: #1c6b45; }
+    .badge-captured { background: #e0f2fe; color: #075985; }
+    .badge-paid { background: #dcfce7; color: #14532d; }
     .badge-review { background: #fff4e0; color: #8a5a00; }
     .vendor-invnum { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     .badge-notinvoice { background: #eef0f2; color: #41474f; }
@@ -446,6 +448,8 @@
             <div class="proj-dropdown-panel" id="statusDropdownPanel">
               <div class="status-filter" id="filterStatus" title="Tick one or more; none ticked shows all">
                 <label class="status-chk"><input type="checkbox" value="Filed"> Filed</label>
+                <label class="status-chk"><input type="checkbox" value="Captured"> Captured</label>
+                <label class="status-chk"><input type="checkbox" value="Paid"> Paid</label>
                 <label class="status-chk"><input type="checkbox" value="Needs Review"> Needs Review</label>
                 <label class="status-chk"><input type="checkbox" value="Not an Invoice"> Not an Invoice</label>
                 <label class="status-chk"><input type="checkbox" value="Duplicate"> Duplicate</label>
@@ -597,6 +601,8 @@
         <label for="editStatus">Status</label>
         <select id="editStatus">
           <option value="Filed">Filed</option>
+          <option value="Captured">Captured</option>
+          <option value="Paid">Paid</option>
           <option value="Needs Review">Needs Review</option>
           <option value="Not an Invoice">Not an Invoice</option>
           <option value="Duplicate">Duplicate</option>
@@ -648,6 +654,8 @@
               <label for="previewStatus" class="preview-edit-label2">Status</label>
               <select id="previewStatus">
                 <option value="Filed">Filed</option>
+          <option value="Captured">Captured</option>
+          <option value="Paid">Paid</option>
                 <option value="Needs Review">Needs Review</option>
                 <option value="Not an Invoice">Not an Invoice</option>
                 <option value="Duplicate">Duplicate</option>
@@ -701,6 +709,8 @@
         <select id="bulkStatus">
           <option value="">(don't change)</option>
           <option value="Filed">Filed</option>
+          <option value="Captured">Captured</option>
+          <option value="Paid">Paid</option>
           <option value="Needs Review">Needs Review</option>
           <option value="Not an Invoice">Not an Invoice</option>
           <option value="Duplicate">Duplicate</option>

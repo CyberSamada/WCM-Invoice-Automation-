@@ -99,11 +99,12 @@ function resolveBaseFolderId_(matchedRef) {
 /**
  * Resolves the Drive folder a matched invoice should live in — the single source of truth shared by
  * automatic filing (Main.gs), the dashboard's manual override (DashboardServer.gs), and the refile
- * reconciler (Refile.gs), so the paths can never disagree. Statuses are strictly SEPARATED under the
- * base folder (subproject, or "No Subprojects" under the project):
- *   Filed           -> <base>/YYYY-MM        (processed month — matches the filename's date)
- *   Not an Invoice  -> <base>/Statements & Others
- *   anything else   -> <base>/Needs Review   (awaiting human review; never mixed with statements)
+ * reconciler (Refile.gs), so the paths can never disagree. Everything lives under the processed-month
+ * folder of its base (subproject, or "No Subprojects" under the project), strictly SEPARATED by
+ * status inside the month:
+ *   Filed / Captured / Paid -> <base>/YYYY-MM               (real invoices, at the month's root)
+ *   Not an Invoice          -> <base>/YYYY-MM/Statements & Others
+ *   anything else           -> <base>/YYYY-MM/Needs Review  (awaiting a person; never mixed)
  * No project match at all falls back to the top-level "_Unmatched" folder.
  */
 function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
@@ -111,9 +112,10 @@ function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
   if (!baseId) {
     return getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME).getId();
   }
-  if (status === 'Filed') return getMonthSubfolderId_(baseId, monthDate);
-  if (status === 'Not an Invoice') return getOrCreateNamedSubfolder_(baseId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
-  return getOrCreateNamedSubfolder_(baseId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME).getId();
+  const monthFolderId = getMonthSubfolderId_(baseId, monthDate);
+  if (status === 'Filed' || status === 'Captured' || status === 'Paid') return monthFolderId;
+  if (status === 'Not an Invoice') return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
+  return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME).getId();
 }
 
 /**
