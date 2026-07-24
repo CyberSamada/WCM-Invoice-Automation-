@@ -1,12 +1,14 @@
 /**
  * AliasSeed.gs
- * Address -> project aliases maintained in code (mirrors project_aliases_seed.csv). These are merged
- * into whatever's in the "Project Aliases" tab by SheetService.gs/getAliasData_, so they take effect
- * on deploy with NO manual import. A row hand-added to the tab wins over a code seed with the same
- * alias + project number.
+ * Address -> project aliases: the SHIPPED DEFAULTS (mirrors project_aliases_seed.csv). These are
+ * copied into the "Project Aliases" sheet tab exactly once by SheetService.gs/ensureKnowledgeSeeded_
+ * (no manual import), after which that tab is the single editable home — coordinators add/remove
+ * aliases from the dashboard's "Manage hints" panel or the learn-while-fixing field, NOT here. Edit
+ * this list only to change the defaults a brand-new install starts with (and it won't override a
+ * live tab that's already been seeded — a delete in the tab sticks).
  *
  * Each entry is [alias, project number, subproject number]. Subproject '' means "the whole project"
- * (let the extractor/reviewer pick the subproject). To add or change an alias, edit this list.
+ * (let the extractor/reviewer pick the subproject).
  */
 const SEED_ALIASES = [
   ['1175 Hyde Park Rd, London', '02', ''],

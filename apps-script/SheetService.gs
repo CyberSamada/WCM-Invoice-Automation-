@@ -46,16 +46,92 @@ function getMatchableReferenceRows_(referenceRows) {
 }
 
 /**
+ * The knowledge-seed guard flag. The "Project Aliases" and "AI Notes" tabs are the single runtime
+ * home for aliases and extraction notes; the code seeds (AliasSeed.gs/SEED_ALIASES,
+ * ExtractionNotes.gs/SEED_EXTRACTION_NOTES) are shipped DEFAULTS that are copied into those tabs
+ * exactly once, then never consulted again. This Script Property records that the one-time copy has
+ * happened, so a later hand-deletion of a seeded row sticks (it's never re-added).
+ */
+const KNOWLEDGE_SEEDED_PROPERTY = 'KNOWLEDGE_SEEDED';
+
+/**
+ * One-time migration of the code seeds into their sheet tabs, so the tabs become the sole editable
+ * home with no manual import and no deploy-order gap (a fresh deploy still lands the shipped
+ * defaults). Guarded by KNOWLEDGE_SEEDED_PROPERTY: does real work only on the first call ever, then
+ * flips the flag and is a no-op forever after. Idempotent even within that first call — only seed
+ * rows MISSING from a tab are appended (dedupe: aliases by alias+project, notes case-insensitively),
+ * so it never doubles an alias a person already added. Best-effort: any failure is swallowed and the
+ * flag left unset so a later call can retry — a seeding hiccup must never block extraction or the
+ * dashboard.
+ *
+ * Force a re-run (e.g. to restore a default someone deleted) with reseedKnowledge() in Setup.gs,
+ * which clears the flag first.
+ */
+function ensureKnowledgeSeeded_() {
+  try {
+    const props = PropertiesService.getScriptProperties();
+    if (props.getProperty(KNOWLEDGE_SEEDED_PROPERTY) === 'true') return;
+
+    // Aliases -> "Project Aliases" tab.
+    if (typeof SEED_ALIASES !== 'undefined' && SEED_ALIASES.length) {
+      const sheet = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
+      ensureSheetHasColumns_(sheet, CONFIG.ALIAS_COLUMNS);
+      const values = sheet.getDataRange().getValues();
+      const header = values.shift() || [];
+      const ai = header.indexOf('Alias');
+      const pi = header.indexOf('Project Number');
+      const existing = {};
+      if (ai > -1 && pi > -1) {
+        values.forEach(row => {
+          const k = String(row[ai] || '').trim().toLowerCase() + '|' + String(row[pi] || '').trim();
+          if (k !== '|') existing[k] = true;
+        });
+      }
+      SEED_ALIASES.forEach(a => {
+        const alias = String(a[0] || '').trim();
+        const proj = String(a[1] || '').trim();
+        if (!alias || !proj) return;
+        if (existing[alias.toLowerCase() + '|' + proj]) return;
+        sheet.appendRow(buildRowByHeader_(sheet, {
+          'Alias': alias, 'Project Number': proj, 'Subproject Number': String(a[2] || '').trim()
+        }));
+      });
+    }
+
+    // Extraction notes -> "AI Notes" tab.
+    if (typeof SEED_EXTRACTION_NOTES !== 'undefined' && SEED_EXTRACTION_NOTES.length) {
+      const notesSheet = getOrCreateSheet_(CONFIG.SHEET_AI_NOTES_TAB, CONFIG.AI_NOTES_COLUMNS);
+      ensureSheetHasColumns_(notesSheet, CONFIG.AI_NOTES_COLUMNS);
+      const nValues = notesSheet.getDataRange().getValues();
+      const nHeader = nValues.shift() || [];
+      const ni = nHeader.indexOf('Note');
+      const existingNotes = {};
+      if (ni > -1) nValues.forEach(row => {
+        const t = String(row[ni] || '').trim().toLowerCase();
+        if (t) existingNotes[t] = true;
+      });
+      SEED_EXTRACTION_NOTES.forEach(note => {
+        const t = String(note || '').trim();
+        if (!t) return;
+        if (existingNotes[t.toLowerCase()]) return;
+        notesSheet.appendRow(buildRowByHeader_(notesSheet, { 'Note': t }));
+      });
+    }
+
+    props.setProperty(KNOWLEDGE_SEEDED_PROPERTY, 'true');
+  } catch (e) { /* leave the flag unset so a later call retries — never block the caller */ }
+}
+
+/**
  * Known alternate names/addresses that map straight to a project (e.g. a street address invoices use
  * instead of the project's marketing name), for cases Gemini can't reliably infer from the Project
- * Reference sheet alone. Combines two sources:
- *   1. The "Project Aliases" tab (optional, hand-editable).
- *   2. The code-maintained seed list (AliasSeed.gs/SEED_ALIASES) — so the shipped aliases are active
- *      on deploy with NO manual import step.
- * Sheet rows are read first, so a hand-added row wins over a code seed on the same alias + project.
- * Deduped by alias (case-insensitive) + project number.
+ * Reference sheet alone. The "Project Aliases" tab is now the SOLE source — the code seed
+ * (AliasSeed.gs/SEED_ALIASES) is migrated into that tab once by ensureKnowledgeSeeded_ (called here),
+ * after which the tab is the single editable home (dashboard "Manage hints" writes to it). Deduped by
+ * alias (case-insensitive) + project number.
  */
 function getAliasData_() {
+  ensureKnowledgeSeeded_();
   const out = [];
   const seen = {};
   const add = (alias, projectNumber, subprojectNumber) => {
@@ -68,7 +144,6 @@ function getAliasData_() {
     out.push({ alias: a, projectNumber: p, subprojectNumber: String(subprojectNumber == null ? '' : subprojectNumber).trim() });
   };
 
-  // 1. The "Project Aliases" tab, if present — hand-edited rows take precedence.
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
   if (sheet) {
     const values = sheet.getDataRange().getValues();
@@ -81,12 +156,61 @@ function getAliasData_() {
     }
   }
 
-  // 2. The code-maintained seed (AliasSeed.gs) — active on deploy, no import needed.
-  if (typeof SEED_ALIASES !== 'undefined' && SEED_ALIASES.length) {
-    SEED_ALIASES.forEach(a => add(a[0], a[1], a[2]));
-  }
-
   return out;
+}
+
+/**
+ * Appends one alias row to the "Project Aliases" tab (header-keyed, so column order can evolve), if
+ * an identical alias+project isn't already present. Returns true if a row was added, false if it was
+ * a duplicate. Used by the dashboard's "Manage hints" manager and the learn-while-fixing field.
+ */
+function appendAliasRow_(alias, projectNumber, subprojectNumber) {
+  const a = String(alias == null ? '' : alias).trim();
+  const p = String(projectNumber == null ? '' : projectNumber).trim();
+  if (!a || !p) return false;
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
+  ensureSheetHasColumns_(sheet, CONFIG.ALIAS_COLUMNS);
+  const values = sheet.getDataRange().getValues();
+  const header = values.shift() || [];
+  const ai = header.indexOf('Alias');
+  const pi = header.indexOf('Project Number');
+  if (ai > -1 && pi > -1) {
+    const dup = values.some(row =>
+      String(row[ai] || '').trim().toLowerCase() === a.toLowerCase() &&
+      String(row[pi] || '').trim() === p);
+    if (dup) return false;
+  }
+  sheet.appendRow(buildRowByHeader_(sheet, {
+    'Alias': a, 'Project Number': p, 'Subproject Number': String(subprojectNumber == null ? '' : subprojectNumber).trim()
+  }));
+  return true;
+}
+
+/**
+ * Deletes every "Project Aliases" row matching alias (case-insensitive) + project number. Returns
+ * the number of rows removed. Deletes from the bottom up so earlier row indices stay valid. Used by
+ * the dashboard's "Manage hints" manager.
+ */
+function deleteAliasRow_(alias, projectNumber) {
+  const a = String(alias == null ? '' : alias).trim().toLowerCase();
+  const p = String(projectNumber == null ? '' : projectNumber).trim();
+  if (!a || !p) return 0;
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
+  if (!sheet) return 0;
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const ai = header.indexOf('Alias');
+  const pi = header.indexOf('Project Number');
+  if (ai === -1 || pi === -1) return 0;
+  let removed = 0;
+  for (let r = values.length - 1; r >= 1; r--) {
+    if (String(values[r][ai] || '').trim().toLowerCase() === a &&
+        String(values[r][pi] || '').trim() === p) {
+      sheet.deleteRow(r + 1);
+      removed++;
+    }
+  }
+  return removed;
 }
 
 /**

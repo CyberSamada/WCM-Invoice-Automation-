@@ -8,9 +8,21 @@ HTML dashboard). **This repo is the source of truth**; the live Apps Script proj
 When a change alters behavior, conventions, or structure — or debugging uncovers a new gotcha —
 **update this file in the same PR as the change.** Don't leave lessons in chat. The same applies to
 the extractor's knowledge: when a misread teaches a durable lesson about how WCM's invoices look,
-add it to `apps-script/ExtractionNotes.gs` (SEED_EXTRACTION_NOTES — injected into every Gemini
-prompt, deployed automatically) in the same PR as the fix. Addresses go in `AliasSeed.gs` +
-`property_addresses.md`.
+add it to `apps-script/ExtractionNotes.gs` (SEED_EXTRACTION_NOTES) in the same PR as the fix.
+Addresses go in `AliasSeed.gs` + `property_addresses.md`.
+
+**Knowledge lives in the sheet tabs now — the code seeds are just shipped defaults.** Aliases
+(address/alt-name → project) and extraction notes have ONE runtime home each: the **Project
+Aliases** and **AI Notes** sheet tabs. `SEED_ALIASES` (AliasSeed.gs) and `SEED_EXTRACTION_NOTES`
+(ExtractionNotes.gs) are copied into those tabs exactly once by
+`SheetService.gs/ensureKnowledgeSeeded_` (guarded by the `KNOWLEDGE_SEEDED` Script Property), then
+never read directly again — `getAliasData_`/`getExtractionNotes_` read only the tabs. So a
+hand-deleted row stays deleted (the seed won't re-add it), and coordinators tune aliases themselves
+from the dashboard's **Manage hints** panel (`getProjectAliases`/`addProjectAlias`/
+`removeProjectAlias` in DashboardServer.gs write to the tab AS THE OWNER — no spreadsheet access
+needed) or by typing the identifying address in the **learn-while-fixing** field on the edit/preview
+panels (`updates.learnAlias` → `saveProjectAliasInternal_`). Editing a seed array only changes what a
+BRAND-NEW install starts with; to restore a default someone deleted, run `reseedKnowledge()` (Setup.gs).
 
 ## Deploy model — read this before debugging "it's not working"
 

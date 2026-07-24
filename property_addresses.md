@@ -6,6 +6,12 @@ address the automation doesn't recognize can't be matched. Loading these address
 `project_aliases_seed.csv` and the **Project Aliases** tab) lets an invoice that mentions only the
 address file to the right project.
 
+> **Note:** This file and `project_aliases_seed.csv` are human-readable **mirrors** of the shipped
+> defaults in `apps-script/AliasSeed.gs`. The live, editable home is the **Project Aliases** sheet
+> tab — coordinators add/remove aliases there via the dashboard's **Manage hints** panel (or the
+> "what identifies this project?" box when fixing an invoice), no code change needed. Keep these
+> mirrors roughly in step with the defaults, but the tab is the source of truth at runtime.
+
 **Source legend**
 - `name` — the address is already embedded in the project name in `project_reference.csv` (so Gemini
   already sees it; no alias strictly needed).

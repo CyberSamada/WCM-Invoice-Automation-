@@ -64,6 +64,8 @@
     .auto-btn.pause { background: #fff; color: var(--wcm-blue); border: 1px solid var(--wcm-blue); }
     .auto-btn.pause:hover { background: #eef4fb; }
     .auto-btn:disabled { opacity: 0.6; cursor: default; }
+    .auto-btn-secondary { background: #fff; color: var(--wcm-blue); border: 1px solid var(--wcm-blue); margin-left: 8px; }
+    .auto-btn-secondary:hover { background: #eef4fb; }
     .page-title-main { font-size: 16px; font-weight: 700; color: #1f2937; }
     .page-title-sub { font-size: 11px; color: #6b7280; margin-top: 2px; }
 
@@ -250,7 +252,6 @@
     .badge-captured { background: #e0f2fe; color: #075985; }
     .badge-paid { background: #dcfce7; color: #14532d; }
     .badge-review { background: #fff4e0; color: #8a5a00; }
-    .vendor-invnum { font-size: 11px; color: #9ca3af; margin-top: 1px; }
     .badge-notinvoice { background: #eef0f2; color: #41474f; }
     .badge-pastdue { background: #fdecec; color: #8f1414; }
     .badge-duplicate { background: #ede9fe; color: #5b3fa6; }
@@ -267,9 +268,12 @@
     a:hover { text-decoration: underline; }
 
     .status-note { border-bottom: 1px dotted #9ca3af; cursor: help; }
-    /* Tiny gray info mark on rows that have a review/match note; click for the full note */
-    .note-info { display: inline-block; margin-left: 5px; width: 15px; height: 15px; line-height: 15px; text-align: center; border-radius: 50%; background: #e5e7eb; color: #6b7280; font-size: 10.5px; font-weight: 700; border: none; padding: 0; cursor: pointer; vertical-align: middle; }
+    /* Tiny gray info mark, in its own centered "Note" column; click for the full note */
+    .note-col { text-align: center; width: 44px; }
+    .note-info { display: inline-block; width: 16px; height: 16px; line-height: 16px; text-align: center; border-radius: 50%; background: #e5e7eb; color: #6b7280; font-size: 10.5px; font-weight: 700; border: none; padding: 0; cursor: pointer; vertical-align: middle; }
     .note-info:hover { background: #d1d5db; color: #374151; }
+    .invnum-cell { white-space: nowrap; }
+    .muted-dash { color: #cbd5e1; }
     #notePopover { display: none; position: absolute; z-index: 60; max-width: 340px; background: #1f2937; color: #f9fafb; font-size: 12px; line-height: 1.45; padding: 9px 11px; border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.3); word-break: break-word; }
     .links-cell { white-space: nowrap; }
     .icon-link { display: inline-flex; align-items: center; color: var(--wcm-blue); vertical-align: middle; }
@@ -306,6 +310,21 @@
       border: 1px solid #d1d5db; border-radius: 6px; background: #fff; color: #1f2937;
     }
     .modal-error { color: #a4222c; font-size: 12.5px; margin: 2px 0 0; min-height: 16px; }
+    /* Learn-while-fixing field: optional "what identifies this project" hint */
+    .learn-field { border-top: 1px dashed #e5e7eb; padding-top: 10px; }
+    .learn-field label { text-transform: none; letter-spacing: 0; font-size: 11.5px; }
+    .learn-optional { color: #9ca3af; font-weight: 400; text-transform: none; }
+    .learn-help { font-size: 11px; color: #9ca3af; margin: 2px 0 0; line-height: 1.4; }
+    /* Manage-hints modal: current alias list with remove buttons */
+    .hints-list { list-style: none; margin: 0 0 8px; padding: 0; max-height: 220px; overflow-y: auto; }
+    .hints-list li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 8px; border: 1px solid #eef0f3; border-radius: 6px; margin-bottom: 6px; font-size: 12.5px; }
+    .hints-list .hint-alias { font-weight: 600; color: #1f2937; }
+    .hints-list .hint-sub { color: #9ca3af; font-weight: 400; }
+    .hint-remove { background: #fbeaec; color: #a4222c; border: none; border-radius: 5px; width: 22px; height: 22px; cursor: pointer; font-size: 13px; line-height: 1; flex: 0 0 auto; }
+    .hint-remove:hover { background: #f5d0d5; }
+    .hints-empty { color: #9ca3af; font-size: 12.5px; padding: 6px 2px; }
+    .hints-add-row { display: flex; gap: 8px; align-items: flex-end; }
+    .hints-add-row .modal-field { flex: 1 1 auto; margin-bottom: 0; }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     .btn-primary {
       font-family: inherit; font-size: 13px; font-weight: 600;
@@ -327,6 +346,8 @@
     .preview-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; max-height: 68vh; overflow-y: auto; }
     .preview-location { font-size: 12px; color: #6b7280; margin: 0; word-break: break-word; }
     .preview-location strong { color: #374151; font-weight: 600; }
+    .preview-note { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 9px; margin: 0; line-height: 1.45; word-break: break-word; }
+    .preview-note strong { color: #78350f; font-weight: 700; }
     .preview-edit { display: flex; flex-direction: column; gap: 12px; margin-top: 0; }
     .preview-edit-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.03em; }
@@ -388,6 +409,7 @@
       <div class="automation-controls">
         <span class="auto-pill" id="autoPill">…</span>
         <button class="auto-btn" id="autoToggleBtn" type="button" style="display:none"></button>
+        <button class="auto-btn auto-btn-secondary" id="manageHintsBtn" type="button" style="display:none" title="Add or remove the name/address hints that help match invoices to projects">Manage hints</button>
       </div>
     </div>
   </div>
@@ -551,10 +573,10 @@
 
       <table>
         <thead>
-          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Invoice Date</th><th>Vendor</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th>Links</th><th></th></tr>
+          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Invoice Date</th><th>Vendor</th><th>Invoice #</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th class="note-col">Note</th><th>Links</th><th></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="11" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="13" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -629,6 +651,11 @@
           <option value="USD">USD</option>
         </select>
       </div>
+      <div class="modal-field learn-field" id="editLearnField">
+        <label for="editLearnAlias">What on this invoice identifies this project? <span class="learn-optional">(optional — saves a hint)</span></label>
+        <input type="text" id="editLearnAlias" placeholder="e.g. 952 Southdale Rd">
+        <p class="learn-help">If you're fixing the project, type the address or name printed on the invoice — next time an invoice mentions it, it'll match on its own.</p>
+      </div>
       <p class="modal-error" id="editModalError"></p>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="editCancelBtn">Cancel</button>
@@ -648,6 +675,7 @@
         </div>
         <div class="preview-side">
           <p class="preview-location" id="previewLocation">Looking up file location…</p>
+          <div class="preview-note" id="previewNote" style="display:none"></div>
           <div class="preview-edit">
             <div class="preview-edit-col preview-edit-project">
               <label for="previewProject">Project</label>
@@ -675,6 +703,8 @@
                 <option value="CAD">CAD</option>
                 <option value="USD">USD</option>
               </select>
+              <label for="previewLearnAlias" class="preview-edit-label2">Identifying name/address <span class="learn-optional">(optional hint)</span></label>
+              <input type="text" id="previewLearnAlias" placeholder="e.g. 952 Southdale Rd">
             </div>
           </div>
           <p class="modal-error" id="previewEditError"></p>
@@ -712,6 +742,31 @@
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="mergeCancelBtn">Cancel</button>
         <button type="button" class="btn-primary" id="mergeConfirmBtn" disabled>Merge</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Manage hints: add/remove the alias (name/address -> project) matching hints -->
+  <div class="modal-overlay" id="hintsModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Manage matching hints</h3>
+      <p class="modal-subtitle">Hints tell the automation that a name or address on an invoice belongs to a project — so invoices that don't spell out the project still file correctly. Pick a project to see and edit its hints.</p>
+      <div class="modal-field">
+        <label for="hintsProject">Project</label>
+        <input type="text" class="select-search" id="hintsProjectSearch" placeholder="Type to search projects…">
+        <select id="hintsProject" size="6"></select>
+      </div>
+      <ul class="hints-list" id="hintsList"></ul>
+      <div class="hints-add-row">
+        <div class="modal-field">
+          <label for="hintsNewAlias">Add a hint (name or address on the invoice)</label>
+          <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
+        </div>
+        <button type="button" class="btn-primary" id="hintsAddBtn">Add</button>
+      </div>
+      <p class="modal-error" id="hintsModalError"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="hintsCloseBtn">Close</button>
       </div>
     </div>
   </div>
@@ -882,6 +937,8 @@
       } else {
         btn.style.display = 'none';
       }
+      // "Manage hints" shares the same edit privilege as Start/Pause (canControlAutomation_).
+      document.getElementById('manageHintsBtn').style.display = state.canControl ? '' : 'none';
     }
 
     function toggleAutomation() {
@@ -1201,7 +1258,7 @@
       document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
 
       if (list.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="11" class="empty-cell">No invoices match these filters.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="13" class="empty-cell">No invoices match these filters.</td></tr>';
         LAST_RENDERED = [];
         syncSelectAllBox();
         updateBulkBar();
@@ -1221,12 +1278,13 @@
           '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
           '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
           '<td>' + escapeHtml(r.invoiceDateFormatted || '—') + '</td>' +
-          '<td>' + escapeHtml(r.vendor) +
-            (r.invoiceNumber ? '<div class="vendor-invnum">Inv# ' + escapeHtml(r.invoiceNumber) + '</div>' : '') + '</td>' +
+          '<td>' + escapeHtml(r.vendor) + '</td>' +
+          '<td class="invnum-cell">' + (r.invoiceNumber ? escapeHtml(r.invoiceNumber) : '<span class="muted-dash">—</span>') + '</td>' +
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
-          '<td>' + statusBadge + (note
+          '<td>' + statusBadge + '</td>' +
+          '<td class="note-col">' + (note
             ? '<button type="button" class="note-info" data-note="' + escapeHtml(note) + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
             : '') + '</td>' +
           '<td class="links-cell">' +
@@ -1364,6 +1422,7 @@
       document.getElementById('editInvoiceNumber').value = record.invoiceNumber || '';
       document.getElementById('editAmount').value = (record.amount || record.amount === 0) ? record.amount : '';
       setCurrencySelect(document.getElementById('editCurrency'), record.currency);
+      document.getElementById('editLearnAlias').value = '';
       var editSearch = document.getElementById('editProjectSearch');
       editSearch.value = '';
       filterSelectByText(projectSelect, ''); // reset any prior filtering
@@ -1385,6 +1444,7 @@
       var invoiceNumber = document.getElementById('editInvoiceNumber').value;
       var amount = document.getElementById('editAmount').value;
       var currency = document.getElementById('editCurrency').value;
+      var learnAlias = document.getElementById('editLearnAlias').value;
 
       var saveBtn = document.getElementById('editSaveBtn');
       var errorEl = document.getElementById('editModalError');
@@ -1407,7 +1467,7 @@
           saveBtn.textContent = 'Save';
           errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
-        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency });
+        .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency, learnAlias: learnAlias });
     }
 
     // --- PDF preview modal --------------------------------------------------------------------
@@ -1439,6 +1499,11 @@
       document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
       document.getElementById('previewFrame').src = parsed.url;
       document.getElementById('previewLocation').textContent = 'Looking up file location…';
+      // Surface the review/log note (why it was flagged, correction history) right in the preview.
+      var noteEl = document.getElementById('previewNote');
+      var pnote = [record.reviewNote, record.matchNote].filter(function (n) { return n; }).join(' — ');
+      if (pnote) { noteEl.innerHTML = '<strong>Note:</strong> ' + escapeHtml(pnote); noteEl.style.display = ''; }
+      else { noteEl.textContent = ''; noteEl.style.display = 'none'; }
       populatePreviewEditControls(record);
       updatePreviewNav();
       document.getElementById('previewModalOverlay').style.display = 'flex';
@@ -1525,6 +1590,7 @@
       document.getElementById('previewInvoiceNumber').value = record.invoiceNumber || '';
       document.getElementById('previewAmount').value = (record.amount || record.amount === 0) ? record.amount : '';
       setCurrencySelect(document.getElementById('previewCurrency'), record.currency);
+      document.getElementById('previewLearnAlias').value = '';
       document.getElementById('previewProjectSearch').value = '';
       filterSelectByText(projectSelect, '');
       var err = document.getElementById('previewEditError'); err.textContent = ''; err.style.color = '';
@@ -1543,6 +1609,7 @@
       var invoiceNumber = document.getElementById('previewInvoiceNumber').value;
       var amount = document.getElementById('previewAmount').value;
       var currency = document.getElementById('previewCurrency').value;
+      var learnAlias = document.getElementById('previewLearnAlias').value;
 
       var saveBtn = document.getElementById('previewSaveBtn');
       var errorEl = document.getElementById('previewEditError');
@@ -1556,7 +1623,12 @@
           var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
           if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
           applyFilters(); // refresh the table behind the modal
-          errorEl.style.color = '#059669'; errorEl.textContent = 'Saved ✓';
+          document.getElementById('previewLearnAlias').value = '';
+          var pNoteEl = document.getElementById('previewNote');
+          var upNote = updated ? [updated.reviewNote, updated.matchNote].filter(function (n) { return n; }).join(' — ') : '';
+          if (upNote) { pNoteEl.innerHTML = '<strong>Note:</strong> ' + escapeHtml(upNote); pNoteEl.style.display = ''; }
+          errorEl.style.color = '#059669';
+          errorEl.textContent = (updated && updated.learnedAlias) ? 'Saved ✓ — hint remembered' : 'Saved ✓';
           // The file may have moved to a new project folder — refresh the location line.
           var newLink = (updated && updated.driveLink) || previewDriveLink;
           previewDriveLink = newLink;
@@ -1686,6 +1758,109 @@
           errorEl.textContent = err && err.message ? err.message : 'Could not merge \u2014 try again.';
         })
         .mergeInvoiceAsDuplicate(rowId, canonId);
+    }
+
+    // --- Manage hints (alias manager) -----------------------------------------------------------
+    // Coordinators add/remove the name/address -> project hints that help match invoices, straight
+    // from the dashboard. The server reads/writes the "Project Aliases" tab as the owner (see
+    // DashboardServer.gs), so no viewer needs spreadsheet access.
+
+    var HINTS_ALL = []; // last-loaded full alias list: [{alias, projectNumber, subprojectNumber, projectLabel}]
+
+    function openHintsModal() {
+      document.getElementById('hintsModalError').textContent = '';
+      document.getElementById('hintsNewAlias').value = '';
+      // Populate the project picker from the same reference tree the edit modals use.
+      var tree = buildReferenceTree();
+      var sel = document.getElementById('hintsProject');
+      sel.innerHTML = '';
+      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
+        var opt = document.createElement('option');
+        opt.value = tree[pKey].number;
+        opt.textContent = tree[pKey].label;
+        sel.appendChild(opt);
+      });
+      document.getElementById('hintsProjectSearch').value = '';
+      filterSelectByText(sel, '');
+      document.getElementById('hintsList').innerHTML = '<li class="hints-empty">Loading hints…</li>';
+      document.getElementById('hintsModalOverlay').style.display = 'flex';
+      loadHints();
+    }
+
+    function closeHintsModal() { document.getElementById('hintsModalOverlay').style.display = 'none'; }
+
+    function loadHints() {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          HINTS_ALL = (res && res.aliases) || [];
+          renderHintsList();
+        })
+        .withFailureHandler(function (err) {
+          document.getElementById('hintsList').innerHTML =
+            '<li class="hints-empty">' + escapeHtml(err && err.message ? err.message : 'Could not load hints.') + '</li>';
+        })
+        .getProjectAliases();
+    }
+
+    // Shows the hints for the project currently selected in the picker.
+    function renderHintsList() {
+      var proj = document.getElementById('hintsProject').value;
+      var list = document.getElementById('hintsList');
+      if (!proj) { list.innerHTML = '<li class="hints-empty">Pick a project above to see its hints.</li>'; return; }
+      var pKey = normalizeKey(proj);
+      var rows = HINTS_ALL.filter(function (a) { return normalizeKey(a.projectNumber) === pKey; });
+      if (!rows.length) { list.innerHTML = '<li class="hints-empty">No hints yet for this project. Add one below.</li>'; return; }
+      list.innerHTML = '';
+      rows.forEach(function (a) {
+        var li = document.createElement('li');
+        var span = document.createElement('span');
+        span.innerHTML = '<span class="hint-alias">' + escapeHtml(a.alias) + '</span>' +
+          (a.subprojectNumber ? ' <span class="hint-sub">→ sub ' + escapeHtml(a.subprojectNumber) + '</span>' : '');
+        var btn = document.createElement('button');
+        btn.type = 'button'; btn.className = 'hint-remove'; btn.title = 'Remove this hint'; btn.textContent = '×';
+        btn.addEventListener('click', function () { removeHint(a.alias, a.projectNumber); });
+        li.appendChild(span); li.appendChild(btn);
+        list.appendChild(li);
+      });
+    }
+
+    function addHint() {
+      var proj = document.getElementById('hintsProject').value;
+      var alias = document.getElementById('hintsNewAlias').value;
+      var errorEl = document.getElementById('hintsModalError');
+      errorEl.style.color = ''; errorEl.textContent = '';
+      if (!proj) { errorEl.textContent = 'Pick a project first.'; return; }
+      if (!String(alias).trim()) { errorEl.textContent = 'Type the name or address to add.'; return; }
+      var btn = document.getElementById('hintsAddBtn');
+      btn.disabled = true; btn.textContent = 'Adding…';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false; btn.textContent = 'Add';
+          HINTS_ALL = (res && res.aliases) || [];
+          document.getElementById('hintsNewAlias').value = '';
+          renderHintsList();
+          errorEl.style.color = '#059669';
+          errorEl.textContent = (res && res.added === false) ? 'That hint was already there.' : 'Hint added ✓';
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false; btn.textContent = 'Add';
+          errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not add — try again.';
+        })
+        .addProjectAlias(alias, proj, '');
+    }
+
+    function removeHint(alias, projectNumber) {
+      var errorEl = document.getElementById('hintsModalError');
+      errorEl.style.color = ''; errorEl.textContent = '';
+      google.script.run
+        .withSuccessHandler(function (res) {
+          HINTS_ALL = (res && res.aliases) || [];
+          renderHintsList();
+        })
+        .withFailureHandler(function (err) {
+          errorEl.textContent = err && err.message ? err.message : 'Could not remove — try again.';
+        })
+        .removeProjectAlias(alias, projectNumber);
     }
 
     // --- Multi-select + bulk edit ---------------------------------------------------------------
@@ -2013,6 +2188,13 @@
       document.getElementById('mergeCanon').addEventListener('change', updateMergeSummary);
       document.getElementById('mergeCanonSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('mergeCanon'), this.value); });
       document.getElementById('mergeModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeMergeModal(); });
+      document.getElementById('manageHintsBtn').addEventListener('click', openHintsModal);
+      document.getElementById('hintsCloseBtn').addEventListener('click', closeHintsModal);
+      document.getElementById('hintsAddBtn').addEventListener('click', addHint);
+      document.getElementById('hintsProject').addEventListener('change', renderHintsList);
+      document.getElementById('hintsProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('hintsProject'), this.value); });
+      document.getElementById('hintsNewAlias').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addHint(); } });
+      document.getElementById('hintsModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeHintsModal(); });
       document.getElementById('previewNextBtn').addEventListener('click', function () { navigatePreview(1); });
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();

@@ -30,8 +30,8 @@ At the top you'll see summary cards, with a **time-frame selector** (top right) 
 
 Below that, filters narrow the invoice list. The **Status** and **Project** filters are dropdowns where you can tick **several at once** (ticking a main project includes all its subprojects). You can also search by **vendor** or **invoice #**, set an **amount** range, and pick a **date range** — filtered by processed, received, or invoice date. A **Sort by** control reorders whatever the filters found (newest/oldest, by vendor, project, amount, or status).
 
-Each row shows the invoice's processed date, received date, invoice date, vendor (with its invoice number underneath), project/subproject, amount, and status, plus quick actions:
-- 📄 **Preview** the filed PDF right on the page — with an edit panel beside it and **Prev / Next** buttons to work through a stack without closing it
+Each row shows the invoice's processed date, received date, invoice date, vendor, invoice #, project/subproject, amount, status, and a small gray **ⓘ** note mark (its own column) you can click to read why it was flagged or what was changed. Quick actions:
+- 📄 **Preview** the filed PDF right on the page — with an edit panel beside it, the note shown above the panel, and **Prev / Next** buttons to work through a stack without closing it
 - ✉️ open the original email in Gmail
 - ✏️ **edit** the row (fix the project, subproject, status, invoice #, amount, or currency)
 
@@ -55,6 +55,8 @@ If an invoice landed under the wrong project, subproject, or status, you can fix
 
 This doesn't just update the log — it also moves the actual file in Google Drive to the correct folder (and renames it if you corrected the invoice #), so the archive and the dashboard always agree. The system also **remembers your correction**: next time that same vendor sends an invoice, it applies what it learned (and still shows it to you to confirm).
 
+**Teach it while you fix** — when you correct the project, the edit panel has an optional box: *"What on this invoice identifies this project?"* Type the address or name printed on the invoice (e.g. `952 Southdale Rd`) and it's saved as a **matching hint**, so the next invoice that mentions the same thing files itself correctly. Leave it blank if nothing obvious identifies it.
+
 Working through a pile? In the preview, use **‹ Prev / Next ›** to move to the next invoice without closing it — review, fix, Save, Next.
 
 ### Merging a duplicate
@@ -72,6 +74,18 @@ If a batch of invoices all need the same fix (say, several from one vendor that 
 1. Tick the **checkboxes** on each row you want to change — hold **Shift** and click to select a whole range, or use the header checkbox to select all shown.
 2. Click **Edit selected** in the bar that appears.
 3. Choose the project/subproject/status to apply, and Save. A progress bar shows them being re-filed one by one.
+
+## Managing project hints
+
+A **hint** tells the automation that a certain name or address printed on an invoice belongs to a particular project — so invoices that don't spell out the project number still file correctly (many vendors only print a job-site address). You don't need spreadsheet access to manage them.
+
+If you have edit permission, a **Manage hints** button appears in the header (next to Start/Pause):
+
+1. Click **Manage hints**.
+2. Pick a **project** — you'll see the hints it already has.
+3. Type a name or address in **Add a hint** and click **Add** (e.g. `952 Southdale Rd`). Remove one with the **×** beside it.
+
+That's the same list the *"what identifies this project?"* box feeds when you fix an invoice — two ways into one place. Add a hint whenever you notice invoices for a project keep arriving under a name the system doesn't recognize.
 
 ## Where filed invoices live in Drive
 

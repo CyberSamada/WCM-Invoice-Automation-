@@ -16,23 +16,29 @@ function setup() {
     Logger.log(`Created "${CONFIG.SHEET_REFERENCE_TAB}" tab — now import project_reference.csv into it (File > Import > Insert new sheet, then copy the rows in), and add Drive Folder IDs per row.`);
   }
 
-  const aliasSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_ALIASES_TAB);
-  if (!aliasSheet) {
-    const created = getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
-    // Seeded with the known case that prompted this feature: invoices for "1105 Wellington -
-    // Old Bay" are actually White Oaks Mall (project 54), but that address doesn't appear
-    // anywhere in Project Reference, so Gemini had no way to find it on its own.
-    created.appendRow(['1105 Wellington - Old Bay', '54', '']);
-    Logger.log(`Created "${CONFIG.SHEET_ALIASES_TAB}" tab — add a row per alternate name/address an invoice might use instead of the project's listed name (e.g. a street address). Optional: leave blank and delete rows you don't need.`);
-  }
-
-  const notesSheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_AI_NOTES_TAB);
-  if (!notesSheet) {
-    getOrCreateSheet_(CONFIG.SHEET_AI_NOTES_TAB, CONFIG.AI_NOTES_COLUMNS);
-    Logger.log(`Created "${CONFIG.SHEET_AI_NOTES_TAB}" tab — optional standing hints for the AI extractor, one per row (merged with the code-seeded notes in ExtractionNotes.gs). Leave empty if not needed.`);
-  }
+  // Create the alias + notes tabs if missing, then seed both from the shipped defaults. The tabs are
+  // the single editable home; ensureKnowledgeSeeded_ copies AliasSeed.gs/ExtractionNotes.gs into them
+  // once (guarded, idempotent) so a fresh install starts with the known aliases and notes without any
+  // manual import — coordinators tune them from the dashboard's "Manage hints" panel afterward.
+  getOrCreateSheet_(CONFIG.SHEET_ALIASES_TAB, CONFIG.ALIAS_COLUMNS);
+  getOrCreateSheet_(CONFIG.SHEET_AI_NOTES_TAB, CONFIG.AI_NOTES_COLUMNS);
+  ensureKnowledgeSeeded_();
+  Logger.log(`Seeded the "${CONFIG.SHEET_ALIASES_TAB}" and "${CONFIG.SHEET_AI_NOTES_TAB}" tabs from the shipped defaults (edit them from the dashboard's Manage hints panel, or directly).`);
 
   Logger.log('Setup complete. Next: set the GEMINI_API_KEY script property, fill in the Project Reference tab, then create a time-driven trigger for processInvoices() — see SETUP.md.');
+}
+
+/**
+ * Escape hatch: forces the shipped defaults (AliasSeed.gs + ExtractionNotes.gs) to be re-copied into
+ * the "Project Aliases" / "AI Notes" tabs — e.g. to restore a default someone deleted. Clears the
+ * one-time guard flag and re-runs the seeder (which still skips rows already present, so it only ever
+ * ADDS the missing defaults back; it never removes anyone's hand-added rows). Run manually. Rarely
+ * needed — normal editing is done in the tabs / dashboard, not through re-seeding.
+ */
+function reseedKnowledge() {
+  PropertiesService.getScriptProperties().deleteProperty(KNOWLEDGE_SEEDED_PROPERTY);
+  ensureKnowledgeSeeded_();
+  Logger.log('Re-seeded: any missing shipped-default aliases/notes were added back to their tabs. Hand-added rows were left untouched.');
 }
 
 /** Optional helper: creates the time-driven trigger from code instead of the Triggers UI. Run once. */
