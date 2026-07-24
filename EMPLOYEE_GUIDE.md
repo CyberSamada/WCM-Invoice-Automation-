@@ -80,10 +80,11 @@ If a batch of invoices all need the same fix (say, several from one vendor that 
 Need the actual PDFs — say, every invoice for a project this month — as files on your computer?
 
 1. Tick the **checkboxes** on the rows you want (Shift-click for a range, or the header checkbox for all shown).
-2. Click **Download as zip** in the selection bar.
-3. **Name the zip** (it suggests a dated name like `WCM-Invoices-2026-07`), then click **Download zip**.
+2. Click **Download** in the selection bar.
+   - **One invoice selected?** It downloads straight away as its own PDF — no zip, no naming.
+   - **Several selected?** You'll be asked to **name the zip** (it suggests a dated name like `WCM-Invoices-2026-07`); click **Download zip** and your browser saves them all in one file.
 
-The system gathers those PDFs into a single zip and your browser saves it under the name you chose — no Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is zipped twice.
+No Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is downloaded twice.
 
 ## Managing project hints
 
