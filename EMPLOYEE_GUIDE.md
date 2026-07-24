@@ -18,6 +18,8 @@ You don't need any special access to check on invoices — just the dashboard li
 
 ## Reading the dashboard
 
+The **⚙ Settings** button (top right) lets you pick a **theme** — Light, Dark, or Match system — and it's remembered on your device. A long **invoice #** is shortened with a "…" in the table so the columns stay tidy; hover your mouse over it to see the full number.
+
 At the top you'll see summary cards, with a **time-frame selector** (top right) to switch between today / this week / this month / all time:
 
 | Card | Meaning |
