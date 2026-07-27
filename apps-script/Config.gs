@@ -138,6 +138,19 @@ const CONFIG = {
   SHEET_VENDOR_DIRECTORY_TAB: 'Vendor Directory',
   VENDOR_DIRECTORY_COLUMNS: ['Canonical Name', 'Normalized Key', 'First Seen', 'Times Seen', 'Variants Seen'],
 
+  // Nexus crosswalks — the LEARNED half of the Nexus status sync (see NexusSync.gs). Nexus stores the
+  // *processed* invoice number, which is often a decorated version of the printed one ("243-269744",
+  // "WCM16788"), its amounts can differ by a ~10% holdback, and its vendor names don't match ours. So
+  // uncertain matches are confirmed by a person once, and the pairing is remembered here — making it an
+  // exact hit on every later upload. "Nexus Vendor ID" is a stable code that already collapses vendor
+  // spelling variants (London Hydro / London Hydro Inc. are both LONHYD), which is why mapping it is
+  // worth more than comparing names. A Row ID of "NONE" records "this matches nothing of ours", so a
+  // rejected suggestion stops coming back.
+  SHEET_NEXUS_INVOICE_MAP_TAB: 'Nexus Invoice Map',
+  NEXUS_INVOICE_MAP_COLUMNS: ['Nexus Number', 'Row ID', 'Our Invoice Number', 'Vendor', 'Confirmed At'],
+  SHEET_NEXUS_VENDOR_MAP_TAB: 'Nexus Vendor Map',
+  NEXUS_VENDOR_MAP_COLUMNS: ['Nexus Vendor ID', 'Nexus Vendor Name', 'Our Vendor', 'Confirmed At'],
+
   // "Override Log" tab — every manual correction made on the dashboard is recorded here (what the
   // automation originally chose vs. what a human changed it to). This is the learning/audit record:
   // it makes miscategorization patterns visible ("vendor X keeps getting sent to the wrong project")

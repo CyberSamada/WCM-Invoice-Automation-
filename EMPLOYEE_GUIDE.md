@@ -98,7 +98,7 @@ Rather than marking invoices Paid or Canceled by hand, you can upload the latest
 3. You'll get a summary *before* anything changes: how many invoices will become Paid, Captured, or Canceled, how many already match, and how many of your logged invoices weren't in the export.
 4. If it looks right, click **Apply updates**. A progress bar runs through them, then the page reloads.
 
-Invoices are matched by **invoice number**, and Nexus statuses map like this:
+Nexus statuses map like this:
 
 | Nexus says | Becomes |
 |---|---|
@@ -107,6 +107,19 @@ Invoices are matched by **invoice number**, and Nexus statuses map like this:
 | REJECTED, VOID | **Canceled** |
 
 Anything else in the Status column is ignored. **Duplicate** and **Not an Invoice** rows are never changed. Each update is recorded on the invoice's note (same as a manual edit), and files move to the right folder automatically. Re-uploading the same file is safe — invoices already at the right status are skipped.
+
+### Why some invoices need your confirmation
+
+Nexus stores the **processed** invoice number, which often isn't quite what's printed on the invoice — it may carry a property or company prefix (`243-269744` where we logged `269744`), or a suffix. Amounts can differ too, because a **10% holdback** makes the Nexus figure lower than the invoice total. And vendor names aren't spelled identically in both systems.
+
+So instead of relying on the number alone, the system weighs the **number, amount and vendor together**:
+
+- When the evidence clearly points at one invoice, it's applied automatically.
+- When it's only *probably* right, it appears in a **confirmation list** with the reasoning shown (e.g. *"Nexus # contains our # (60392); amount is ours less 10% holdback; vendor matches"*). You click **Confirm** to apply it, or **Not ours** if it's a different invoice.
+
+**It learns from you.** Every confirmation is remembered — both that specific invoice-number pairing and the vendor pairing. Next upload, that one matches automatically. Marking something "Not ours" stops it being suggested again. So the confirmation list shrinks with each upload rather than repeating the same work.
+
+Nothing uncertain is ever applied on its own, so an invoice won't be marked Paid on a guess.
 
 ## Managing project hints
 

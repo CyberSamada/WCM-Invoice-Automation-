@@ -159,31 +159,62 @@ name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips
 keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
 bar — one selected downloads directly, multiple open the name-the-zip modal.
 
-## Nexus status sync (dashboard)
+## Nexus status sync (dashboard) — `NexusSync.gs`
 
 Coordinators upload the latest **Nexus export CSV** and the dashboard MIRRORS payment/lifecycle status
-onto the log — this is the "don't hand-maintain AP status" decision made concrete (no manual
-Rejected/Paid labels; the system of record drives them). Server side is `previewNexusStatusUpdate` /
-`applyNexusStatusUpdate` (DashboardServer.gs), both gated by `canControlAutomation_`.
+onto the log — the "don't hand-maintain AP status" decision made concrete. All of it lives in
+**`NexusSync.gs`** (endpoints gated by `canControlAutomation_`, called from Dashboard.html).
 
-- **Join key is the invoice NUMBER only** — `nexusInvoiceKey_` trims + uppercases, and deliberately
-  does NOT strip leading zeros or inner punctuation (`AWJul23-503` is meaningful verbatim). Vendor
-  names are NOT used to match: Nexus spellings don't agree with our canonical ones.
-- **Status map** (`mapNexusStatus_`): `PAID`→Paid; `POSTED`/`PENDING APPROVAL`/`IN PROGRESS`/`HOLD`→
-  Captured; `REJECTED`/`VOID`→Canceled; anything else → `null` = ignored (never guess).
-- **One invoice number can appear on several Nexus rows with different statuses** (~20 in the real
-  20k-row export). `nexusTargetRank_` resolves it by FINALITY: Paid(3) > Canceled(2) > Captured(1).
-- **Eligibility**: `NEXUS_ELIGIBLE_STATUSES_` = Filed/Captured/Paid/Canceled/Needs Review. A
-  `Duplicate` row (its file belongs to the canon) and `Not an Invoice` are NEVER touched.
-- **Preview-then-apply.** Preview changes nothing and returns counts + a 15-row sample. Apply is
-  **resumable**: it takes `startRow`, works under a 2.5-min budget, and returns `{done, nextRow}` for
-  the client to re-call (`stepNexusApply`) — the same long-job pattern as refile/archive, plus a
-  `LockService` script lock so it can't race `processInvoices`.
-- Every change goes through **`updateInvoiceRow`**, so the Drive file move, the `Review Note` stamp
-  and the Override Log entry are identical to a manual edit — no second write path. Idempotent: a row
-  already at its target is skipped, so re-uploading the same file is a no-op.
-- `Utilities.parseCsv` does the tokenizing; a file without a `Number` AND `Status` column is rejected
-  loudly so uploading the wrong export fails instead of silently matching nothing.
+**Status map** (`mapNexusStatus_`): `PAID`→Paid; `POSTED`/`PENDING APPROVAL`/`IN PROGRESS`/`HOLD`→
+Captured; `REJECTED`/`VOID`→Canceled; anything else → `null` = ignored, never guessed. One invoice
+number can appear on several Nexus rows with conflicting statuses (~20 in the real export) —
+`nexusTargetRank_` resolves by FINALITY: Paid(3) > Canceled(2) > Captured(1).
+
+**WHY IT'S A SCORED MATCHER, NOT A LOOKUP.** Nexus stores the *processed* invoice number, so it's often
+a decorated form of the printed one: property prefix (`243-269744`), company prefix (`WCM16788`),
+suffix (`0554694-IN`). Amounts differ by a **~10% holdback (Nexus is the LOWER side)**, and vendor
+names don't agree. **Measured on the real 21k export, every naive fuzzy key is dangerous**: keying on
+the longest digit run makes `23` (from `Mar23`) match **758 different invoices**; 5,459 numbers have a
+digit run of only 2 chars; even an exact punctuation-stripped number is non-unique for 545 keys; and
+vendor+amount is non-unique 11% of the time. A wrong match marks the WRONG invoice Paid, so:
+
+- **Signals**, weighted in `NEXUS_SCORE_` so no single one can auto-apply alone: number (exact /
+  containment ≥6 or ≥5 chars / shared digit run ≥6 or 5 — **runs under 5 digits score ZERO**, that's the
+  `23` trap), amount (exact / 0.9 holdback ratio / loose / **`amtMismatch` is NEGATIVE** — a
+  contradicting amount is evidence against), vendor (learned crosswalk > name match > overlap >
+  mismatch penalty), date proximity (weak corroboration only).
+- **`NEXUS_AUTO_MIN` = 76 means "two strong corroborating signals"** (e.g. containment-6 + exact
+  amount, or containment-5 + holdback + vendor). Auto ALSO requires the runner-up be
+  `NEXUS_AUTO_MARGIN`(15) behind, so a near-tie is never machine-resolved. An exact **mutually-unique**
+  number auto-applies on its own, but only if it still clears `NEXUS_QUEUE_MIN` — so exact-number-plus-
+  contradicting-amount drops to the queue instead.
+- **Everything else ≥ `NEXUS_QUEUE_MIN`(42) goes to a human confirmation queue**, shown with its
+  evidence ("Nexus # contains our # (60392); amount is ours less 10% holdback; vendor matches"). An
+  exact-number hit sets `forceQueue` so it's ALWAYS shown even if a mismatch drags it under the floor —
+  silently dropping a real decision is worse than either applying or queueing it.
+- **Assignment is greedy by score and one-to-one** — strongest matches claim their row first, so two
+  Nexus invoices can't both claim one log row.
+- **SELF-IMPROVING (the actual answer to the mismatch problem).** Every auto-apply and every human
+  confirmation writes crosswalk rows: `Nexus Invoice Map` (Nexus number → our Row ID) and
+  `Nexus Vendor Map` (**Nexus Vendor ID** → our vendor). Next upload those are exact hits, so each
+  oddity is a one-time cost. Vendor ID is the sleeper win — a stable code that already collapses
+  spelling variants (`London Hydro` and `London Hydro Inc.` are both `LONHYD`), which is why mapping it
+  beats comparing names. `rejectNexusMatch` stores Row ID `NONE` so a rejected suggestion stops
+  reappearing. Both tabs' ID columns are forced to `@` text (`ensureNexusMapTextFormats_`) — same
+  date-coercion trap as the log.
+- **Eligibility**: `NEXUS_ELIGIBLE_STATUSES_` = Filed/Captured/Paid/Canceled/Needs Review. `Duplicate`
+  (its file belongs to the canon) and `Not an Invoice` are NEVER touched — enforced at index time, so
+  they're not even candidates.
+- **Preview-then-apply**; apply is **resumable** (`startIndex` → `{done, nextIndex}`, 2.5-min budget,
+  `LockService` lock so it can't race `processInvoices`). Every change routes through
+  **`updateInvoiceRow`**, so the file move, Review Note stamp and Override Log entry match a manual
+  edit — no second write path. Idempotent: re-uploading the same file is a no-op.
+- **Candidate generation is indexed, never all-pairs** (`buildNexusLogIndex_`): by normalized number,
+  by each digit run ≥5, and by vendor+amount *and* vendor+amount×0.9 (so a holdback figure is still a
+  hash lookup). A key hitting more than `NEXUS_MAX_CANDIDATES_PER_KEY`(8) rows is treated as
+  non-discriminating and skipped. Measured: 20,509 Nexus entries × 1,200 log rows in **~200ms**.
+- Nexus dates are **DAY-FIRST** (`16/03/2023`) — `nexusParseDate_` handles it; plain `new Date()` would
+  silently misread them.
 
 ## Theming / dark mode (dashboard)
 
