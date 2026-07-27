@@ -246,6 +246,7 @@
     .reset-btn:hover { background: #eef4fb; }
     .results-count { font-size: 12px; color: var(--text-muted); margin: 0; }
     .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px 0; }
+    .bulk-offpage { font-size: 11.5px; opacity: 0.8; font-weight: 400; }
     .pager { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 12px 0 2px; }
     .pager-label { font-size: 12px; color: var(--text-muted); }
     .pager button[disabled] { opacity: 0.45; cursor: default; }
@@ -757,7 +758,7 @@
       </div>
 
       <div class="bulk-bar" id="bulkBar">
-        <span><span class="bulk-count" id="bulkCount">0</span> selected</span>
+        <span><span class="bulk-count" id="bulkCount">0</span> selected <span class="bulk-offpage" id="bulkOffPage" style="display:none"></span></span>
         <button type="button" class="btn-primary" id="bulkEditBtn">Edit selected</button>
         <button type="button" class="btn-secondary" id="bulkDownloadBtn">Download</button>
         <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
@@ -1484,8 +1485,24 @@
       });
 
       sortRecords(filtered);
+      // Selection is scoped to what currently matches the filters. Without this, a row stays selected
+      // after it drops out of view — because the filter changed, or because an edit moved it out of
+      // the current filter — and the bulk bar then counts rows nobody can see, with Edit selected /
+      // Download silently acting on them. Runs on every filter, sort and post-edit refresh.
+      pruneSelectionToFiltered(filtered);
       PAGE_INDEX = 0; // a filter or sort change makes the previous page position meaningless
       renderResults(filtered);
+    }
+
+    // Drops any selected row that isn't in the given (filtered) list. Scoped to the whole filtered
+    // set, not the current page, so selecting across pages still works while paging.
+    function pruneSelectionToFiltered(list) {
+      if (!selectedIds().length) return;
+      var keep = {};
+      list.forEach(function (r) {
+        if (r.rowId && SELECTED_ROWIDS[r.rowId]) keep[r.rowId] = true;
+      });
+      SELECTED_ROWIDS = keep;
     }
 
     // Fields where "descending" (newest / highest first) is the natural default; the rest default A->Z.
@@ -2937,6 +2954,14 @@
       var n = selectedIds().length;
       document.getElementById('bulkCount').textContent = n;
       document.getElementById('bulkBar').className = n > 0 ? 'bulk-bar active' : 'bulk-bar';
+      // With a page size set, a selection can include rows on other pages. Say so, so the count is
+      // never a surprise when Edit selected / Download acts on more than what's on screen.
+      var offPage = n - LAST_RENDERED.filter(function (r) { return r.rowId && SELECTED_ROWIDS[r.rowId]; }).length;
+      var noteEl = document.getElementById('bulkOffPage');
+      if (noteEl) {
+        noteEl.textContent = offPage > 0 ? '(' + offPage + ' on other pages)' : '';
+        noteEl.style.display = offPage > 0 ? '' : 'none';
+      }
     }
 
     function syncSelectAllBox() {

@@ -408,12 +408,18 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
   let newDriveLink = row[idx['Drive Link']];
 
   // A "Duplicate" row is a bookkeeping notice, not a filed copy — its Drive File ID points at the
-  // ORIGINAL invoice's file (shared, not its own). So for a Duplicate row never move OR rename the
-  // Drive file: that would disturb the original invoice where it's correctly filed.
-  const shouldMoveFile = (projectChanged || statusChanged) && newStatus !== 'Duplicate';
+  // ORIGINAL invoice's file (shared, not its own). So a Duplicate row must never move OR rename that
+  // file: it would drag the ORIGINAL invoice out of the folder where it is correctly filed, and leave
+  // the canon row's logged link pointing somewhere it no longer is.
+  //
+  // This checks the status the row IS as well as the one it's becoming. Checking only the new status
+  // left a hole: flipping a Duplicate row to Filed/Paid (easy to do accidentally in a bulk edit that
+  // spans a filtered set containing duplicates) passed the guard and moved the canon's file.
+  const touchesSharedFile = currentStatus === 'Duplicate' || newStatus === 'Duplicate';
+  const shouldMoveFile = (projectChanged || statusChanged) && !touchesSharedFile;
   // The filename embeds the invoice number ("YYMMDD - InvoiceNumber - Vendor"), so a corrected number
-  // should rename the file too, keeping the filename honest.
-  const shouldRenameFile = invoiceNumberChanged && newStatus !== 'Duplicate';
+  // should rename the file too, keeping the filename honest — same shared-file exception.
+  const shouldRenameFile = invoiceNumberChanged && !touchesSharedFile;
   if (shouldMoveFile || shouldRenameFile) {
     const driveFileId = idx['Drive File ID'] > -1 ? String(row[idx['Drive File ID']] || '').trim() : '';
     if (driveFileId) {
