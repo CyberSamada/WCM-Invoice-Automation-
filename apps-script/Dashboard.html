@@ -392,6 +392,30 @@
     .hints-add-sub { display: flex; gap: 8px; align-items: center; }
     .hints-add-sub input[type="text"] { flex: 1 1 auto; min-width: 0; font-family: inherit; font-size: 13px; padding: 7px 9px; border: 1px solid var(--input-border); border-radius: 6px; }
     .hints-add-sub .btn-primary { flex: 0 0 auto; }
+
+    /* Manage hints: scope tree on the left, that scope's hints on the right. */
+    .modal-box.hints-box { width: 880px; }
+    .hints-layout { display: flex; gap: 16px; align-items: stretch; }
+    .hints-pane-left { flex: 0 0 300px; min-width: 0; display: flex; flex-direction: column; }
+    .hints-pane-right { flex: 1 1 auto; min-width: 0; }
+    .hints-tree { flex: 1 1 auto; margin-top: 6px; max-height: 340px; overflow-y: auto;
+      border: 1px solid var(--border); border-radius: 8px; background: var(--surface-alt); padding: 4px; }
+    .hints-node { display: flex; align-items: baseline; gap: 6px; width: 100%; text-align: left;
+      background: none; border: none; font-family: inherit; font-size: 12.5px; color: var(--text);
+      padding: 5px 8px; border-radius: 6px; cursor: pointer; }
+    .hints-node:hover { background: var(--surface-hover); }
+    .hints-node.selected { background: #2a4a79; color: #fff; }
+    .hints-node-sub { padding-left: 24px; font-size: 12px; color: var(--text-muted); }
+    .hints-node-sub.selected { color: #fff; }
+    .hints-node .hints-count { margin-left: auto; flex: 0 0 auto; font-size: 10.5px; opacity: 0.7; }
+    .hints-scope-title { font-size: 13.5px; font-weight: 700; margin-bottom: 2px; }
+    .hints-inherit-note { font-size: 11.5px; color: var(--text-muted); margin: 2px 0 8px; }
+    /* An inherited hint belongs to the parent project — shown here for context, edited at the project. */
+    .hints-list li.hint-inherited { opacity: 0.75; border-style: dashed; }
+    .hint-inherit-badge { flex: 0 0 auto; font-size: 9.5px; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.04em; color: #6b5300; background: #fdf3d3; border-radius: 4px; padding: 1px 5px; }
+    :root[data-theme="dark"] .hint-inherit-badge { color: #f3dfa0; background: #3d3417; }
+    :root[data-theme="dark"] .hints-list li { border-color: var(--border); }
     .modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
     .btn-primary {
       font-family: inherit; font-size: 13px; font-weight: 600;
@@ -895,24 +919,28 @@
 
   <!-- Manage hints: add/remove/edit the name-or-address -> project (or subproject) matching hints -->
   <div class="modal-overlay" id="hintsModalOverlay" style="display:none">
-    <div class="modal-box">
+    <div class="modal-box hints-box">
       <h3>Manage matching hints</h3>
-      <p class="modal-subtitle">Hints tell the automation that a name or address on an invoice belongs to a project (or a specific subproject) — so invoices that don't spell out the number still file correctly. Pick a project, then choose whether you're managing the whole project or one of its subprojects — each has its own hint list.</p>
-      <div class="modal-field">
-        <label for="hintsProject">Project</label>
-        <input type="text" class="select-search" id="hintsProjectSearch" placeholder="Type to search projects…">
-        <select id="hintsProject" size="6"></select>
-      </div>
-      <div class="modal-field" id="hintsScopeField">
-        <label for="hintsScope">Manage hints for</label>
-        <select id="hintsScope"></select>
-      </div>
-      <ul class="hints-list" id="hintsList"></ul>
-      <div class="modal-field">
-        <label for="hintsNewAlias" id="hintsAddLabel">Add a hint to this scope (name or address on the invoice)</label>
-        <div class="hints-add-sub">
-          <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
-          <button type="button" class="btn-primary" id="hintsAddBtn">Add</button>
+      <p class="modal-subtitle">A hint is a name or address printed on an invoice that identifies a job — so invoices that never spell out the project number still file correctly. Pick a project or subproject on the left, then add its hints on the right.</p>
+      <div class="hints-layout">
+        <!-- Left: pick the scope. Projects and their subprojects in one tree, so the thing you're
+             adding hints to is visible and clickable rather than assembled from two dropdowns. -->
+        <div class="hints-pane-left">
+          <input type="text" class="select-search" id="hintsProjectSearch" placeholder="Search projects…">
+          <div class="hints-tree" id="hintsTree"></div>
+        </div>
+        <!-- Right: the hints for whatever is selected. -->
+        <div class="hints-pane-right">
+          <div class="hints-scope-title" id="hintsScopeTitle">Pick a project on the left</div>
+          <p class="hints-inherit-note" id="hintsInheritNote" style="display:none"></p>
+          <ul class="hints-list" id="hintsList"></ul>
+          <div class="modal-field">
+            <label for="hintsNewAlias" id="hintsAddLabel">Add a hint</label>
+            <div class="hints-add-sub">
+              <input type="text" id="hintsNewAlias" placeholder="e.g. 952 Southdale Rd">
+              <button type="button" class="btn-primary" id="hintsAddBtn">Add</button>
+            </div>
+          </div>
         </div>
       </div>
       <p class="modal-error" id="hintsModalError"></p>
@@ -2492,59 +2520,87 @@
     var HINTS_ALL = []; // last-loaded full alias list: [{alias, projectNumber, subprojectNumber, base, projectLabel}]
     var HINT_EDITING = null; // alias currently being inline-edited (so a re-render keeps the editor open)
 
-    // The subproject scope currently being managed ('' = whole project). The project + this scope
-    // together pick out one independent hint set.
-    function currentHintScope() { return document.getElementById('hintsScope').value || ''; }
+    // The selected scope: a project, optionally narrowed to one of its subprojects. Chosen by clicking
+    // a node in the left-hand tree, so what you're editing is always visible.
+    var HINT_SEL_PROJECT = '';
+    var HINT_SEL_SUB = '';
 
-    // Populates the scope picker with "Whole project" plus each subproject of the given project, and
-    // hides the whole picker when the project has no subprojects. Resets the scope to whole-project.
-    function fillHintScopeSelect(projectNumber) {
+    function currentHintScope() { return HINT_SEL_SUB || ''; }
+
+    /**
+     * Renders the project/subproject tree. Each node shows how many hints are attached to it, so an
+     * empty scope is obvious before you click it. The search box filters projects by label, keeping a
+     * project visible when one of its subprojects matches.
+     */
+    function renderHintsTree() {
       var tree = buildReferenceTree();
-      var sel = document.getElementById('hintsScope');
-      sel.innerHTML = '';
-      var whole = document.createElement('option'); whole.value = ''; whole.textContent = 'Whole project'; sel.appendChild(whole);
-      var proj = tree[normalizeKey(projectNumber)];
-      var keys = proj ? Object.keys(proj.subs).sort(compareDotted) : [];
-      keys.forEach(function (sKey) {
-        var o = document.createElement('option'); o.value = proj.subs[sKey].number; o.textContent = proj.subs[sKey].label; sel.appendChild(o);
+      var q = (document.getElementById('hintsProjectSearch').value || '').toLowerCase();
+      var box = document.getElementById('hintsTree');
+      box.innerHTML = '';
+      var shown = 0;
+
+      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
+        var proj = tree[pKey];
+        var subKeys = Object.keys(proj.subs).sort(compareDotted);
+        var projMatch = !q || proj.label.toLowerCase().indexOf(q) !== -1;
+        var matchingSubs = subKeys.filter(function (sKey) {
+          return !q || projMatch || proj.subs[sKey].label.toLowerCase().indexOf(q) !== -1;
+        });
+        if (!projMatch && !matchingSubs.length) return;
+        shown++;
+
+        box.appendChild(hintsTreeNode(proj.number, '', proj.label, countHintsFor(proj.number, ''), false));
+        matchingSubs.forEach(function (sKey) {
+          var sub = proj.subs[sKey];
+          box.appendChild(hintsTreeNode(proj.number, sub.number, sub.label, countHintsFor(proj.number, sub.number), true));
+        });
       });
-      sel.value = '';
-      document.getElementById('hintsScopeField').style.display = keys.length ? '' : 'none';
+      if (!shown) box.innerHTML = '<div class="hints-empty">No projects match that search.</div>';
+    }
+
+    function countHintsFor(projectNumber, subprojectNumber) {
+      var pKey = normalizeKey(projectNumber), sKey = normalizeKey(subprojectNumber);
+      return HINTS_ALL.filter(function (a) {
+        return normalizeKey(a.projectNumber) === pKey && normalizeKey(a.subprojectNumber) === sKey;
+      }).length;
+    }
+
+    function hintsTreeNode(projectNumber, subprojectNumber, label, count, isSub) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'hints-node' + (isSub ? ' hints-node-sub' : '');
+      if (normalizeKey(projectNumber) === normalizeKey(HINT_SEL_PROJECT) &&
+          normalizeKey(subprojectNumber) === normalizeKey(HINT_SEL_SUB)) {
+        btn.className += ' selected';
+      }
+      btn.innerHTML = '<span>' + escapeHtml(label) + '</span>' +
+        (count ? '<span class="hints-count">' + count + '</span>' : '');
+      btn.addEventListener('click', function () { selectHintScope(projectNumber, subprojectNumber); });
+      return btn;
+    }
+
+    function selectHintScope(projectNumber, subprojectNumber) {
+      HINT_SEL_PROJECT = projectNumber || '';
+      HINT_SEL_SUB = subprojectNumber || '';
+      HINT_EDITING = null;
+      document.getElementById('hintsModalError').textContent = '';
+      document.getElementById('hintsNewAlias').value = '';
+      renderHintsTree();
+      renderHintsList();
     }
 
     function openHintsModal() {
       document.getElementById('hintsModalError').textContent = '';
       document.getElementById('hintsNewAlias').value = '';
-      HINT_EDITING = null;
-      // Populate the project picker from the same reference tree the edit modals use.
-      var tree = buildReferenceTree();
-      var sel = document.getElementById('hintsProject');
-      sel.innerHTML = '';
-      Object.keys(tree).sort(compareDotted).forEach(function (pKey) {
-        var opt = document.createElement('option');
-        opt.value = tree[pKey].number;
-        opt.textContent = tree[pKey].label;
-        sel.appendChild(opt);
-      });
       document.getElementById('hintsProjectSearch').value = '';
-      filterSelectByText(sel, '');
-      fillHintScopeSelect(sel.value);
-      document.getElementById('hintsList').innerHTML = '<li class="hints-empty">Loading hints…</li>';
+      HINT_EDITING = null;
+      HINT_SEL_PROJECT = ''; HINT_SEL_SUB = '';
+      document.getElementById('hintsTree').innerHTML = '<div class="hints-empty">Loading…</div>';
+      document.getElementById('hintsList').innerHTML = '';
+      document.getElementById('hintsScopeTitle').textContent = 'Pick a project on the left';
+      document.getElementById('hintsInheritNote').style.display = 'none';
       document.getElementById('hintsModalOverlay').style.display = 'flex';
       loadHints();
-    }
-
-    // Project changed: rebuild the scope picker (back to Whole project) and refresh the list.
-    function onHintsProjectChange() {
-      HINT_EDITING = null;
-      fillHintScopeSelect(document.getElementById('hintsProject').value);
-      renderHintsList();
-    }
-
-    // Scope (whole project vs a subproject) changed: refresh the list for the new scope.
-    function onHintsScopeChange() {
-      HINT_EDITING = null;
-      renderHintsList();
     }
 
     function closeHintsModal() { document.getElementById('hintsModalOverlay').style.display = 'none'; }
@@ -2553,49 +2609,102 @@
       google.script.run
         .withSuccessHandler(function (res) {
           HINTS_ALL = (res && res.aliases) || [];
+          renderHintsTree();
           renderHintsList();
         })
         .withFailureHandler(function (err) {
-          document.getElementById('hintsList').innerHTML =
-            '<li class="hints-empty">' + escapeHtml(err && err.message ? err.message : 'Could not load hints.') + '</li>';
+          document.getElementById('hintsTree').innerHTML =
+            '<div class="hints-empty">' + escapeHtml(err && err.message ? err.message : 'Could not load hints.') + '</div>';
         })
         .getProjectAliases();
     }
 
-    // A short label for the current scope, e.g. "the whole project" or "subproject 46.02".
+    // Label for the selected scope, taken from the reference tree so it reads the same as the node.
     function hintScopeLabel() {
-      var scope = currentHintScope();
-      if (!scope) return 'the whole project';
-      var opt = document.getElementById('hintsScope').selectedOptions[0];
-      return 'subproject ' + (opt ? opt.textContent : scope);
+      var tree = buildReferenceTree();
+      var proj = tree[normalizeKey(HINT_SEL_PROJECT)];
+      if (!proj) return HINT_SEL_PROJECT || '';
+      if (!HINT_SEL_SUB) return proj.label;
+      var sub = proj.subs[normalizeKey(HINT_SEL_SUB)];
+      return sub ? sub.label : HINT_SEL_SUB;
     }
 
-    // Shows the hints for the currently selected project + scope (each is an independent set). Base
-    // (canon) hints get a badge and no delete button — they can be edited but never removed or blanked.
+    /**
+     * Shows the hints for the selected scope. Hints are HIERARCHICAL: a project's hints also apply to
+     * all of its subprojects, so when a subproject is selected its parent's hints are listed too —
+     * marked "From project" and read-only here, since they're edited at the project level. A
+     * subproject's own hints apply only to that subproject.
+     */
     function renderHintsList() {
-      var proj = document.getElementById('hintsProject').value;
-      var scope = currentHintScope();
       var list = document.getElementById('hintsList');
-      document.getElementById('hintsAddLabel').textContent = 'Add a hint for ' + hintScopeLabel() + ' (name or address on the invoice)';
-      if (!proj) { list.innerHTML = '<li class="hints-empty">Pick a project above to see its hints.</li>'; return; }
-      var pKey = normalizeKey(proj);
-      var sKey = normalizeKey(scope);
-      var rows = HINTS_ALL.filter(function (a) {
-        return normalizeKey(a.projectNumber) === pKey && normalizeKey(a.subprojectNumber) === sKey;
+      var title = document.getElementById('hintsScopeTitle');
+      var note = document.getElementById('hintsInheritNote');
+
+      if (!HINT_SEL_PROJECT) {
+        title.textContent = 'Pick a project on the left';
+        note.style.display = 'none';
+        list.innerHTML = '<li class="hints-empty">Select a project or subproject to see and add its hints.</li>';
+        document.getElementById('hintsAddLabel').textContent = 'Add a hint';
+        document.getElementById('hintsNewAlias').disabled = true;
+        document.getElementById('hintsAddBtn').disabled = true;
+        return;
+      }
+      document.getElementById('hintsNewAlias').disabled = false;
+      document.getElementById('hintsAddBtn').disabled = false;
+
+      title.textContent = hintScopeLabel();
+      document.getElementById('hintsAddLabel').textContent =
+        'Add a hint for ' + (HINT_SEL_SUB ? 'this subproject only' : 'this project (applies to its subprojects too)');
+
+      var pKey = normalizeKey(HINT_SEL_PROJECT);
+      var own = HINTS_ALL.filter(function (a) {
+        return normalizeKey(a.projectNumber) === pKey &&
+               normalizeKey(a.subprojectNumber) === normalizeKey(HINT_SEL_SUB);
       });
-      if (!rows.length) { list.innerHTML = '<li class="hints-empty">No hints yet for ' + escapeHtml(hintScopeLabel()) + '. Add one below.</li>'; return; }
+      // Inherited = the parent project's own hints, shown only while a subproject is selected.
+      var inherited = HINT_SEL_SUB
+        ? HINTS_ALL.filter(function (a) {
+            return normalizeKey(a.projectNumber) === pKey && !normalizeKey(a.subprojectNumber);
+          })
+        : [];
+
+      if (HINT_SEL_SUB) {
+        note.style.display = '';
+        note.textContent = inherited.length
+          ? inherited.length + ' hint(s) from the project apply here too, and are managed on the project.'
+          : 'Hints added here apply to this subproject only. The project has no hints to inherit.';
+      } else {
+        note.style.display = '';
+        note.textContent = 'Hints added here apply to this project and all of its subprojects.';
+      }
+
       list.innerHTML = '';
-      rows.forEach(function (a) {
-        var li = document.createElement('li');
-        if (HINT_EDITING && HINT_EDITING.toLowerCase() === a.alias.toLowerCase()) {
-          renderHintEditor(li, a);
-          list.appendChild(li);
-          return;
-        }
-        var main = document.createElement('div');
-        main.className = 'hint-main';
-        main.innerHTML = (a.base ? '<span class="hint-base-badge" title="Base hint — can be edited but not removed">Base</span>' : '') +
-          '<span class="hint-alias" title="' + escapeHtml(a.alias) + '">' + escapeHtml(a.alias) + '</span>';
+      if (!own.length && !inherited.length) {
+        list.innerHTML = '<li class="hints-empty">No hints yet for ' + escapeHtml(hintScopeLabel()) + '. Add one below.</li>';
+        return;
+      }
+      own.forEach(function (a) { list.appendChild(hintListItem(a, false)); });
+      inherited.forEach(function (a) { list.appendChild(hintListItem(a, true)); });
+    }
+
+    // One hint row. Inherited rows are read-only here (no edit/remove) — they belong to the project.
+    // Base (canon) hints keep their badge and can be edited but never removed or blanked.
+    function hintListItem(a, isInherited) {
+      var li = document.createElement('li');
+      if (isInherited) li.className = 'hint-inherited';
+      if (!isInherited && HINT_EDITING && HINT_EDITING.toLowerCase() === a.alias.toLowerCase()) {
+        renderHintEditor(li, a);
+        return li;
+      }
+      var main = document.createElement('div');
+      main.className = 'hint-main';
+      main.innerHTML =
+        (isInherited ? '<span class="hint-inherit-badge" title="Belongs to the project — edit it on the project">From project</span>' : '') +
+        (a.base ? '<span class="hint-base-badge" title="Base hint — can be edited but not removed">Base</span>' : '') +
+        '<span class="hint-alias" title="' + escapeHtml(a.alias) + '">' + escapeHtml(a.alias) + '</span>';
+      li.appendChild(main);
+
+      if (!isInherited) {
         var actions = document.createElement('div');
         actions.className = 'hint-actions';
         var editBtn = document.createElement('button');
@@ -2608,9 +2717,9 @@
           rmBtn.addEventListener('click', function () { removeHint(a); });
           actions.appendChild(rmBtn);
         }
-        li.appendChild(main); li.appendChild(actions);
-        list.appendChild(li);
-      });
+        li.appendChild(actions);
+      }
+      return li;
     }
 
     // Turns one <li> into an inline editor for hint `a` (edits the alias text only; the scope is fixed).
@@ -2643,6 +2752,7 @@
         .withSuccessHandler(function (res) {
           HINTS_ALL = (res && res.aliases) || [];
           HINT_EDITING = null;
+          renderHintsTree();
           renderHintsList();
           errorEl.style.color = '#059669'; errorEl.textContent = 'Hint updated ✓';
         })
@@ -2654,12 +2764,12 @@
     }
 
     function addHint() {
-      var proj = document.getElementById('hintsProject').value;
+      var proj = HINT_SEL_PROJECT;
       var alias = document.getElementById('hintsNewAlias').value;
       var scope = currentHintScope();
       var errorEl = document.getElementById('hintsModalError');
       errorEl.style.color = ''; errorEl.textContent = '';
-      if (!proj) { errorEl.textContent = 'Pick a project first.'; return; }
+      if (!proj) { errorEl.textContent = 'Pick a project or subproject on the left first.'; return; }
       if (!String(alias).trim()) { errorEl.textContent = 'Type the name or address to add.'; return; }
       var btn = document.getElementById('hintsAddBtn');
       btn.disabled = true; btn.textContent = 'Adding…';
@@ -2668,6 +2778,7 @@
           btn.disabled = false; btn.textContent = 'Add';
           HINTS_ALL = (res && res.aliases) || [];
           document.getElementById('hintsNewAlias').value = '';
+          renderHintsTree();
           renderHintsList();
           errorEl.style.color = '#059669';
           errorEl.textContent = (res && res.added === false) ? 'That hint was already there.' : 'Hint added ✓';
@@ -2685,6 +2796,7 @@
       google.script.run
         .withSuccessHandler(function (res) {
           HINTS_ALL = (res && res.aliases) || [];
+          renderHintsTree();
           renderHintsList();
         })
         .withFailureHandler(function (err) {
@@ -3161,9 +3273,7 @@
       });
       document.getElementById('hintsCloseBtn').addEventListener('click', closeHintsModal);
       document.getElementById('hintsAddBtn').addEventListener('click', addHint);
-      document.getElementById('hintsProject').addEventListener('change', onHintsProjectChange);
-      document.getElementById('hintsScope').addEventListener('change', onHintsScopeChange);
-      document.getElementById('hintsProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('hintsProject'), this.value); });
+      document.getElementById('hintsProjectSearch').addEventListener('input', renderHintsTree);
       document.getElementById('hintsNewAlias').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addHint(); } });
       document.getElementById('hintsModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeHintsModal(); });
       document.getElementById('previewNextBtn').addEventListener('click', function () { navigatePreview(1); });

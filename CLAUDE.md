@@ -38,12 +38,16 @@ matches on project **+ subproject** via `aliasScopeMatches_` (leading-zero safe)
 dedup key, `appendAliasRow_`, `updateAliasRow_` (edits alias TEXT only, scope fixed), `deleteAliasRow_`,
 `aliasRowIsBase_`. Server endpoints carry the scope: `addProjectAlias(alias, project, sub)`,
 `removeProjectAlias(alias, project, sub)`, `updateProjectAlias(oldAlias, project, sub, newAlias)`.
-Manage hints picks the scope with a **"Manage hints for"** selector (Whole project / a subproject);
-the list, add, edit, and remove all act on that one scope. The learn-while-fixing field saves the
-alias at the corrected invoice's project+subproject scope. In the Gemini prompt (GeminiService.gs),
-each alias renders as `"text" => Project P, Subproject S` (or `(project level — no specific
-subproject)`) and is described as AUTHORITATIVE — a subproject-scoped alias must be used exactly, not
-downgraded to NONE.
+Manage hints picks the scope from a **project/subproject tree on the left** (each node shows its hint
+count); the list, add, edit, and remove act on the selected scope. **Hints read as a HIERARCHY in the
+UI**: selecting a subproject also lists the parent project's hints tagged "From project" (read-only
+there — edited at the project). That is presentation of behavior the extractor ALREADY had, not a new
+matching rule: the Gemini prompt tells it a project-level alias means "apply the project and choose the
+subproject separately", while a subproject alias must be used exactly and never downgraded to NONE. So
+storage stays scoped per-row (`aliasScopeMatches_` is unchanged); only the display inherits.
+The learn-while-fixing field saves the alias at the corrected invoice's project+subproject scope. In
+the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P, Subproject S` (or
+`(project level — no specific subproject)`) and is described as AUTHORITATIVE.
 
 ## Deploy model — read this before debugging "it's not working"
 
