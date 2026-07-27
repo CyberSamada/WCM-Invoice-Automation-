@@ -282,6 +282,10 @@ sequence in the ⓘ popover (`.note-line`) and the preview note; it splits on `\
 space-joined notes still in the sheet, on the `Manually updated <date>` / `Merged as duplicate`
 markers — so no data migration is needed. The match note is shown last as `AI read: …`. The ⓘ button
 carries `data-review`/`data-match` (not a pre-joined `data-note`) so the popover can format them.
+In the **preview panel** the note is COLLAPSED by default (`renderPreviewNote` builds a native
+`<details>`): the history grows unbounded and was pushing the edit fields off screen. The summary
+line carries the entry count plus the newest event clipped to one line, so "what happened last?"
+needs no expanding — 34px collapsed vs ~171px open on a 4-entry note.
 
 ## Docs to keep in sync when behavior changes
 
