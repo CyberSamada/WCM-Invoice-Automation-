@@ -246,6 +246,9 @@
     .reset-btn:hover { background: #eef4fb; }
     .results-count { font-size: 12px; color: var(--text-muted); margin: 0; }
     .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px 0; }
+    .pager { display: flex; align-items: center; justify-content: center; gap: 10px; margin: 12px 0 2px; }
+    .pager-label { font-size: 12px; color: var(--text-muted); }
+    .pager button[disabled] { opacity: 0.45; cursor: default; }
     .sort-control { display: flex; align-items: center; gap: 6px; }
     .sort-control label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
     .sort-control select { font-family: inherit; font-size: 12px; padding: 5px 7px; border: 1px solid var(--input-border); border-radius: 6px; background: var(--surface); color: var(--text); }
@@ -716,6 +719,14 @@
       <div class="results-header">
         <p class="results-count" id="resultsCount">Showing all invoices</p>
         <div class="sort-control">
+          <label for="pageSize">Show</label>
+          <select id="pageSize">
+            <option value="all" selected>All</option>
+            <option value="50">50 per page</option>
+            <option value="100">100 per page</option>
+          </select>
+        </div>
+        <div class="sort-control">
           <label for="sortField">Sort by</label>
           <select id="sortField">
             <option value="processed">Processed date</option>
@@ -745,6 +756,12 @@
           <tr><td colspan="13" class="empty-cell">Loading…</td></tr>
         </tbody>
       </table>
+      <!-- Only shown when a page size is chosen; "All" (the default) has nothing to page through. -->
+      <div class="pager" id="pager" style="display:none">
+        <button type="button" class="btn-secondary" id="pagerPrev">&lsaquo; Prev</button>
+        <span class="pager-label" id="pagerLabel"></span>
+        <button type="button" class="btn-secondary" id="pagerNext">Next &rsaquo;</button>
+      </div>
     </div>
 
     <div class="section">
@@ -1452,6 +1469,7 @@
       });
 
       sortRecords(filtered);
+      PAGE_INDEX = 0; // a filter or sort change makes the previous page position meaningless
       renderResults(filtered);
     }
 
@@ -1540,20 +1558,77 @@
       if (pop) pop.style.display = 'none';
     }
 
+    // The full filtered+sorted list. LAST_RENDERED is only ever the rows actually on screen (one page),
+    // which is what "select all shown" and the bulk bar act on — so paging can't silently widen a bulk
+    // edit beyond what the person can see.
+    var FILTERED_ROWS = [];
+    var PAGE_INDEX = 0;
+
+    function currentPageSize() {
+      var v = document.getElementById('pageSize').value;
+      return v === 'all' ? 0 : (Number(v) || 0); // 0 = show everything
+    }
+
+    function pageCount() {
+      var size = currentPageSize();
+      if (!size) return 1;
+      return Math.max(1, Math.ceil(FILTERED_ROWS.length / size));
+    }
+
+    // Re-renders the current page from the full filtered list, keeping the page position.
+    function rerenderCurrentPage() { renderResults(FILTERED_ROWS); }
+
+    function goToPage(i) {
+      PAGE_INDEX = Math.max(0, Math.min(i, pageCount() - 1));
+      rerenderCurrentPage();
+      document.querySelector('.results-header').scrollIntoView({ block: 'nearest' });
+    }
+
+    function onPageSizeChange() {
+      PAGE_INDEX = 0; // a different page size makes the old page number meaningless
+      rerenderCurrentPage();
+    }
+
+    function renderPager() {
+      var pager = document.getElementById('pager');
+      var size = currentPageSize();
+      if (!size || FILTERED_ROWS.length <= size) { pager.style.display = 'none'; return; }
+      pager.style.display = '';
+      document.getElementById('pagerLabel').textContent = 'Page ' + (PAGE_INDEX + 1) + ' of ' + pageCount();
+      document.getElementById('pagerPrev').disabled = PAGE_INDEX <= 0;
+      document.getElementById('pagerNext').disabled = PAGE_INDEX >= pageCount() - 1;
+    }
+
     function renderResults(list) {
       var tbody = document.getElementById('resultsBody');
-      document.getElementById('resultsCount').textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
+      FILTERED_ROWS = list;
 
-      if (list.length === 0) {
+      // Clamp first: a filter change can leave the old page index past the end of a shorter list.
+      var size = currentPageSize();
+      if (PAGE_INDEX > pageCount() - 1) PAGE_INDEX = pageCount() - 1;
+      if (PAGE_INDEX < 0) PAGE_INDEX = 0;
+      var pageRows = size ? list.slice(PAGE_INDEX * size, PAGE_INDEX * size + size) : list;
+
+      var countEl = document.getElementById('resultsCount');
+      if (size && list.length > size) {
+        var from = list.length ? PAGE_INDEX * size + 1 : 0;
+        countEl.textContent = 'Showing ' + from + '–' + (PAGE_INDEX * size + pageRows.length) +
+          ' of ' + list.length + ' matching invoices (' + ALL_RECORDS.length + ' total)';
+      } else {
+        countEl.textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
+      }
+
+      if (pageRows.length === 0) {
         tbody.innerHTML = '<tr><td colspan="13" class="empty-cell">No invoices match these filters.</td></tr>';
         LAST_RENDERED = [];
+        renderPager();
         syncSelectAllBox();
         updateBulkBar();
         return;
       }
 
       var html = '';
-      list.forEach(function (r) {
+      pageRows.forEach(function (r) {
         var statusBadge = '<span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span>';
         // Prefer the short "why it's flagged" review note in the tooltip; fall back to Gemini's
         // match reasoning. Show both when both exist.
@@ -1619,7 +1694,8 @@
         });
       });
       lastSelectedIdx = -1; // reset the range anchor whenever the list re-renders (filter/edit changed what's shown)
-      LAST_RENDERED = list;
+      LAST_RENDERED = pageRows; // only what's on screen — shift-select and "select all shown" act on this
+      renderPager();
       syncSelectAllBox();
       updateBulkBar();
     }
@@ -2831,12 +2907,12 @@
         if (box.checked) SELECTED_ROWIDS[r.rowId] = true; else delete SELECTED_ROWIDS[r.rowId];
       });
       // Re-render so row checkboxes reflect the new state (selection map is the source of truth).
-      renderResults(LAST_RENDERED);
+      rerenderCurrentPage();
     }
 
     function clearSelection() {
       SELECTED_ROWIDS = {};
-      renderResults(LAST_RENDERED);
+      rerenderCurrentPage();
     }
 
     // --- Download selected invoices -------------------------------------------------------------
@@ -3229,6 +3305,9 @@
       document.getElementById('feedbackModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeFeedbackModal(); });
       document.getElementById('summaryTimeframe').addEventListener('change', updateSummaryCards);
       document.getElementById('selectAllBox').addEventListener('change', toggleSelectAll);
+      document.getElementById('pageSize').addEventListener('change', onPageSizeChange);
+      document.getElementById('pagerPrev').addEventListener('click', function () { goToPage(PAGE_INDEX - 1); });
+      document.getElementById('pagerNext').addEventListener('click', function () { goToPage(PAGE_INDEX + 1); });
       document.getElementById('bulkEditBtn').addEventListener('click', openBulkModal);
       document.getElementById('bulkDownloadBtn').addEventListener('click', handleBulkDownload);
       document.getElementById('bulkClearBtn').addEventListener('click', clearSelection);
