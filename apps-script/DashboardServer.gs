@@ -558,6 +558,55 @@ function updateInvoiceRows(rowIds, updates) {
 }
 
 /**
+ * Marks the given rows Captured — used by the batch download's "Mark as Captured" option, since
+ * downloading a batch is normally the act of capturing it into Procore/SmartBuild.
+ *
+ * Eligibility is decided HERE, not by the caller: only rows currently `Filed` or `Needs Review` move.
+ * A `Duplicate` row is skipped (its file belongs to the canon invoice and it isn't a capturable bill),
+ * `Not an Invoice` is skipped, and anything already Captured/Paid/Canceled is left alone so a download
+ * can never walk a lifecycle status BACKWARDS. Deciding on the server means a stale dashboard can't
+ * mark something it merely believes is Filed.
+ *
+ * @param {string[]} rowIds
+ * @return {{updated: Object[], skipped: number, errors: {rowId: string, message: string}[]}}
+ */
+function markInvoicesCaptured(rowIds) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to edit invoice records.');
+  }
+  if (!rowIds || !rowIds.length) return { updated: [], skipped: 0, errors: [] };
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0];
+  const iRowId = header.indexOf('Row ID');
+  const iStatus = header.indexOf('Status');
+  if (iRowId === -1 || iStatus === -1) throw new Error('The Invoice Log is missing a Row ID or Status column.');
+
+  const statusByRowId = {};
+  for (let r = 1; r < values.length; r++) {
+    const id = String(values[r][iRowId] || '').trim();
+    if (id) statusByRowId[id] = String(values[r][iStatus] || '').trim();
+  }
+
+  const CAPTURABLE = { 'Filed': 1, 'Needs Review': 1 };
+  const referenceRows = getReferenceData_();
+  const updated = [];
+  const errors = [];
+  let skipped = 0;
+  rowIds.forEach(rowId => {
+    if (!CAPTURABLE[statusByRowId[String(rowId)]]) { skipped++; return; }
+    try {
+      updated.push(updateInvoiceRow(rowId, { status: 'Captured' }, referenceRows));
+    } catch (err) {
+      errors.push({ rowId: rowId, message: err.message });
+    }
+  });
+  return { updated: updated, skipped: skipped, errors: errors };
+}
+
+/**
  * Duplicate merge — called from the dashboard's preview panel. The row being viewed (dupRowId, the
  * extra copy) is merged INTO a chosen canon row (canonRowId, the one to keep):
  *   - the dup row's Status becomes "Duplicate" and its file link/ID are repointed at the CANON's PDF
