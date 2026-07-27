@@ -115,7 +115,8 @@ Nexus stores the **processed** invoice number, which often isn't quite what's pr
 So instead of relying on the number alone, the system weighs the **number, amount and vendor together**:
 
 - When the evidence clearly points at one invoice, it's applied automatically.
-- When it's only *probably* right, it appears in a **confirmation list** with the reasoning shown (e.g. *"Nexus # contains our # (60392); amount is ours less 10% holdback; vendor matches"*). You click **Confirm** to apply it, or **Not ours** if it's a different invoice.
+- When it's only *probably* right, it appears in a **confirmation list**. Click **Review** and you get the **invoice PDF side by side with the Nexus record**, compared field by field — invoice #, vendor, amount, date, project — with each row marked green where the two agree and orange where they differ (a 10% holdback counts as agreement, since that's expected). The reason it was suggested is shown underneath.
+- From there: **Confirm** applies the status, **Not ours** rejects it, **Skip** leaves it for later, and **Prev / Next** walks the rest of the list without closing.
 
 **It learns from you.** Every confirmation is remembered — both that specific invoice-number pairing and the vendor pairing. Next upload, that one matches automatically. Marking something "Not ours" stops it being suggested again. So the confirmation list shrinks with each upload rather than repeating the same work.
 

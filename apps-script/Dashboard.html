@@ -43,8 +43,8 @@
     :root[data-theme="dark"] .stat-strip strong { color: #7db4ff; }
     /* The two grey status chips are the only fills close enough to the dark surface to sink into it —
        lift them so they stay legible as chips. The coloured ones already contrast fine. */
-    :root[data-theme="dark"] .badge-notinvoice { background: #64748b; }
-    :root[data-theme="dark"] .badge-other { background: #71717a; }
+    :root[data-theme="dark"] .badge-notinvoice { background: #667385; }
+    :root[data-theme="dark"] .badge-other { background: #6d6d7e; }
     :root[data-theme="dark"] .hint-edit { background: #2b3543; color: #e6e9ee; }
     :root[data-theme="dark"] .hint-edit:hover { background: #34404f; }
     * { box-sizing: border-box; }
@@ -290,15 +290,15 @@
        at a glance while scanning. Hues are deliberately spread apart: Filed (green), Paid (teal) and
        Captured (blue) are the three common ones and must not read as the same colour. Every fill is
        dark enough for white text to stay legible in both themes. */
-    .badge-filed { background: #15803d; color: #ffffff; }
-    .badge-paid { background: #0f766e; color: #ffffff; }
-    .badge-captured { background: #1d4ed8; color: #ffffff; }
-    .badge-review { background: #b45309; color: #ffffff; }
-    .badge-canceled { background: #be123c; color: #ffffff; }
-    .badge-duplicate { background: #6d28d9; color: #ffffff; }
-    .badge-notinvoice { background: #475569; color: #ffffff; }
-    .badge-pastdue { background: #b91c1c; color: #ffffff; }
-    .badge-other { background: #52525b; color: #ffffff; }
+    .badge-filed { background: #2b6e4d; color: #ffffff; }
+    .badge-paid { background: #296a70; color: #ffffff; }
+    .badge-captured { background: #2a4a79; color: #ffffff; }
+    .badge-review { background: #7f4a24; color: #ffffff; }
+    .badge-canceled { background: #792a3a; color: #ffffff; }
+    .badge-duplicate { background: #65377b; color: #ffffff; }
+    .badge-notinvoice { background: #535a65; color: #ffffff; }
+    .badge-pastdue { background: #782d26; color: #ffffff; }
+    .badge-other { background: #575760; color: #ffffff; }
 
     /* Searchable-select: a filter box sitting above a native <select> in the edit/bulk modals */
     .select-search {
@@ -449,7 +449,7 @@
     .nexus-samples { max-height: 130px; overflow: auto; margin: 4px 0 0 18px; }
     .nexus-pending-head { font-size: 13px; margin: 10px 0 6px; padding-top: 10px; border-top: 1px solid var(--border); }
     .nexus-queue { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
-    .nexus-cand { display: flex; gap: 10px; align-items: flex-start; justify-content: space-between;
+    .nexus-cand { display: flex; gap: 10px; align-items: center; justify-content: space-between;
       padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12.5px; }
     .nexus-cand:last-child { border-bottom: none; }
     .nexus-cand-done { opacity: 0.55; }
@@ -457,6 +457,28 @@
     .nexus-cand-actions { display: flex; gap: 6px; flex: 0 0 auto; align-items: center; }
     .nexus-cand-actions button { font-size: 12px; padding: 4px 10px; }
     .nexus-why { color: var(--text-muted); font-size: 11.5px; margin-top: 2px; font-style: italic; }
+
+    /* Compare view: the PDF beside a field-by-field Nexus-vs-ours table, so a confirmation is a
+       visual check rather than a guess from two lines of text. */
+    .modal-box.modal-wide { width: 1080px; }
+    .nexus-compare { display: flex; gap: 16px; align-items: flex-start; }
+    .nexus-compare-pdf { flex: 1 1 55%; min-width: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; background: var(--surface-alt); }
+    .nexus-compare-pdf iframe { display: block; width: 100%; height: 62vh; border: none; }
+    .nexus-compare-pdf .nexus-nopdf { padding: 30px 16px; text-align: center; color: var(--text-muted); font-size: 12.5px; }
+    .nexus-compare-side { flex: 1 1 45%; min-width: 0; }
+    table.nexus-cmp { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+    table.nexus-cmp th { text-align: left; font-size: 10.5px; letter-spacing: 0.05em; text-transform: uppercase;
+      color: var(--text-muted); padding: 4px 6px; border-bottom: 1px solid var(--border); font-weight: 700; }
+    table.nexus-cmp td { padding: 5px 6px; border-bottom: 1px solid var(--border); vertical-align: top; word-break: break-word; }
+    table.nexus-cmp td.lbl { color: var(--text-muted); width: 78px; }
+    table.nexus-cmp tr.agree td.val { color: #2b6e4d; font-weight: 600; }
+    table.nexus-cmp tr.differ td.val { color: #9a4a1f; font-weight: 600; }
+    :root[data-theme="dark"] table.nexus-cmp tr.agree td.val { color: #6ee7a8; }
+    :root[data-theme="dark"] table.nexus-cmp tr.differ td.val { color: #f0b27a; }
+    .nexus-verdict { font-size: 12.5px; margin: 10px 0 0; padding: 8px 10px; border-radius: 6px;
+      background: var(--surface-alt); border: 1px solid var(--border); }
+    .nexus-progress-label { font-size: 12px; color: var(--text-muted); }
+    .nexus-compare-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
 
     /* Bulk select/edit */
     .bulk-bar {
@@ -900,12 +922,38 @@
       <h3>Update statuses from Nexus</h3>
       <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Captured, <strong>REJECTED / VOID</strong> → Canceled.</p>
       <p class="modal-subtitle">Clear matches are applied automatically. Anything uncertain is listed for you to confirm, and remembered for next time.</p>
-      <div class="modal-field">
+      <div class="modal-field" id="nexusFileField">
         <label for="nexusFile">Nexus export (.csv)</label>
         <input type="file" id="nexusFile" accept=".csv,text/csv">
       </div>
       <p class="modal-error" id="nexusModalError"></p>
       <div id="nexusSummary" style="display:none"></div>
+
+      <!-- Compare one uncertain match: our filed PDF beside the two records, field by field. -->
+      <div id="nexusComparePanel" style="display:none">
+        <div class="nexus-compare">
+          <div class="nexus-compare-pdf" id="nexusComparePdf"></div>
+          <div class="nexus-compare-side">
+            <table class="nexus-cmp">
+              <thead><tr><th></th><th>Nexus</th><th>Ours</th></tr></thead>
+              <tbody id="nexusCmpBody"></tbody>
+            </table>
+            <p class="nexus-verdict" id="nexusVerdict"></p>
+            <div class="nexus-compare-actions">
+              <button type="button" class="btn-primary" id="nexusCmpConfirm">Confirm — set to …</button>
+              <button type="button" class="btn-secondary" id="nexusCmpReject">Not ours</button>
+              <button type="button" class="btn-secondary" id="nexusCmpSkip">Skip</button>
+            </div>
+            <div class="nexus-compare-actions">
+              <button type="button" class="btn-secondary" id="nexusCmpPrev">&lsaquo; Prev</button>
+              <button type="button" class="btn-secondary" id="nexusCmpNext">Next &rsaquo;</button>
+              <span class="nexus-progress-label" id="nexusCmpProgress"></span>
+              <button type="button" class="btn-secondary" id="nexusCmpBack">Back to list</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <div class="bulk-progress" id="nexusProgress" style="display:none">
         <div class="bulk-progress-track"><div class="bulk-progress-fill" id="nexusProgressFill"></div></div>
         <p class="bulk-progress-text" id="nexusProgressText"></p>
@@ -2099,6 +2147,8 @@
       applyBtn.style.display = 'none'; applyBtn.disabled = false;
       document.getElementById('nexusCloseBtn').textContent = 'Close';
       NEXUS_CSV_TEXT = ''; NEXUS_APPLIED = false; NEXUS_TOTAL_CHANGED = 0; NEXUS_ERRORS = []; NEXUS_PENDING = [];
+      NEXUS_CMP_I = -1; NEXUS_CMP_DONE = {};
+      nexusSwapPanels(false);
       document.getElementById('nexusModalOverlay').style.display = 'flex';
     }
 
@@ -2145,6 +2195,7 @@
 
     function renderNexusSummary(res) {
       NEXUS_PENDING = (res && res.pending) || [];
+      NEXUS_CMP_DONE = {}; // a fresh analysis supersedes any earlier per-item decisions in this session
       var box = document.getElementById('nexusSummary');
       var h = '<div class="nexus-summary">';
       h += '<p><strong>' + res.changed + '</strong> invoice' + (res.changed === 1 ? '' : 's') + ' will be updated automatically' + (res.changed ? ':' : '.') + '</p>';
@@ -2180,7 +2231,7 @@
         h += '<div class="nexus-pending-head"><strong>' + res.pendingTotal + '</strong> need' +
           (res.pendingTotal === 1 ? 's' : '') + ' your confirmation' +
           (res.pendingTotal > NEXUS_PENDING.length ? ' (showing the first ' + NEXUS_PENDING.length + ')' : '') +
-          '<span class="nexus-muted"> — the invoice number, amount or vendor didn’t line up exactly.</span></div>';
+          '<span class="nexus-muted"> — the invoice number, amount or vendor didn’t line up exactly. Click <strong>Review</strong> to see the invoice beside the Nexus record.</span></div>';
         h += '<div class="nexus-queue" id="nexusQueue">' + NEXUS_PENDING.map(nexusPendingRowHtml).join('') + '</div>';
       }
       box.innerHTML = h;
@@ -2191,21 +2242,19 @@
       applyBtn.disabled = false;
     }
 
+    // A queue row is a one-line summary plus a Review button — the actual decision is made in the
+    // compare view, where the PDF sits beside both records.
     function nexusPendingRowHtml(p, i) {
       return '<div class="nexus-cand" data-nexus-i="' + i + '">' +
         '<div class="nexus-cand-main">' +
           '<div><strong>' + escapeHtml(p.target) + '</strong> &larr; Nexus ' + escapeHtml(p.nexusNumber) +
             ' <span class="nexus-muted">(' + escapeHtml(p.nexusStatus) + ')</span></div>' +
-          '<div class="nexus-muted">Nexus: ' + escapeHtml(p.nexusVendor || '—') + ' &middot; ' + fmtNexusMoney(p.nexusAmount) + '</div>' +
-          '<div class="nexus-muted">Ours: ' + escapeHtml(p.ourInvoiceNumber || '—') + ' &middot; ' +
-            escapeHtml(p.ourVendor || '—') + ' &middot; ' + fmtNexusMoney(p.ourAmount) +
+          '<div class="nexus-muted">' + escapeHtml(p.ourVendor || p.nexusVendor || '—') + ' &middot; ours ' +
+            escapeHtml(p.ourInvoiceNumber || '—') + ' &middot; ' + fmtNexusMoney(p.ourAmount) +
             ' &middot; currently ' + escapeHtml(p.currentStatus) + '</div>' +
-          '<div class="nexus-why">' + escapeHtml((p.reasons || []).join('; ')) +
-            (p.alternatives ? ' &middot; ' + p.alternatives + ' other possible row(s)' : '') + '</div>' +
         '</div>' +
         '<div class="nexus-cand-actions">' +
-          '<button type="button" class="btn-primary nexus-confirm" data-nexus-i="' + i + '">Confirm</button>' +
-          '<button type="button" class="btn-secondary nexus-reject" data-nexus-i="' + i + '">Not ours</button>' +
+          '<button type="button" class="btn-primary nexus-review" data-nexus-i="' + i + '">Review</button>' +
         '</div>' +
       '</div>';
     }
@@ -2213,11 +2262,8 @@
     function wireNexusQueue() {
       var q = document.getElementById('nexusQueue');
       if (!q) return;
-      q.querySelectorAll('.nexus-confirm').forEach(function (b) {
-        b.addEventListener('click', function () { confirmNexusOne(Number(this.getAttribute('data-nexus-i')), this); });
-      });
-      q.querySelectorAll('.nexus-reject').forEach(function (b) {
-        b.addEventListener('click', function () { rejectNexusOne(Number(this.getAttribute('data-nexus-i')), this); });
+      q.querySelectorAll('.nexus-review').forEach(function (b) {
+        b.addEventListener('click', function () { openNexusCompare(Number(this.getAttribute('data-nexus-i'))); });
       });
     }
 
@@ -2229,28 +2275,154 @@
       }
     }
 
-    function confirmNexusOne(i, btn) {
-      var p = NEXUS_PENDING[i];
+    // --- Nexus compare view ---------------------------------------------------------------------
+    // Shows our filed PDF next to a field-by-field Nexus/ours table, with each row marked as agreeing
+    // or differing, so confirming is a visual check. Prev/Next walks the queue without leaving.
+
+    var NEXUS_CMP_I = -1;              // index into NEXUS_PENDING currently under review
+    var NEXUS_CMP_DONE = {};           // index -> label, so a decided item isn't offered again
+
+    function nexusSwapPanels(showCompare) {
+      document.getElementById('nexusComparePanel').style.display = showCompare ? '' : 'none';
+      document.getElementById('nexusSummary').style.display = showCompare ? 'none' : '';
+      // The upload controls and the apply/analyze buttons are irrelevant while comparing one match.
+      ['nexusFileField', 'nexusAnalyzeBtn', 'nexusApplyBtn'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (!el) return;
+        if (showCompare) { el.dataset.nexusPrevDisplay = el.style.display; el.style.display = 'none'; }
+        else if (el.dataset.nexusPrevDisplay !== undefined) { el.style.display = el.dataset.nexusPrevDisplay; }
+      });
+      document.querySelectorAll('#nexusModalOverlay .modal-subtitle').forEach(function (el) {
+        el.style.display = showCompare ? 'none' : '';
+      });
+      document.querySelector('#nexusModalOverlay .modal-box')
+        .classList[showCompare ? 'add' : 'remove']('modal-wide');
+    }
+
+    function openNexusCompare(i) {
+      if (!NEXUS_PENDING[i]) return;
+      NEXUS_CMP_I = i;
+      nexusSwapPanels(true);
+      renderNexusCompare();
+    }
+
+    function closeNexusCompare() {
+      document.getElementById('nexusComparePdf').innerHTML = ''; // stop the embedded Drive viewer
+      NEXUS_CMP_I = -1;
+      nexusSwapPanels(false);
+    }
+
+    // Moves to the next/previous item that hasn't been decided yet; returns false at the ends.
+    function nexusCompareStep(dir) {
+      var i = NEXUS_CMP_I;
+      for (var k = i + dir; k >= 0 && k < NEXUS_PENDING.length; k += dir) {
+        if (!NEXUS_CMP_DONE[k]) { NEXUS_CMP_I = k; renderNexusCompare(); return true; }
+      }
+      return false;
+    }
+
+    function nexusCmpRow(label, nexusVal, ourVal, agree) {
+      var cls = agree === null ? '' : (agree ? 'agree' : 'differ');
+      return '<tr class="' + cls + '"><td class="lbl">' + escapeHtml(label) + '</td>' +
+        '<td class="val">' + escapeHtml(nexusVal || '—') + '</td>' +
+        '<td class="val">' + escapeHtml(ourVal || '—') + '</td></tr>';
+    }
+
+    function renderNexusCompare() {
+      var p = NEXUS_PENDING[NEXUS_CMP_I];
       if (!p) return;
+      document.getElementById('nexusModalError').textContent = '';
+
+      // PDF of OUR invoice — the thing being reclassified.
+      var pdfBox = document.getElementById('nexusComparePdf');
+      var parsed = drivePreviewUrl(p.ourDriveLink);
+      pdfBox.innerHTML = parsed
+        ? '<iframe src="' + parsed.url + '" title="Invoice PDF"></iframe>'
+        : '<p class="nexus-nopdf">No PDF on file for this row, so compare using the details on the right.</p>';
+
+      // Field-by-field. Amount agreement counts the 10% holdback as agreement, since that's expected.
+      var amtAgree = null;
+      if (p.nexusAmount != null && p.ourAmount) {
+        var ratio = Number(p.nexusAmount) / Number(p.ourAmount);
+        amtAgree = Math.abs(Number(p.nexusAmount) - Number(p.ourAmount)) <= 0.02 || (ratio >= 0.895 && ratio <= 0.905);
+      }
+      var numAgree = null;
+      if (p.nexusNumber && p.ourInvoiceNumber) {
+        var a = String(p.nexusNumber).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        var b = String(p.ourInvoiceNumber).toUpperCase().replace(/[^A-Z0-9]/g, '');
+        numAgree = a === b || (b.length >= 5 && a.indexOf(b) !== -1) || (a.length >= 5 && b.indexOf(a) !== -1);
+      }
+      var venAgree = (p.nexusVendor && p.ourVendor)
+        ? (p.nexusVendor.toUpperCase().replace(/[^A-Z0-9]/g, '').indexOf(p.ourVendor.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) !== -1 ||
+           p.ourVendor.toUpperCase().replace(/[^A-Z0-9]/g, '').indexOf(p.nexusVendor.toUpperCase().replace(/[^A-Z0-9]/g, '').slice(0, 8)) !== -1)
+        : null;
+      var dateAgree = (p.nexusDate && p.ourDate) ? (p.nexusDate === p.ourDate) : null;
+
+      var amtNexus = fmtNexusMoney(p.nexusAmount);
+      if (amtAgree && p.nexusAmount != null && p.ourAmount &&
+          Math.abs(Number(p.nexusAmount) - Number(p.ourAmount)) > 0.02) {
+        amtNexus += '  (ours less 10% holdback)';
+      }
+
+      document.getElementById('nexusCmpBody').innerHTML =
+        nexusCmpRow('Invoice #', p.nexusNumber, p.ourInvoiceNumber, numAgree) +
+        nexusCmpRow('Vendor', p.nexusVendor + (p.nexusVendorId ? ' [' + p.nexusVendorId + ']' : ''), p.ourVendor, venAgree) +
+        nexusCmpRow('Amount', amtNexus, fmtNexusMoney(p.ourAmount) + (p.ourCurrency ? ' ' + p.ourCurrency : ''), amtAgree) +
+        nexusCmpRow('Date', p.nexusDate, p.ourDate, dateAgree) +
+        nexusCmpRow('Status', p.nexusStatus + ' → ' + p.target, p.currentStatus, null) +
+        nexusCmpRow('Project', p.nexusProperty, p.ourProject, null);
+
+      document.getElementById('nexusVerdict').innerHTML =
+        '<strong>Why this was suggested:</strong> ' + escapeHtml((p.reasons || []).join('; ')) +
+        (p.alternatives ? ' <span class="nexus-muted">(' + p.alternatives + ' other row(s) also possible — check the invoice # carefully)</span>' : '');
+
+      var confirmBtn = document.getElementById('nexusCmpConfirm');
+      confirmBtn.textContent = 'Confirm — set to ' + p.target;
+      confirmBtn.disabled = false;
+      document.getElementById('nexusCmpReject').disabled = false;
+
+      var remaining = NEXUS_PENDING.filter(function (_, k) { return !NEXUS_CMP_DONE[k]; }).length;
+      document.getElementById('nexusCmpProgress').textContent =
+        (NEXUS_CMP_I + 1) + ' of ' + NEXUS_PENDING.length + ' · ' + remaining + ' left to decide';
+    }
+
+    // After a decision: mark the card done and advance, or fall back to the list when none are left.
+    function nexusAfterDecision(label) {
+      nexusCardDone(NEXUS_CMP_I, label);
+      NEXUS_CMP_DONE[NEXUS_CMP_I] = label;
+      if (!nexusCompareStep(1) && !nexusCompareStep(-1)) {
+        closeNexusCompare();
+        document.getElementById('nexusCmpProgress').textContent = '';
+      }
+    }
+
+    function confirmNexusCurrent() {
+      var p = NEXUS_PENDING[NEXUS_CMP_I];
+      if (!p) return;
+      var btn = document.getElementById('nexusCmpConfirm');
       btn.disabled = true; btn.textContent = 'Saving…';
       google.script.run
         .withSuccessHandler(function () {
           NEXUS_APPLIED = true;
-          nexusCardDone(i, 'Set to ' + p.target + ' ✓');
+          nexusAfterDecision('Set to ' + p.target + ' ✓');
         })
         .withFailureHandler(function (err) {
-          btn.disabled = false; btn.textContent = 'Confirm';
+          btn.disabled = false; btn.textContent = 'Confirm — set to ' + p.target;
           document.getElementById('nexusModalError').textContent = (err && err.message) ? err.message : 'Could not apply that match.';
         })
         .confirmNexusMatch(p);
     }
 
-    function rejectNexusOne(i, btn) {
-      var p = NEXUS_PENDING[i];
+    function rejectNexusCurrent() {
+      var p = NEXUS_PENDING[NEXUS_CMP_I];
       if (!p) return;
+      var btn = document.getElementById('nexusCmpReject');
       btn.disabled = true; btn.textContent = 'Saving…';
       google.script.run
-        .withSuccessHandler(function () { nexusCardDone(i, 'Marked not ours'); })
+        .withSuccessHandler(function () {
+          btn.textContent = 'Not ours';
+          nexusAfterDecision('Marked not ours');
+        })
         .withFailureHandler(function (err) {
           btn.disabled = false; btn.textContent = 'Not ours';
           document.getElementById('nexusModalError').textContent = (err && err.message) ? err.message : 'Could not save that.';
@@ -2959,7 +3131,16 @@
       document.getElementById('nexusCloseBtn').addEventListener('click', closeNexusModal);
       document.getElementById('nexusAnalyzeBtn').addEventListener('click', analyzeNexusFile);
       document.getElementById('nexusApplyBtn').addEventListener('click', applyNexus);
-      document.getElementById('nexusModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeNexusModal(); });
+      document.getElementById('nexusCmpConfirm').addEventListener('click', confirmNexusCurrent);
+      document.getElementById('nexusCmpReject').addEventListener('click', rejectNexusCurrent);
+      document.getElementById('nexusCmpSkip').addEventListener('click', function () { if (!nexusCompareStep(1)) closeNexusCompare(); });
+      document.getElementById('nexusCmpPrev').addEventListener('click', function () { nexusCompareStep(-1); });
+      document.getElementById('nexusCmpNext').addEventListener('click', function () { nexusCompareStep(1); });
+      document.getElementById('nexusCmpBack').addEventListener('click', closeNexusCompare);
+      // Don't let a stray click on the backdrop close the modal mid-review — only when on the list.
+      document.getElementById('nexusModalOverlay').addEventListener('click', function (e) {
+        if (e.target === this && NEXUS_CMP_I === -1) closeNexusModal();
+      });
       document.getElementById('hintsCloseBtn').addEventListener('click', closeHintsModal);
       document.getElementById('hintsAddBtn').addEventListener('click', addHint);
       document.getElementById('hintsProject').addEventListener('change', onHintsProjectChange);

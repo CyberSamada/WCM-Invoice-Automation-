@@ -320,6 +320,12 @@ function buildNexusLogIndex_() {
   const iVendor = header.indexOf('Vendor');
   const iAmount = header.indexOf('Amount');
   const iInvDate = header.indexOf('Invoice Date');
+  // Carried so the dashboard's confirmation panel can show the invoice PDF and full context
+  // side by side with the Nexus row, instead of asking someone to confirm from two text lines.
+  const iDriveLink = header.indexOf('Drive Link');
+  const iCurrency = header.indexOf('Currency');
+  const iProjNum = header.indexOf('Project Number');
+  const iProjName = header.indexOf('Project Name');
 
   const rows = [];
   const byNorm = {}, byDigits = {}, byVendorAmount = {}, byRowId = {};
@@ -344,7 +350,11 @@ function buildNexusLogIndex_() {
       vendor: vendor,
       vendorKey: vendor ? vendorNormalizedKey_(vendor) : '',
       amount: amount,
-      invoiceDate: iInvDate > -1 ? nexusParseDate_(values[r][iInvDate]) : null
+      invoiceDate: iInvDate > -1 ? nexusParseDate_(values[r][iInvDate]) : null,
+      driveLink: iDriveLink > -1 ? String(values[r][iDriveLink] || '').trim() : '',
+      currency: iCurrency > -1 ? String(values[r][iCurrency] || '').trim() : '',
+      projectNumber: iProjNum > -1 ? String(values[r][iProjNum] || '').trim() : '',
+      projectName: iProjName > -1 ? String(values[r][iProjName] || '').trim() : ''
     };
     rows.push(rec);
     byRowId[rowId] = rec;
@@ -535,19 +545,30 @@ function matchNexusEntries_(entries, index, invoiceMap, vendorMap) {
   };
 }
 
-/** Shapes one match for the browser. */
+/** Shapes one match for the browser. Dates go over as yyyy-MM-dd strings — a raw Date would arrive as
+ *  an opaque serialized value, and only the day matters for a human comparing the two records. */
 function nexusMatchToClient_(s) {
+  const fmt = d => {
+    if (!d || !(d instanceof Date) || isNaN(d.getTime())) return '';
+    return Utilities.formatDate(d, CONFIG_TIMEZONE_(), 'yyyy-MM-dd');
+  };
   return {
     nexusNumber: s.entry.number,
     nexusStatus: s.entry.rawStatus,
     nexusVendor: s.entry.vendor,
     nexusVendorId: s.entry.vendorId,
     nexusAmount: s.entry.amount,
+    nexusDate: fmt(s.entry.date),
+    nexusProperty: s.entry.property,
     target: s.entry.target,
     rowId: s.our.rowId,
     ourInvoiceNumber: s.our.number,
     ourVendor: s.our.vendor,
     ourAmount: s.our.amount,
+    ourDate: fmt(s.our.invoiceDate),
+    ourCurrency: s.our.currency || '',
+    ourProject: [s.our.projectNumber, s.our.projectName].filter(p => p).join(' - '),
+    ourDriveLink: s.our.driveLink || '',
     currentStatus: s.our.status,
     score: s.score,
     reasons: s.reasons,
