@@ -245,6 +245,8 @@
     }
     .reset-btn:hover { background: #eef4fb; }
     .results-count { font-size: 12px; color: var(--text-muted); margin: 0; }
+    /* Controls on the left, the count on the right. */
+    .results-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px 0; }
     .download-capture { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px;
       margin: 4px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
@@ -345,10 +347,18 @@
     .icon-link:hover { color: var(--wcm-blue-dark); }
     #filterProject option.sub-option { padding-left: 14px; }
 
+    .note-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+    .note-link:hover { color: var(--text); }
+    .note-sep { margin: 0 6px; opacity: 0.6; }
+    /* Page footer. Uses the theme token, not a raw hex, so it follows light/dark like everything
+       else — and a rule above it so it reads as a footer rather than floating stray text. */
     .note {
       font-size: 11.5px;
-      color: #9ca3af;
-      margin-top: 24px;
+      color: var(--text-muted);
+      opacity: 0.8;
+      margin: 28px 0 4px;
+      padding-top: 14px;
+      border-top: 1px solid var(--border);
       text-align: center;
     }
 
@@ -445,6 +455,18 @@
     .preview-frame-wrap iframe { display: block; width: 100%; height: 68vh; border: none; }
     /* Text-select preview (PDF.js): scrollable stack of page canvases, each with a selectable text layer. */
     #previewPdfSelect { width: 100%; height: 68vh; overflow: auto; background: #e5e7eb; text-align: center; padding: 10px 0; }
+    .pdf-toolbar { display: flex; align-items: center; gap: 4px; padding: 4px 6px;
+      background: var(--surface-alt); border-bottom: 1px solid var(--border); }
+    .pdf-toolbar button { border: 1px solid var(--input-border); background: var(--surface); color: var(--text);
+      border-radius: 5px; cursor: pointer; font-size: 12px; line-height: 1; padding: 4px 8px; font-family: inherit; }
+    .pdf-toolbar button:hover { background: var(--surface-hover); }
+    .pdf-toolbar button.active { background: #2a4a79; color: #fff; border-color: #2a4a79; }
+    .pdf-zoom-label { font-size: 11.5px; color: var(--text-muted); min-width: 42px; text-align: center; }
+    /* Scrollable in both directions once zoomed past the pane — that's the panning. */
+    #previewPdfSelect { overflow: auto; height: 68vh; background: #f3f4f6; }
+    #previewPdfSelect.panning { cursor: grab; user-select: none; }
+    #previewPdfSelect.panning.dragging { cursor: grabbing; }
+    #previewPdfSelect.panning .textLayer { pointer-events: none; }
     #previewPdfSelect .pdf-page { position: relative; margin: 0 auto 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); background: var(--surface); }
     #previewPdfSelect .pdf-page canvas { display: block; }
     #previewPdfSelect .pdf-status { color: var(--text-muted); font-size: 13px; padding: 24px 12px; }
@@ -454,16 +476,26 @@
     #previewPdfSelect .textLayer ::selection { background: rgba(37,99,235,0.35); }
     #previewPdfSelect .textLayer ::-moz-selection { background: rgba(37,99,235,0.35); }
     .preview-side { flex: 0 0 300px; display: flex; flex-direction: column; gap: 10px; max-height: 68vh; overflow-y: auto; }
-    .preview-location { font-size: 12px; color: var(--text-muted); margin: 0; word-break: break-word; }
-    .preview-location strong { color: var(--text); font-weight: 600; }
+    /* One-line location bar: clipped with an ellipsis so a deep folder path can't eat the panel.
+       The full path is in the title attribute and on the copy button. */
+    .preview-locbar { display: flex; align-items: center; gap: 8px; margin: 2px 0 6px;
+      padding: 4px 8px; background: var(--surface-alt); border: 1px solid var(--border); border-radius: 6px; }
+    .preview-locbar-text { flex: 1 1 auto; min-width: 0; font-size: 11.5px; color: var(--text-muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .preview-locbar-text strong { color: var(--text); font-weight: 600; }
+    .preview-copy { flex: 0 0 auto; border: 1px solid var(--input-border); background: var(--surface);
+      color: var(--text); border-radius: 5px; cursor: pointer; font-size: 12px; line-height: 1; padding: 4px 7px; }
+    .preview-copy:hover { background: var(--surface-hover); }
     .preview-note { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 9px; margin: 0; line-height: 1.45; word-break: break-word; }
     .preview-note strong { color: #78350f; font-weight: 700; }
     /* Collapsed note: one line showing the newest event, expandable to the full history. */
     .preview-note-details summary { cursor: pointer; display: flex; align-items: baseline; gap: 6px;
       list-style: none; }
     .preview-note-details summary::-webkit-details-marker { display: none; }
-    .preview-note-details summary::before { content: '\25B8'; flex: 0 0 auto; font-size: 10px; opacity: 0.7; }
-    .preview-note-details[open] summary::before { content: '\25BE'; }
+    .preview-note-details summary::before { content: '\25B6'; flex: 0 0 auto; font-size: 9px;
+      color: #8a5a00; transition: transform 0.12s ease; display: inline-block; }
+    .preview-note-details[open] summary::before { transform: rotate(90deg); }
+    .preview-note-details summary:hover strong { text-decoration: underline; }
     .preview-note-details summary strong { flex: 0 0 auto; }
     .preview-note .note-count { flex: 0 0 auto; font-size: 10.5px; opacity: 0.75; }
     /* The newest entry, clipped to one line so the panel height stays predictable. */
@@ -751,28 +783,30 @@
       </div>
 
       <div class="results-header">
+        <div class="results-controls">
+          <div class="sort-control">
+            <label for="pageSize">Show</label>
+            <select id="pageSize">
+              <option value="all" selected>All</option>
+              <option value="50">50 per page</option>
+              <option value="100">100 per page</option>
+            </select>
+          </div>
+          <div class="sort-control">
+            <label for="sortField">Sort by</label>
+            <select id="sortField">
+              <option value="processed">Processed date</option>
+              <option value="received">Received date</option>
+              <option value="invoice">Invoice date</option>
+              <option value="vendor">Vendor</option>
+              <option value="project">Project</option>
+              <option value="amount">Amount</option>
+              <option value="status">Status</option>
+            </select>
+            <button type="button" class="sort-dir" id="sortDir" data-dir="desc" title="Toggle sort direction (newest/oldest, A–Z/Z–A)" aria-label="Toggle sort direction">&#8595;</button>
+          </div>
+        </div>
         <p class="results-count" id="resultsCount">Showing all invoices</p>
-        <div class="sort-control">
-          <label for="pageSize">Show</label>
-          <select id="pageSize">
-            <option value="all" selected>All</option>
-            <option value="50">50 per page</option>
-            <option value="100">100 per page</option>
-          </select>
-        </div>
-        <div class="sort-control">
-          <label for="sortField">Sort by</label>
-          <select id="sortField">
-            <option value="processed">Processed date</option>
-            <option value="received">Received date</option>
-            <option value="invoice">Invoice date</option>
-            <option value="vendor">Vendor</option>
-            <option value="project">Project</option>
-            <option value="amount">Amount</option>
-            <option value="status">Status</option>
-          </select>
-          <button type="button" class="sort-dir" id="sortDir" data-dir="desc" title="Toggle sort direction (newest/oldest, A–Z/Z–A)" aria-label="Toggle sort direction">&#8595;</button>
-        </div>
       </div>
 
       <div class="bulk-bar" id="bulkBar">
@@ -823,7 +857,13 @@
       </table>
     </div>
 
-    <p class="note">WCM Invoice Automation — automatically filed and logged from billing@wcmcon.com</p>
+    <!-- Bottom of a long table: a way back up and when the data was read, since the header
+         timestamp has scrolled out of sight by the time anyone reaches here. -->
+    <p class="note">
+      <a href="#" class="note-link" id="backToTopLink">&#8593; Back to top</a>
+      <span class="note-sep">·</span>
+      Data read <?= data.generatedAtFormatted ?> — reload the page for the latest
+    </p>
   </div>
 
   <div id="notePopover" role="tooltip"></div>
@@ -887,14 +927,27 @@
     <div class="modal-box preview-box">
       <h3 id="previewTitle">Invoice preview</h3>
       <p class="modal-subtitle" id="previewSubtitle"></p>
+      <!-- File location as a slim one-line bar, with a copy button — it used to be a four-line block
+           in the side column, pushing the edit fields down. -->
+      <div class="preview-locbar">
+        <span class="preview-locbar-text" id="previewLocation" title="">Looking up file location…</span>
+        <button type="button" class="preview-copy" id="previewCopyPath" title="Copy the full path">&#128203;</button>
+      </div>
       <div class="preview-body">
         <div class="preview-frame-wrap">
+          <!-- Zoom / pan controls for the selectable renderer. The Drive fallback has its own. -->
+          <div class="pdf-toolbar" id="pdfToolbar" style="display:none">
+            <button type="button" id="pdfZoomOut" title="Zoom out">&minus;</button>
+            <span class="pdf-zoom-label" id="pdfZoomLabel">100%</span>
+            <button type="button" id="pdfZoomIn" title="Zoom in">+</button>
+            <button type="button" id="pdfZoomFit" title="Fit to width">Fit</button>
+            <button type="button" id="pdfPanToggle" title="Drag to pan instead of selecting text">&#9995; Pan</button>
+          </div>
           <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
           <!-- Text-select mode: PDF.js renders pages here with a selectable text layer over each canvas. -->
           <div id="previewPdfSelect" style="display:none"></div>
         </div>
         <div class="preview-side">
-          <p class="preview-location" id="previewLocation">Looking up file location…</p>
           <div class="preview-note" id="previewNote" style="display:none"></div>
           <div class="preview-edit">
             <div class="preview-edit-col preview-edit-project">
@@ -1947,9 +2000,7 @@
 
       google.script.run
         .withSuccessHandler(function (info) {
-          document.getElementById('previewLocation').innerHTML =
-            '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
-            ' &nbsp;·&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+          setPreviewLocation(info);
         })
         .withFailureHandler(function () {
           document.getElementById('previewLocation').textContent = 'Could not look up the file location — the preview and Open in Drive still work.';
@@ -1974,6 +2025,114 @@
     // the Drive viewer on its own (a library that didn't load, a file over the size cap, a fetch error,
     // or a scanned image with no text in it, where selection would add nothing anyway).
 
+    // The location bar is one line with an ellipsis, so the full path lives here for the copy button
+    // and the tooltip. Called from every place that (re)resolves a file's location.
+    var previewFullPath = '';
+    function setPreviewLocation(info) {
+      var folder = (info && info.folderPath) || '(unknown)';
+      var file = (info && info.fileName) || '';
+      previewFullPath = folder + (file ? ' / ' + file : '');
+      var el = document.getElementById('previewLocation');
+      el.innerHTML = '<strong>Location:</strong> ' + escapeHtml(folder) +
+        (file ? ' &nbsp;·&nbsp; <strong>File:</strong> ' + escapeHtml(file) : '');
+      el.title = previewFullPath;   // hover shows what the ellipsis hides
+    }
+
+    function copyPreviewPath() {
+      var btn = document.getElementById('previewCopyPath');
+      if (!previewFullPath) return;
+      var done = function () { btn.textContent = '\u2713'; setTimeout(function () { btn.innerHTML = '&#128203;'; }, 1200); };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(previewFullPath).then(done, fallbackCopy);
+      } else { fallbackCopy(); }
+      // execCommand path for browsers/contexts where the async clipboard API is unavailable.
+      function fallbackCopy() {
+        var ta = document.createElement('textarea');
+        ta.value = previewFullPath;
+        ta.style.position = 'fixed'; ta.style.opacity = '0';
+        document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); done(); } catch (e) { /* clipboard blocked */ }
+        document.body.removeChild(ta);
+      }
+    }
+
+    // --- zoom / pan -----------------------------------------------------------------------------
+    // Fit-to-width is 1.0. Zooming re-renders the pages (rather than CSS-scaling the canvas) so the
+    // text stays sharp and the selectable text layer keeps lining up with what's drawn.
+    var PREVIEW_ZOOM = 1;
+    var PREVIEW_PAN = false;
+    var previewPdfDoc = null;      // kept so zooming re-renders without re-fetching the bytes
+    var PREVIEW_ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
+
+    function previewFitWidth(container) {
+      var w = container.clientWidth - 20;
+      if (!(w > 0)) w = 700;            // modal not laid out yet — sensible default
+      return Math.min(w, 900);
+    }
+
+    function setPreviewZoom(z) {
+      PREVIEW_ZOOM = Math.max(PREVIEW_ZOOM_STEPS[0], Math.min(z, PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]));
+      document.getElementById('pdfZoomLabel').textContent = Math.round(PREVIEW_ZOOM * 100) + '%';
+      if (!previewPdfDoc) return;
+      var container = document.getElementById('previewPdfSelect');
+      container.innerHTML = '';
+      renderPdfPage(previewPdfDoc, 1, container, ++previewPdfToken);
+    }
+
+    // Zoom in -> the first step above the current value; zoom out -> the last step below it. Stated
+    // that way rather than as an index +/- 1, which skipped a step whenever the current zoom sat
+    // between two steps (1.1 zoomed out to 0.75, jumping past 1.0).
+    function stepPreviewZoom(dir) {
+      var EPS = 0.001, target = null, k;
+      if (dir > 0) {
+        for (k = 0; k < PREVIEW_ZOOM_STEPS.length; k++) {
+          if (PREVIEW_ZOOM_STEPS[k] > PREVIEW_ZOOM + EPS) { target = PREVIEW_ZOOM_STEPS[k]; break; }
+        }
+        if (target === null) target = PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1];
+      } else {
+        for (k = PREVIEW_ZOOM_STEPS.length - 1; k >= 0; k--) {
+          if (PREVIEW_ZOOM_STEPS[k] < PREVIEW_ZOOM - EPS) { target = PREVIEW_ZOOM_STEPS[k]; break; }
+        }
+        if (target === null) target = PREVIEW_ZOOM_STEPS[0];
+      }
+      setPreviewZoom(target);
+    }
+
+    // Pan is an explicit mode: dragging is text selection by default, so grabbing the page to move it
+    // has to be asked for. Selection still works normally the moment Pan is switched back off.
+    function togglePreviewPan() {
+      PREVIEW_PAN = !PREVIEW_PAN;
+      var c = document.getElementById('previewPdfSelect');
+      c.classList.toggle('panning', PREVIEW_PAN);
+      document.getElementById('pdfPanToggle').classList.toggle('active', PREVIEW_PAN);
+    }
+
+    function initPreviewPanDrag() {
+      var c = document.getElementById('previewPdfSelect');
+      var dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
+      c.addEventListener('mousedown', function (e) {
+        if (!PREVIEW_PAN) return;
+        dragging = true; c.classList.add('dragging');
+        sx = e.clientX; sy = e.clientY; sl = c.scrollLeft; st = c.scrollTop;
+        e.preventDefault();
+      });
+      window.addEventListener('mousemove', function (e) {
+        if (!dragging) return;
+        c.scrollLeft = sl - (e.clientX - sx);
+        c.scrollTop = st - (e.clientY - sy);
+      });
+      window.addEventListener('mouseup', function () {
+        if (!dragging) return;
+        dragging = false; c.classList.remove('dragging');
+      });
+      // Ctrl/⌘ + wheel zooms, matching every other document viewer.
+      c.addEventListener('wheel', function (e) {
+        if (!(e.ctrlKey || e.metaKey)) return;   // plain wheel keeps scrolling the pages
+        e.preventDefault();
+        stepPreviewZoom(e.deltaY < 0 ? 1 : -1);
+      }, { passive: false });
+    }
+
     // Falls back to the plain Drive viewer. Silent by design — the user asked to see a PDF, not to be
     // told which renderer produced it.
     function usePreviewDriveViewer() {
@@ -1981,6 +2140,8 @@
       var sel = document.getElementById('previewPdfSelect');
       sel.style.display = 'none';
       sel.innerHTML = '';
+      previewPdfDoc = null;
+      document.getElementById('pdfToolbar').style.display = 'none'; // Drive's viewer has its own controls
       frame.style.display = 'block';
     }
 
@@ -1989,9 +2150,14 @@
       var frame = document.getElementById('previewFrame');
       var sel = document.getElementById('previewPdfSelect');
       // No file, or the PDF library never loaded (offline / CSP) — the Drive viewer still works.
+      previewPdfDoc = null;
+      PREVIEW_ZOOM = 1;                                     // every invoice opens fit-to-width
+      document.getElementById('pdfZoomLabel').textContent = '100%';
+      if (PREVIEW_PAN) togglePreviewPan();                  // don't carry pan mode to the next invoice
       if (!previewFileId || typeof pdfjsLib === 'undefined') { usePreviewDriveViewer(); return; }
       frame.style.display = 'none';
       sel.style.display = 'block';
+      sel.scrollTop = 0; sel.scrollLeft = 0;
       renderSelectablePdf(previewFileId);
     }
 
@@ -2018,6 +2184,8 @@
               }).then(function (text) {
                 if (token !== previewPdfToken) return;
                 if (!text || !text.items || !text.items.length) { usePreviewDriveViewer(); return; }
+                previewPdfDoc = pdf;                                   // enables zoom without re-fetching
+                document.getElementById('pdfToolbar').style.display = '';
                 container.innerHTML = '';
                 renderPdfPage(pdf, 1, container, token);
               }).catch(function () {
@@ -2043,9 +2211,9 @@
       if (token !== previewPdfToken || pageNum > pdf.numPages) return;
       pdf.getPage(pageNum).then(function (page) {
         if (token !== previewPdfToken) return;
-        var targetW = container.clientWidth - 20;
-        if (!(targetW > 0)) targetW = 700; // modal not laid out yet — use a sensible default width
-        targetW = Math.min(targetW, 900);
+        // Fit-to-width is the baseline; PREVIEW_ZOOM scales up from there. clientWidth shrinks once a
+        // vertical scrollbar appears, so the fit width is measured once per render pass and reused.
+        var targetW = previewFitWidth(container) * PREVIEW_ZOOM;
         var base = page.getViewport({ scale: 1 });
         var scale = targetW / base.width;
         var viewport = page.getViewport({ scale: scale });
@@ -2184,9 +2352,7 @@
             document.getElementById('previewLocation').textContent = 'Updating file location…';
             google.script.run
               .withSuccessHandler(function (info) {
-                document.getElementById('previewLocation').innerHTML =
-                  '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
-                  ' &nbsp;·&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+                setPreviewLocation(info);
               })
               .withFailureHandler(function () {})
               .getInvoiceFileInfo(parsed.fileId);
@@ -2294,9 +2460,7 @@
             document.getElementById('previewLocation').textContent = 'Updating file location\u2026';
             google.script.run
               .withSuccessHandler(function (info) {
-                document.getElementById('previewLocation').innerHTML =
-                  '<strong>Location:</strong> ' + escapeHtml(info.folderPath || '(unknown)') +
-                  ' &nbsp;\u00b7&nbsp; <strong>File:</strong> ' + escapeHtml(info.fileName || '');
+                setPreviewLocation(info);
               })
               .withFailureHandler(function () {})
               .getInvoiceFileInfo(parsed.fileId);
@@ -3499,6 +3663,16 @@
       document.getElementById('hintsNewAlias').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); addHint(); } });
       document.getElementById('hintsModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeHintsModal(); });
       document.getElementById('previewNextBtn').addEventListener('click', function () { navigatePreview(1); });
+      document.getElementById('previewCopyPath').addEventListener('click', copyPreviewPath);
+      document.getElementById('backToTopLink').addEventListener('click', function (e) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
+      document.getElementById('pdfZoomIn').addEventListener('click', function () { stepPreviewZoom(1); });
+      document.getElementById('pdfZoomOut').addEventListener('click', function () { stepPreviewZoom(-1); });
+      document.getElementById('pdfZoomFit').addEventListener('click', function () { setPreviewZoom(1); });
+      document.getElementById('pdfPanToggle').addEventListener('click', togglePreviewPan);
+      initPreviewPanDrag();
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();
       applyFilters();
