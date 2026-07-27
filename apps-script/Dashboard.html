@@ -458,6 +458,19 @@
     .preview-location strong { color: var(--text); font-weight: 600; }
     .preview-note { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 9px; margin: 0; line-height: 1.45; word-break: break-word; }
     .preview-note strong { color: #78350f; font-weight: 700; }
+    /* Collapsed note: one line showing the newest event, expandable to the full history. */
+    .preview-note-details summary { cursor: pointer; display: flex; align-items: baseline; gap: 6px;
+      list-style: none; }
+    .preview-note-details summary::-webkit-details-marker { display: none; }
+    .preview-note-details summary::before { content: '\25B8'; flex: 0 0 auto; font-size: 10px; opacity: 0.7; }
+    .preview-note-details[open] summary::before { content: '\25BE'; }
+    .preview-note-details summary strong { flex: 0 0 auto; }
+    .preview-note .note-count { flex: 0 0 auto; font-size: 10.5px; opacity: 0.75; }
+    /* The newest entry, clipped to one line so the panel height stays predictable. */
+    .preview-note .note-latest { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+      white-space: nowrap; opacity: 0.9; }
+    .preview-note-details[open] .note-latest { display: none; }
+    .preview-note-details .note-body { margin-top: 5px; max-height: 30vh; overflow-y: auto; }
     .preview-edit { display: flex; flex-direction: column; gap: 12px; margin-top: 0; }
     .preview-edit-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -1573,16 +1586,29 @@
     }
 
     // Renders the preview panel's note area as a labeled, one-line-per-event sequence (or hides it).
+    // The note is a running history and can be many lines, which pushed the edit fields off screen.
+    // It's collapsed to a single summary line by default; the summary carries the entry count and the
+    // most recent event, so the common "what happened last?" question is answered without expanding.
+    // Uses native <details> so it's keyboard-accessible with no extra wiring.
     function renderPreviewNote(reviewNote, matchNote) {
       var noteEl = document.getElementById('previewNote');
       var lines = noteLinesFrom(reviewNote, matchNote);
-      if (lines.length) {
-        noteEl.innerHTML = '<strong>Note</strong>' +
-          lines.map(function (l) { return '<div class="note-line">' + escapeHtml(l) + '</div>'; }).join('');
-        noteEl.style.display = '';
-      } else {
-        noteEl.textContent = ''; noteEl.style.display = 'none';
+      if (!lines.length) {
+        noteEl.innerHTML = ''; noteEl.style.display = 'none';
+        return;
       }
+      var latest = lines[lines.length - 1];
+      noteEl.innerHTML =
+        '<details class="preview-note-details">' +
+          '<summary><strong>Note</strong>' +
+            '<span class="note-count">' + lines.length + (lines.length === 1 ? ' entry' : ' entries') + '</span>' +
+            '<span class="note-latest">' + escapeHtml(latest) + '</span>' +
+          '</summary>' +
+          '<div class="note-body">' +
+            lines.map(function (l) { return '<div class="note-line">' + escapeHtml(l) + '</div>'; }).join('') +
+          '</div>' +
+        '</details>';
+      noteEl.style.display = '';
     }
 
     function showNotePopover(btn) {
