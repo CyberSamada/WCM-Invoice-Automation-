@@ -387,7 +387,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
 
   // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
   // filing everything by month, and the legacy Past Due rows were already migrated to Filed/Needs Review.
-  const ALLOWED_STATUSES = ['Filed', 'Captured', 'Paid', 'Needs Review', 'Not an Invoice', 'Duplicate'];
+  const ALLOWED_STATUSES = ['Filed', 'Captured', 'Paid', 'Canceled', 'Needs Review', 'Not an Invoice', 'Duplicate'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
   }
@@ -1059,6 +1059,7 @@ function statusToClass_(status) {
   if (status === 'Filed') return 'filed';
   if (status === 'Captured') return 'captured';
   if (status === 'Paid') return 'paid';
+  if (status === 'Canceled') return 'canceled';
   if (status === 'Needs Review') return 'review';
   if (status === 'Not an Invoice') return 'notinvoice';
   if (status === 'Past Due') return 'pastdue';

@@ -4,7 +4,7 @@
  *
  *   <project folder>/
  *     <subproject folder>/            (when a subproject is assigned)
- *       YYYY-MM/                      real invoices (Filed/Captured/Paid), by processed month
+ *       YYYY-MM/                      real invoices (Filed/Captured/Paid/Canceled), by processed month
  *         Needs Review/               invoices awaiting review — never mixed with statements
  *         Statements & Others/        ONLY "Not an Invoice" documents
  *     No Subprojects/                 (when NO subproject is assigned — same months inside)
@@ -77,7 +77,7 @@ function refileToCorrectFoldersInner_() {
         const matchedRef = matchCache[matchKey];
 
         // Statuses collapse to three folder buckets, all nested under the processed-month folder.
-        const bucket = (status === 'Filed' || status === 'Captured' || status === 'Paid') ? 'Filed'
+        const bucket = (status === 'Filed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') ? 'Filed'
           : (status === 'Not an Invoice' ? 'Not an Invoice' : 'Needs Review');
         const destKey = matchKey + '|' + bucket + '|' + monthFolderKey_(row[idx['Date Processed']]);
         if (!(destKey in destCache)) {
