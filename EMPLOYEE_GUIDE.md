@@ -108,6 +108,12 @@ Nexus statuses map like this:
 
 Anything else in the Status column is ignored. **Duplicate** and **Not an Invoice** rows are never changed. Each update is recorded on the invoice's note (same as a manual edit), and files move to the right folder automatically. Re-uploading the same file is safe — invoices already at the right status are skipped.
 
+### Reviewing what will change
+
+After you upload, you get a **report of every invoice that will be updated** — its invoice #, vendor, amount, current status, what it will become, the matching Nexus invoice, and why it matched. Nothing has been changed at this point. Click **Download report (CSV)** if you want a copy to keep or circulate, then **Apply updates** when you're happy.
+
+Every change that gets applied is recorded in a **Nexus Sync Log** tab in the spreadsheet — with the date, whether it was automatic or confirmed by a person (and who), both sides' details, and the reason. Rejections ("not ours") are logged too. So you can always answer "why is this invoice marked Paid?" later.
+
 ### Why some invoices need your confirmation
 
 Nexus stores the **processed** invoice number, which often isn't quite what's printed on the invoice — it may carry a property or company prefix (`243-269744` where we logged `269744`), or a suffix. Amounts can differ too, because a **10% holdback** makes the Nexus figure lower than the invoice total. And vendor names aren't spelled identically in both systems.

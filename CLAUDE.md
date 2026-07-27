@@ -209,6 +209,16 @@ vendor+amount is non-unique 11% of the time. A wrong match marks the WRONG invoi
 - **Eligibility**: `NEXUS_ELIGIBLE_STATUSES_` = Filed/Captured/Paid/Canceled/Needs Review. `Duplicate`
   (its file belongs to the canon) and `Not an Invoice` are NEVER touched — enforced at index time, so
   they're not even candidates.
+- **Report + audit trail.** Preview returns `planned` — EVERY automatic change (not a sample) — which
+  the dashboard renders as a scrollable table (invoice #, vendor, amount, from → to, Nexus #, why) with
+  a **Download report (CSV)** button (client-side, BOM'd for Excel). Every applied change and every
+  rejection is also appended to the **`Nexus Sync Log`** tab via `logNexusSyncRows_`: timestamp, decided
+  by (Automatic / Confirmed by <email> / Rejected by <email>), both sides' number/vendor/amount, from →
+  to status, score, and the evidence string. `updateInvoiceRow` already writes a generic Override Log
+  row, but only this says WHICH Nexus invoice drove it and why — that's the "why is this Paid?" answer
+  months later. Written as ONE `setValues` (an apply run can be hundreds of rows; per-row `appendRow`
+  would eat the time budget), header-keyed, and best-effort so a failed log write never makes a
+  succeeded apply look failed.
 - **Preview-then-apply**; apply is **resumable** (`startIndex` → `{done, nextIndex}`, 2.5-min budget,
   `LockService` lock so it can't race `processInvoices`). Every change routes through
   **`updateInvoiceRow`**, so the file move, Review Note stamp and Override Log entry match a manual

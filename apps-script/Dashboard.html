@@ -474,6 +474,17 @@
     .nexus-summary ul { margin: 4px 0 8px 18px; padding: 0; }
     .nexus-muted { color: var(--text-muted); font-size: 12px; margin: 4px 0; }
     .nexus-samples { max-height: 130px; overflow: auto; margin: 4px 0 0 18px; }
+    .nexus-report-head { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+      font-size: 13px; font-weight: 700; margin: 12px 0 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+    .nexus-report-dl { font-size: 12px; padding: 4px 10px; }
+    .nexus-report { max-height: 260px; overflow: auto; border: 1px solid var(--border); border-radius: 8px; }
+    table.nexus-report-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    table.nexus-report-table th { position: sticky; top: 0; background: var(--surface-alt); text-align: left;
+      padding: 6px 8px; border-bottom: 1px solid var(--border); font-size: 10.5px; text-transform: uppercase;
+      letter-spacing: 0.04em; color: var(--text-muted); }
+    table.nexus-report-table td { padding: 5px 8px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    table.nexus-report-table tr:last-child td { border-bottom: none; }
+    .nexus-why-cell { color: var(--text-muted); font-style: italic; }
     .nexus-pending-head { font-size: 13px; margin: 10px 0 6px; padding-top: 10px; border-top: 1px solid var(--border); }
     .nexus-queue { max-height: 320px; overflow-y: auto; border: 1px solid var(--border); border-radius: 8px; }
     .nexus-cand { display: flex; gap: 10px; align-items: center; justify-content: space-between;
@@ -2249,6 +2260,7 @@
     var NEXUS_TOTAL_CHANGED = 0;
     var NEXUS_ERRORS = [];
     var NEXUS_PENDING = [];    // uncertain matches awaiting this person's Confirm / Not ours
+    var NEXUS_PLANNED = [];    // the report: every automatic change the apply step would make
 
     function openNexusModal() {
       document.getElementById('nexusModalError').textContent = '';
@@ -2311,6 +2323,7 @@
 
     function renderNexusSummary(res) {
       NEXUS_PENDING = (res && res.pending) || [];
+      NEXUS_PLANNED = (res && res.planned) || [];
       NEXUS_CMP_DONE = {}; // a fresh analysis supersedes any earlier per-item decisions in this session
       var box = document.getElementById('nexusSummary');
       var h = '<div class="nexus-summary">';
@@ -2330,16 +2343,29 @@
         h += '<p class="nexus-muted">Nexus file: ' + res.nexus.uniqueMatched + ' invoice numbers read' +
           (res.nexus.unknown ? ', ' + res.nexus.unknown + ' rows with a status we don’t act on' : '') + '.</p>';
       }
-      if (res.samples && res.samples.length) {
-        h += '<p class="nexus-muted">Examples of the automatic updates:</p><ul class="nexus-samples">';
-        res.samples.forEach(function (s) {
-          h += '<li>' + escapeHtml(s.ourInvoiceNumber || s.nexusNumber) +
-            (s.ourVendor ? (' &mdash; ' + escapeHtml(s.ourVendor)) : '') +
-            ': ' + escapeHtml(s.currentStatus) + ' &rarr; <strong>' + escapeHtml(s.target) + '</strong></li>';
-        });
-        h += '</ul>';
-      }
       h += '</div>';
+
+      // The report: every invoice that will change, and exactly what to. Reviewed before applying,
+      // and exportable so there's a record outside the sheet too.
+      if (NEXUS_PLANNED.length) {
+        h += '<div class="nexus-report-head">Invoices that will be updated' +
+          '<button type="button" class="btn-secondary nexus-report-dl" id="nexusReportDownload">Download report (CSV)</button></div>';
+        h += '<div class="nexus-report"><table class="nexus-report-table"><thead><tr>' +
+          '<th>Invoice #</th><th>Vendor</th><th>Amount</th><th>From</th><th>To</th><th>Nexus #</th><th>Why</th>' +
+          '</tr></thead><tbody>';
+        NEXUS_PLANNED.forEach(function (s) {
+          h += '<tr>' +
+            '<td>' + escapeHtml(s.ourInvoiceNumber || '—') + '</td>' +
+            '<td>' + escapeHtml(s.ourVendor || '—') + '</td>' +
+            '<td>' + fmtNexusMoney(s.ourAmount) + '</td>' +
+            '<td>' + escapeHtml(s.currentStatus) + '</td>' +
+            '<td><strong>' + escapeHtml(s.target) + '</strong></td>' +
+            '<td>' + escapeHtml(s.nexusNumber) + '</td>' +
+            '<td class="nexus-why-cell">' + escapeHtml((s.reasons || []).join('; ')) + '</td>' +
+            '</tr>';
+        });
+        h += '</tbody></table></div>';
+      }
 
       // The confirmation queue — matches that are plausible but NOT certain. Nothing here is applied
       // until the person clicks Confirm, and each confirmation is remembered for future uploads.
@@ -2352,6 +2378,8 @@
       }
       box.innerHTML = h;
       box.style.display = '';
+      var dl = document.getElementById('nexusReportDownload');
+      if (dl) dl.addEventListener('click', downloadNexusReport);
       wireNexusQueue();
       var applyBtn = document.getElementById('nexusApplyBtn');
       applyBtn.style.display = res.changed > 0 ? '' : 'none';
@@ -2545,6 +2573,23 @@
           document.getElementById('nexusModalError').textContent = (err && err.message) ? err.message : 'Could not save that.';
         })
         .rejectNexusMatch(p.nexusNumber);
+    }
+
+    // Exports the planned-changes report as CSV, so there's a record of what an upload was about to do
+    // independent of the sheet (useful to circulate or keep alongside the export it came from).
+    function downloadNexusReport() {
+      var cols = ['Invoice Number', 'Vendor', 'Amount', 'From Status', 'To Status',
+                  'Nexus Number', 'Nexus Status', 'Nexus Vendor', 'Nexus Amount', 'Why'];
+      var q = function (v) { return '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"'; };
+      var lines = [cols.map(q).join(',')];
+      NEXUS_PLANNED.forEach(function (s) {
+        lines.push([s.ourInvoiceNumber, s.ourVendor, s.ourAmount, s.currentStatus, s.target,
+                    s.nexusNumber, s.nexusStatus, s.nexusVendor, s.nexusAmount,
+                    (s.reasons || []).join('; ')].map(q).join(','));
+      });
+      var name = 'nexus-update-report-' + new Date().toISOString().slice(0, 10) + '.csv';
+      // ﻿ so Excel opens the UTF-8 correctly rather than mangling accented vendor names.
+      triggerDownload(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' }), name);
     }
 
     function applyNexus() {
