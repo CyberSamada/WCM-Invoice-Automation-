@@ -44,7 +44,7 @@ const CONFIG = {
   // Drive filing: everything nests under the processed-month folder of its base (the subproject's
   // folder, or "No Subprojects" under the project), strictly separated BY STATUS inside the month —
   // see DriveService.gs:
-  //   Filed / Captured / Paid -> <base>/YYYY-MM (real invoices, at the month's root)
+  //   Filed / Captured / Paid / Canceled -> <base>/YYYY-MM (real invoices, at the month's root)
   //   Needs Review            -> <base>/YYYY-MM/Needs Review
   //   Not an Invoice          -> <base>/YYYY-MM/Statements & Others
   STATEMENTS_SUBFOLDER_NAME: 'Statements & Others', // ONLY "Not an Invoice" documents live here

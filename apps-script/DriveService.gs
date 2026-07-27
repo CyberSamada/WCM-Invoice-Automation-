@@ -102,7 +102,7 @@ function resolveBaseFolderId_(matchedRef) {
  * reconciler (Refile.gs), so the paths can never disagree. Everything lives under the processed-month
  * folder of its base (subproject, or "No Subprojects" under the project), strictly SEPARATED by
  * status inside the month:
- *   Filed / Captured / Paid -> <base>/YYYY-MM               (real invoices, at the month's root)
+ *   Filed / Captured / Paid / Canceled -> <base>/YYYY-MM      (real invoices, at the month's root)
  *   Not an Invoice          -> <base>/YYYY-MM/Statements & Others
  *   anything else           -> <base>/YYYY-MM/Needs Review  (awaiting a person; never mixed)
  * No project match at all falls back to the top-level "_Unmatched" folder.
@@ -113,7 +113,11 @@ function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
     return getOrCreateNamedSubfolder_(INVOICE_ARCHIVE_PARENT_FOLDER_ID, CONFIG.UNMATCHED_SUBFOLDER_NAME).getId();
   }
   const monthFolderId = getMonthSubfolderId_(baseId, monthDate);
-  if (status === 'Filed' || status === 'Captured' || status === 'Paid') return monthFolderId;
+  // Paid and Canceled are terminal lifecycle states (closed out) — a Canceled invoice is one that
+  // got rejected outright and will never be paid. Both stay a real invoice at the month root (no
+  // separate folder); they mark closure and are a future hint for the month-close/archive job (the
+  // archive trigger itself is still TBD).
+  if (status === 'Filed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') return monthFolderId;
   if (status === 'Not an Invoice') return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
   return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME).getId();
 }

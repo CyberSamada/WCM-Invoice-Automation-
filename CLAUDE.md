@@ -213,4 +213,8 @@ carries `data-review`/`data-match` (not a pre-joined `data-note`) so the popover
 ## Known future roadmap (user-stated)
 
 - Nexus integration: auto-mark invoices **Paid** (access path TBD: report email vs CSV vs API).
-- Month-close archive: a month "closes" when its invoices are Captured/Paid and reviews resolved.
+- Month-close archive: a month "closes" when its invoices are Captured/Paid/Canceled and reviews
+  resolved. `Canceled` is a terminal lifecycle status (invoice rejected outright, never paid) added
+  alongside `Paid` — it files at the month root like a real invoice (no folder of its own) and exists
+  to close such invoices out (otherwise they sit as `Captured` forever) and to feed this archive
+  hint. The archive TRIGGER itself is still TBD.
