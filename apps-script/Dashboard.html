@@ -890,7 +890,6 @@
         </div>
         <div class="preview-action-btns">
           <button type="button" class="btn-secondary" id="previewCloseBtn">Close</button>
-          <button type="button" class="btn-secondary" id="previewTextBtn" title="Switch to a text-selectable view so you can highlight and copy from the PDF">Select text</button>
           <button type="button" class="btn-secondary" id="previewOpenDriveBtn">Open in Drive</button>
           <button type="button" class="btn-primary" id="previewSaveBtn">Save changes</button>
         </div>
@@ -1082,7 +1081,7 @@
   </div>
 
   <!-- PDF.js (text-selectable preview mode only) — loaded from CDN; if it can't load, the preview
-       silently stays on the Drive viewer and the "Select text" button reports it. -->
+       silently falls back to the Drive viewer. -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
@@ -1769,7 +1768,6 @@
     var previewDriveLink = '';
     var previewRowId = null;
     var previewFileId = '';        // Drive file ID of the previewed PDF (for text-select mode)
-    var previewTextMode = false;   // false = Drive viewer, true = PDF.js selectable render (session-sticky)
     var previewPdfToken = 0;       // bumped to cancel stale/in-flight PDF.js renders
     var previewNavList = []; // snapshot of the shown list when the preview opened, for Prev/Next
 
@@ -1798,7 +1796,7 @@
       populatePreviewEditControls(record);
       updatePreviewNav();
       document.getElementById('previewModalOverlay').style.display = 'flex';
-      applyPreviewMode(); // Drive viewer, or the text-selectable render if that mode is on (modal is laid out now)
+      renderPreviewDocument(); // selectable render, falling back to the Drive viewer (modal is laid out now)
 
       google.script.run
         .withSuccessHandler(function (info) {
@@ -1823,45 +1821,39 @@
     }
 
     // --- Text-select preview (PDF.js) -----------------------------------------------------------
-    // "Select text" swaps the Drive viewer for a PDF.js render whose text layer is selectable, so
-    // values can be highlighted and copied. previewTextMode persists across previews in the session.
+    // The preview is text-selectable by default: we render the PDF ourselves (PDF.js) with a real text
+    // layer, so values can be highlighted and copied straight off the invoice with no mode to switch
+    // into. There is deliberately NO toggle — anything that can't be rendered selectably falls back to
+    // the Drive viewer on its own (a library that didn't load, a file over the size cap, a fetch error,
+    // or a scanned image with no text in it, where selection would add nothing anyway).
 
-    // Shows the Drive iframe or the selectable render, per previewTextMode, and renders if needed.
-    function applyPreviewMode() {
+    // Falls back to the plain Drive viewer. Silent by design — the user asked to see a PDF, not to be
+    // told which renderer produced it.
+    function usePreviewDriveViewer() {
       var frame = document.getElementById('previewFrame');
       var sel = document.getElementById('previewPdfSelect');
-      var btn = document.getElementById('previewTextBtn');
-      if (previewTextMode) {
-        frame.style.display = 'none';
-        sel.style.display = 'block';
-        btn.textContent = 'Back to view';
-        renderSelectablePdf(previewFileId);
-      } else {
-        sel.style.display = 'none';
-        sel.innerHTML = '';
-        frame.style.display = 'block';
-        btn.textContent = 'Select text';
-      }
+      sel.style.display = 'none';
+      sel.innerHTML = '';
+      frame.style.display = 'block';
     }
 
-    function togglePreviewText() {
-      if (!previewTextMode && typeof pdfjsLib === 'undefined') {
-        alert('The text-select viewer could not load (no internet access to the PDF library). The normal viewer and Open in Drive still work.');
-        return;
-      }
-      previewTextMode = !previewTextMode;
-      applyPreviewMode();
+    // Entry point used on open, on Prev/Next, and after a merge.
+    function renderPreviewDocument() {
+      var frame = document.getElementById('previewFrame');
+      var sel = document.getElementById('previewPdfSelect');
+      // No file, or the PDF library never loaded (offline / CSP) — the Drive viewer still works.
+      if (!previewFileId || typeof pdfjsLib === 'undefined') { usePreviewDriveViewer(); return; }
+      frame.style.display = 'none';
+      sel.style.display = 'block';
+      renderSelectablePdf(previewFileId);
     }
 
     // Fetches the PDF bytes and renders every page to a canvas with a selectable text layer over it.
+    // Any failure hands off to the Drive viewer rather than leaving a dead end on screen.
     function renderSelectablePdf(fileId) {
       var container = document.getElementById('previewPdfSelect');
-      if (!fileId || typeof pdfjsLib === 'undefined') {
-        container.innerHTML = '<div class="pdf-status">Text-select view isn’t available for this file.</div>';
-        return;
-      }
       var token = ++previewPdfToken; // guards against a stale render finishing after a fast Next/close
-      container.innerHTML = '<div class="pdf-status">Loading selectable text…</div>';
+      container.innerHTML = '<div class="pdf-status">Loading…</div>';
       google.script.run
         .withSuccessHandler(function (res) {
           if (token !== previewPdfToken) return; // superseded
@@ -1872,19 +1864,28 @@
             try { pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js'; } catch (e) {}
             pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
               if (token !== previewPdfToken) return;
-              container.innerHTML = '';
-              renderPdfPage(pdf, 1, container, token);
+              // A scanned invoice renders fine but has no text to select, so our renderer buys nothing
+              // over Drive's (which has better zoom/page controls) — check page 1 and hand off if empty.
+              pdf.getPage(1).then(function (page) {
+                return page.getTextContent();
+              }).then(function (text) {
+                if (token !== previewPdfToken) return;
+                if (!text || !text.items || !text.items.length) { usePreviewDriveViewer(); return; }
+                container.innerHTML = '';
+                renderPdfPage(pdf, 1, container, token);
+              }).catch(function () {
+                if (token === previewPdfToken) usePreviewDriveViewer();
+              });
             }).catch(function () {
-              if (token !== previewPdfToken) return;
-              container.innerHTML = '<div class="pdf-status">Couldn’t render this PDF for text selection (it may be a scanned image). Use “Back to view” or Open in Drive.</div>';
+              if (token === previewPdfToken) usePreviewDriveViewer();
             });
           } catch (e) {
-            container.innerHTML = '<div class="pdf-status">Couldn’t read this PDF for text selection.</div>';
+            usePreviewDriveViewer();
           }
         })
-        .withFailureHandler(function (err) {
-          if (token !== previewPdfToken) return;
-          container.innerHTML = '<div class="pdf-status">' + escapeHtml(err && err.message ? err.message : 'Could not load the PDF for text selection.') + '</div>';
+        .withFailureHandler(function () {
+          // Over the size cap, no Drive access, or a transient error — the Drive viewer covers all of them.
+          if (token === previewPdfToken) usePreviewDriveViewer();
         })
         .getInvoicePdfData(fileId);
     }
@@ -2142,7 +2143,7 @@
           if (parsed) {
             previewFileId = parsed.fileId;
             document.getElementById('previewFrame').src = parsed.url;
-            if (previewTextMode) applyPreviewMode(); // re-render the kept copy in text-select mode
+            renderPreviewDocument(); // re-render now that this row points at the kept copy
             document.getElementById('previewLocation').textContent = 'Updating file location\u2026';
             google.script.run
               .withSuccessHandler(function (info) {
@@ -3240,7 +3241,6 @@
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
       document.getElementById('previewCloseBtn').addEventListener('click', closePreviewModal);
       document.getElementById('previewOpenDriveBtn').addEventListener('click', function () { if (previewDriveLink) window.open(previewDriveLink, '_blank'); });
-      document.getElementById('previewTextBtn').addEventListener('click', togglePreviewText);
       document.getElementById('previewProjectSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('previewProject'), this.value); });
       document.getElementById('previewSaveBtn').addEventListener('click', savePreviewEdit);
       document.getElementById('previewPrevBtn').addEventListener('click', function () { navigatePreview(-1); });

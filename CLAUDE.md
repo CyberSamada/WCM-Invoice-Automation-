@@ -236,16 +236,19 @@ dark header depending on the uploaded image — no auto-fix.
 
 ## Text-select preview (dashboard)
 
-The PDF preview defaults to the Drive `/preview` iframe (fast, cross-origin — its text selection we
-can't control). A **"Select text"** toggle swaps in a **PDF.js** render (`pdf.min.js` 3.11.174 from
-cdnjs) whose text layer is selectable, so values can be highlighted/copied. Bytes come from
-`getInvoicePdfData(fileId)` (DashboardServer.gs — base64, owner-run/read-only, capped at
-`PDF_SELECT_MAX_BYTES` 25 MB). Client: `renderSelectablePdf`/`renderPdfPage` build one canvas + a
-`.textLayer` per page; `previewTextMode` is session-sticky; `previewPdfToken` cancels stale renders on
-fast Next/close. Everything degrades to the Drive viewer: if the CDN lib doesn't load (CSP/offline)
-the toggle says so, and scanned/image PDFs (no text) show a "use Back to view" message. `pdfjsLib` is
-loaded via a plain `<script src>` OUTSIDE the main `<script>` block — the node syntax-check extractor
-matches `  <script>` (indented, no attrs), so it skips the CDN tag.
+The PDF preview renders through **PDF.js** (`pdf.min.js` 3.11.174 from cdnjs) with a real text layer, so
+invoice values can be highlighted and copied. **There is deliberately no toggle** — it is selectable by
+default, and `renderPreviewDocument()` falls back to the Drive `/preview` iframe **automatically and
+silently** in every case where our renderer can't help: the CDN lib didn't load (offline/CSP), the file
+is over `PDF_SELECT_MAX_BYTES` (25 MB), the fetch failed, or **page 1 has no text items at all** (a
+scanned image — selection would add nothing and Drive's viewer has better zoom/page controls). The
+`previewFrame.src` is always set before rendering, so that fallback is instant.
+
+Bytes come from `getInvoicePdfData(fileId)` (DashboardServer.gs — base64, owner-run/read-only). Client:
+`renderSelectablePdf`/`renderPdfPage` build one canvas + a `.textLayer` per page; `previewPdfToken`
+cancels stale renders on fast Next/close. `pdfjsLib` is loaded via a plain `<script src>` OUTSIDE the
+main `<script>` block — the node syntax-check extractor matches `  <script>` (indented, no attrs), so it
+skips the CDN tag.
 
 ## Review Note sequencing (dashboard)
 
