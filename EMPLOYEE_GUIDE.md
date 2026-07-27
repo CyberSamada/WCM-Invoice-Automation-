@@ -129,9 +129,12 @@ A **hint** tells the automation that a certain name or address printed on an inv
 If you have edit permission, a **Manage hints** button appears in the header (next to Start/Pause):
 
 1. Click **Manage hints**.
-2. Pick a **project**.
-3. Choose what you're managing under **"Manage hints for"**: the **Whole project**, or one of its **subprojects**. Each has its **own, separate hint list** — a subproject's hints are not mixed with the project's. (Projects with no subprojects skip this step.)
-4. Type a name or address in **Add a hint** and click **Add** (e.g. `952 Southdale Rd`) — it's saved to whichever scope you selected. Edit any hint's text with the **✎** pencil; remove your own with the **×**.
+2. On the **left**, pick what you're adding hints to — a **project**, or one of its **subprojects** listed underneath it. The number beside each one is how many hints it already has, and the search box narrows a long list.
+3. On the **right**, type a name or address in **Add a hint** and click **Add** (e.g. `952 Southdale Rd`). Edit a hint's text with the **✎** pencil, or remove one with the **×**.
+
+**Hints work in a hierarchy.** A hint on a **project** also applies to all of that project's **subprojects** — so an address that identifies the whole site only needs adding once, at the project. A hint on a **subproject** applies to that subproject only, which is how you tell two buildings on one site apart.
+
+When a subproject is selected you'll see its own hints plus the project's, tagged **From project**. Those are shown for context and are edited on the project itself, not here.
 
 **Base hints** (marked with a small **Base** badge) are the shipped defaults for known properties. They can be **edited** (✎) to refine the wording, but can't be removed or left blank, so the essential address→project mappings can't be broken by accident.
 
