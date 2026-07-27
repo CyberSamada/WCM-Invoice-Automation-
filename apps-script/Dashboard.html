@@ -479,6 +479,12 @@
       background: var(--surface-alt); border: 1px solid var(--border); }
     .nexus-progress-label { font-size: 12px; color: var(--text-muted); }
     .nexus-compare-actions { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .nexus-cmp-topbar { display: flex; justify-content: flex-start; margin: 0 0 10px; }
+    /* Queue navigation sits under the comparison, separated from the decision buttons above it —
+       "Back to list" pushed to the far right so it isn't mistaken for Next. */
+    .nexus-cmp-footer { display: flex; gap: 8px; align-items: center; margin-top: 14px; padding-top: 12px;
+      border-top: 1px solid var(--border); flex-wrap: wrap; }
+    .nexus-cmp-footer #nexusCmpBack { margin-left: auto; }
 
     /* Bulk select/edit */
     .bulk-bar {
@@ -931,6 +937,11 @@
 
       <!-- Compare one uncertain match: our filed PDF beside the two records, field by field. -->
       <div id="nexusComparePanel" style="display:none">
+        <!-- Close sits top-left, away from the decision buttons, so leaving is never confused with
+             confirming. Queue navigation lives in the footer below the comparison. -->
+        <div class="nexus-cmp-topbar">
+          <button type="button" class="btn-secondary" id="nexusCmpClose">Close</button>
+        </div>
         <div class="nexus-compare">
           <div class="nexus-compare-pdf" id="nexusComparePdf"></div>
           <div class="nexus-compare-side">
@@ -944,13 +955,13 @@
               <button type="button" class="btn-secondary" id="nexusCmpReject">Not ours</button>
               <button type="button" class="btn-secondary" id="nexusCmpSkip">Skip</button>
             </div>
-            <div class="nexus-compare-actions">
-              <button type="button" class="btn-secondary" id="nexusCmpPrev">&lsaquo; Prev</button>
-              <button type="button" class="btn-secondary" id="nexusCmpNext">Next &rsaquo;</button>
-              <span class="nexus-progress-label" id="nexusCmpProgress"></span>
-              <button type="button" class="btn-secondary" id="nexusCmpBack">Back to list</button>
-            </div>
           </div>
+        </div>
+        <div class="nexus-cmp-footer">
+          <button type="button" class="btn-secondary" id="nexusCmpPrev">&lsaquo; Prev</button>
+          <button type="button" class="btn-secondary" id="nexusCmpNext">Next &rsaquo;</button>
+          <span class="nexus-progress-label" id="nexusCmpProgress"></span>
+          <button type="button" class="btn-secondary" id="nexusCmpBack">Back to list</button>
         </div>
       </div>
 
@@ -2285,8 +2296,9 @@
     function nexusSwapPanels(showCompare) {
       document.getElementById('nexusComparePanel').style.display = showCompare ? '' : 'none';
       document.getElementById('nexusSummary').style.display = showCompare ? 'none' : '';
-      // The upload controls and the apply/analyze buttons are irrelevant while comparing one match.
-      ['nexusFileField', 'nexusAnalyzeBtn', 'nexusApplyBtn'].forEach(function (id) {
+      // The upload controls and the bottom button row are irrelevant while comparing one match —
+      // Close moves to the compare panel's own top-left bar.
+      ['nexusFileField', 'nexusAnalyzeBtn', 'nexusApplyBtn', 'nexusCloseBtn'].forEach(function (id) {
         var el = document.getElementById(id);
         if (!el) return;
         if (showCompare) { el.dataset.nexusPrevDisplay = el.style.display; el.style.display = 'none'; }
@@ -3137,6 +3149,12 @@
       document.getElementById('nexusCmpPrev').addEventListener('click', function () { nexusCompareStep(-1); });
       document.getElementById('nexusCmpNext').addEventListener('click', function () { nexusCompareStep(1); });
       document.getElementById('nexusCmpBack').addEventListener('click', closeNexusCompare);
+      // Top-left Close leaves the whole panel (and reloads if statuses were changed), matching the
+      // bottom Close it replaces while comparing.
+      document.getElementById('nexusCmpClose').addEventListener('click', function () {
+        closeNexusCompare();
+        closeNexusModal();
+      });
       // Don't let a stray click on the backdrop close the modal mid-review — only when on the list.
       document.getElementById('nexusModalOverlay').addEventListener('click', function (e) {
         if (e.target === this && NEXUS_CMP_I === -1) closeNexusModal();
