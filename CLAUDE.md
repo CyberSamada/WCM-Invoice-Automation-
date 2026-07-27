@@ -166,7 +166,12 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
 viewer with no Drive access can still export (it runs as the owner, like Preview — read-only, not
 gated). De-dupes by Drive file ID (a `Duplicate` row shares the canon's file — never downloaded
 twice); skips unreadable files and counts them; capped by `DOWNLOAD_MAX_FILES` (100) /
-`DOWNLOAD_MAX_TOTAL_BYTES` (30 MB). **After de-dup, one file returns AS-IS** (`single:true`, its own
+`DOWNLOAD_MAX_TOTAL_BYTES` (30 MB). The zip modal has a **Mark as Captured** tick-box (off by default, reset on open) — downloading a
+batch is normally the act of capturing it. It fires only AFTER `triggerDownload` succeeds, and calls
+`markInvoicesCaptured(rowIds)` (DashboardServer.gs) which decides eligibility SERVER-SIDE: only `Filed`
+and `Needs Review` move to `Captured`, so a `Duplicate` (canon's file), `Not an Invoice`, or an already
+Captured/Paid/Canceled row can't be touched and a lifecycle status is never walked backwards.
+**After de-dup, one file returns AS-IS** (`single:true`, its own
 name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips only illegal chars —
 keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
 bar — one selected downloads directly, multiple open the name-the-zip modal.

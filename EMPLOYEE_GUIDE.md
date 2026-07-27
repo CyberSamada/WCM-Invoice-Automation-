@@ -88,6 +88,8 @@ Need the actual PDFs — say, every invoice for a project this month — as file
    - **One invoice selected?** It downloads straight away as its own PDF — no zip, no naming.
    - **Several selected?** You'll be asked to **name the zip** (it suggests a dated name like `WCM-Invoices-2026-07`); click **Download zip** and your browser saves them all in one file.
 
+In the zip window there's a **Mark these invoices as Captured** tick-box. Since downloading a batch is usually how you capture it into Procore/SmartBuild, ticking it saves doing a separate bulk edit — the statuses are set only *after* the file actually downloads. Only invoices that are **Filed** or **Needs Review** change; Duplicate, Not an Invoice, and anything already Captured / Paid / Canceled are left alone, so it can't undo work. It's off by default and resets every time.
+
 No Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is downloaded twice.
 
 ## Updating statuses from Nexus
