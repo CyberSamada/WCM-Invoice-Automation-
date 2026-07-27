@@ -229,12 +229,51 @@ function saveNexusVendorMapping_(nexusVendorId, nexusVendorName, ourVendor) {
   }));
 }
 
+/**
+ * Appends rows to the "Nexus Sync Log" audit tab — one per applied status change (or rejection).
+ * updateInvoiceRow already writes a generic Override Log entry, but only this records WHICH Nexus
+ * invoice drove the change, the evidence behind it, and whether a machine or a person decided. So
+ * "why is this marked Paid?" stays answerable long after the upload.
+ *
+ * Written as ONE setValues call rather than appendRow per entry — an apply run can produce hundreds
+ * of rows, and per-row appends would dominate the time budget.
+ *
+ * @param {Object[]} entries
+ */
+function logNexusSyncRows_(entries) {
+  if (!entries || !entries.length) return;
+  const sheet = getOrCreateSheet_(CONFIG.SHEET_NEXUS_SYNC_LOG_TAB, CONFIG.NEXUS_SYNC_LOG_COLUMNS);
+  ensureNexusMapTextFormats_(sheet, CONFIG.NEXUS_SYNC_LOG_COLUMNS);
+  const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+  const stamp = Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd HH:mm');
+  const rows = entries.map(e => {
+    const filled = {
+      'Timestamp': stamp,
+      'Decided By': e.decidedBy || '',
+      'Nexus Number': e.nexusNumber || '',
+      'Nexus Status': e.nexusStatus || '',
+      'Nexus Vendor': e.nexusVendor || '',
+      'Nexus Amount': e.nexusAmount == null ? '' : e.nexusAmount,
+      'Row ID': e.rowId || '',
+      'Invoice Number': e.invoiceNumber || '',
+      'Vendor': e.vendor || '',
+      'Amount': e.amount == null ? '' : e.amount,
+      'From Status': e.fromStatus || '',
+      'To Status': e.toStatus || '',
+      'Score': e.score == null ? '' : e.score,
+      'Evidence': e.evidence || ''
+    };
+    return header.map(col => (filled[col] !== undefined ? filled[col] : ''));
+  });
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, header.length).setValues(rows);
+}
+
 /** Forces ID-ish columns on a crosswalk tab to plain text, so Sheets can't turn "3050-4" into a date
  *  (the same coercion that once mangled invoice numbers in the log — see CLAUDE.md). */
 function ensureNexusMapTextFormats_(sheet, columns) {
   try {
     const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    ['Nexus Number', 'Row ID', 'Our Invoice Number'].forEach(col => {
+    ['Nexus Number', 'Row ID', 'Our Invoice Number', 'Invoice Number'].forEach(col => {
       if (columns.indexOf(col) === -1) return;
       const i = header.indexOf(col);
       if (i > -1) sheet.getRange(1, i + 1, sheet.getMaxRows(), 1).setNumberFormat('@');
@@ -591,14 +630,16 @@ function previewNexusStatusUpdate(csvText) {
   const matched = matchNexusEntries_(parsed.entries, index, invoiceMap, vendorMap);
 
   let toPaid = 0, toCaptured = 0, toCanceled = 0, alreadyCorrect = 0, willChange = 0;
-  const samples = [];
+  // The full list of what WOULD change — the report the coordinator reviews (and can export) before
+  // applying, rather than a handful of samples.
+  const planned = [];
   matched.autoMatches.forEach(s => {
     if (s.entry.target === s.our.status) { alreadyCorrect++; return; }
     willChange++;
     if (s.entry.target === 'Paid') toPaid++;
     else if (s.entry.target === 'Captured') toCaptured++;
     else if (s.entry.target === 'Canceled') toCanceled++;
-    if (samples.length < 12) samples.push(nexusMatchToClient_(s));
+    planned.push(nexusMatchToClient_(s));
   });
 
   const pending = matched.pending
@@ -617,7 +658,7 @@ function previewNexusStatusUpdate(csvText) {
     matchedIneligible: index.ineligible,
     logRows: index.logRows,
     nexus: parsed.stats,
-    samples: samples
+    planned: planned
   };
 }
 
@@ -643,12 +684,20 @@ function applyNexusStatusUpdate(csvText, startIndex) {
 
     let changed = 0, nextIndex = todo.length, done = true;
     const errors = [];
+    const logEntries = []; // batched — one sheet write at the end rather than one per row
     for (let i = start; i < todo.length; i++) {
       if (Date.now() - startTime > MAX_RUN_MS) { nextIndex = i; done = false; break; }
       const s = todo[i];
       try {
         updateInvoiceRow(s.our.rowId, { status: s.entry.target }, referenceRows);
         changed++;
+        logEntries.push({
+          decidedBy: 'Automatic', nexusNumber: s.entry.number, nexusStatus: s.entry.rawStatus,
+          nexusVendor: s.entry.vendor, nexusAmount: s.entry.amount,
+          rowId: s.our.rowId, invoiceNumber: s.our.number, vendor: s.our.vendor, amount: s.our.amount,
+          fromStatus: s.our.status, toStatus: s.entry.target, score: s.score,
+          evidence: (s.reasons || []).join('; ')
+        });
         // Lock in what this match taught us, so the same oddity is an exact hit next time.
         try {
           saveNexusInvoiceMapping_(s.entry.number, s.our.rowId, s.our.number, s.our.vendor);
@@ -660,6 +709,9 @@ function applyNexusStatusUpdate(csvText, startIndex) {
         errors.push({ invoiceNumber: s.entry.number, message: e.message });
       }
     }
+    // Audit trail is best-effort: the status changes above already succeeded, and losing a log write
+    // must not make the caller think they failed (which would cause a re-run).
+    try { logNexusSyncRows_(logEntries); } catch (e) { /* logged changes still applied */ }
     return { done: done, nextIndex: nextIndex, total: todo.length, changed: changed, errors: errors };
   } finally {
     lock.releaseLock();
@@ -684,6 +736,15 @@ function confirmNexusMatch(match) {
       saveNexusVendorMapping_(match.nexusVendorId, match.nexusVendor, match.ourVendor);
     }
   } catch (e) { /* the status change already succeeded */ }
+  try {
+    logNexusSyncRows_([{
+      decidedBy: 'Confirmed by ' + (currentViewerEmail_() || 'a person'),
+      nexusNumber: match.nexusNumber, nexusStatus: match.nexusStatus, nexusVendor: match.nexusVendor,
+      nexusAmount: match.nexusAmount, rowId: match.rowId, invoiceNumber: result.invoiceNumber,
+      vendor: match.ourVendor, amount: match.ourAmount, fromStatus: match.currentStatus,
+      toStatus: target, score: match.score, evidence: (match.reasons || []).join('; ')
+    }]);
+  } catch (e) { /* audit only */ }
   return { rowId: match.rowId, status: target, statusClass: statusToClass_(target) };
 }
 
@@ -695,5 +756,17 @@ function rejectNexusMatch(nexusNumber) {
   if (!canControlAutomation_()) throw new Error('You are not allowed to update invoice statuses.');
   if (!nexusNumber) throw new Error('Missing the Nexus invoice number.');
   saveNexusInvoiceMapping_(nexusNumber, NEXUS_NO_MATCH_, '', '');
+  // Recorded too — "we looked at this and it isn't ours" is a decision worth being able to review.
+  try {
+    logNexusSyncRows_([{
+      decidedBy: 'Rejected by ' + (currentViewerEmail_() || 'a person'),
+      nexusNumber: nexusNumber, toStatus: '(no match — not ours)'
+    }]);
+  } catch (e) { /* audit only */ }
   return { rejected: String(nexusNumber) };
+}
+
+/** Best-effort viewer email for the audit trail; '' when it can't be resolved. */
+function currentViewerEmail_() {
+  try { return (Session.getActiveUser().getEmail() || '').trim(); } catch (e) { return ''; }
 }

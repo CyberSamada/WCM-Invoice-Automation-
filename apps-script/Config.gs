@@ -151,6 +151,16 @@ const CONFIG = {
   SHEET_NEXUS_VENDOR_MAP_TAB: 'Nexus Vendor Map',
   NEXUS_VENDOR_MAP_COLUMNS: ['Nexus Vendor ID', 'Nexus Vendor Name', 'Our Vendor', 'Confirmed At'],
 
+  // "Nexus Sync Log" — the audit trail for status changes driven by a Nexus upload. updateInvoiceRow
+  // already writes a generic Override Log row, but that can't say WHY: which Nexus invoice drove it,
+  // what the evidence was, and whether a machine or a person decided. This tab answers "why is this
+  // marked Paid" months later. One row per applied change, plus rejections ("not ours").
+  SHEET_NEXUS_SYNC_LOG_TAB: 'Nexus Sync Log',
+  NEXUS_SYNC_LOG_COLUMNS: [
+    'Timestamp', 'Decided By', 'Nexus Number', 'Nexus Status', 'Nexus Vendor', 'Nexus Amount',
+    'Row ID', 'Invoice Number', 'Vendor', 'Amount', 'From Status', 'To Status', 'Score', 'Evidence'
+  ],
+
   // "Override Log" tab — every manual correction made on the dashboard is recorded here (what the
   // automation originally chose vs. what a human changed it to). This is the learning/audit record:
   // it makes miscategorization patterns visible ("vendor X keeps getting sent to the wrong project")
