@@ -267,6 +267,14 @@ is over `PDF_SELECT_MAX_BYTES` (25 MB), the fetch failed, or **page 1 has no tex
 scanned image — selection would add nothing and Drive's viewer has better zoom/page controls). The
 `previewFrame.src` is always set before rendering, so that fallback is instant.
 
+**Zoom/pan is Acrobat-style with NO mode button** (a toggle was rejected as redundant): the pane's default
+cursor is `grab`, but `.textLayer > span` keeps `cursor: text`, and `pointerIsOnText_` checks whether
+mousedown landed on a text span — blank space drags to pan, text drags to select. Holding SPACE sets
+`.spacepan` (pointer-events off on the text layer) for a temporary hand tool; middle-button always pans.
+Zoom RE-RENDERS pages (`setPreviewZoom` → `renderPdfPage` at `previewFitWidth * PREVIEW_ZOOM`) rather than
+CSS-scaling, so the text layer stays aligned with the canvas. `stepPreviewZoom` is defined as "nearest
+step above/below the current value", not index ±1 — the latter skipped a step from an off-step zoom.
+
 Bytes come from `getInvoicePdfData(fileId)` (DashboardServer.gs — base64, owner-run/read-only). Client:
 `renderSelectablePdf`/`renderPdfPage` build one canvas + a `.textLayer` per page; `previewPdfToken`
 cancels stale renders on fast Next/close. `pdfjsLib` is loaded via a plain `<script src>` OUTSIDE the

@@ -464,9 +464,15 @@
     .pdf-zoom-label { font-size: 11.5px; color: var(--text-muted); min-width: 42px; text-align: center; }
     /* Scrollable in both directions once zoomed past the pane — that's the panning. */
     #previewPdfSelect { overflow: auto; height: 68vh; background: #f3f4f6; }
-    #previewPdfSelect.panning { cursor: grab; user-select: none; }
-    #previewPdfSelect.panning.dragging { cursor: grabbing; }
-    #previewPdfSelect.panning .textLayer { pointer-events: none; }
+    /* Acrobat-style: the page grabs by default, but text keeps the I-beam, so dragging blank space
+       pans and dragging text selects — no mode to switch. */
+    #previewPdfSelect { cursor: grab; }
+    #previewPdfSelect .textLayer > span { cursor: text; }
+    #previewPdfSelect.dragging, #previewPdfSelect.dragging .textLayer > span { cursor: grabbing; }
+    #previewPdfSelect.dragging { user-select: none; }
+    /* Space held = temporary hand tool: everything grabs, and text stops intercepting the drag. */
+    #previewPdfSelect.spacepan, #previewPdfSelect.spacepan .textLayer > span { cursor: grab; }
+    #previewPdfSelect.spacepan .textLayer { pointer-events: none; }
     #previewPdfSelect .pdf-page { position: relative; margin: 0 auto 12px; box-shadow: 0 1px 6px rgba(0,0,0,0.25); background: var(--surface); }
     #previewPdfSelect .pdf-page canvas { display: block; }
     #previewPdfSelect .pdf-status { color: var(--text-muted); font-size: 13px; padding: 24px 12px; }
@@ -941,7 +947,6 @@
             <span class="pdf-zoom-label" id="pdfZoomLabel">100%</span>
             <button type="button" id="pdfZoomIn" title="Zoom in">+</button>
             <button type="button" id="pdfZoomFit" title="Fit to width">Fit</button>
-            <button type="button" id="pdfPanToggle" title="Drag to pan instead of selecting text">&#9995; Pan</button>
           </div>
           <iframe id="previewFrame" src="about:blank" allow="autoplay" title="Invoice PDF preview"></iframe>
           <!-- Text-select mode: PDF.js renders pages here with a selectable text layer over each canvas. -->
@@ -2060,7 +2065,7 @@
     // Fit-to-width is 1.0. Zooming re-renders the pages (rather than CSS-scaling the canvas) so the
     // text stays sharp and the selectable text layer keeps lining up with what's drawn.
     var PREVIEW_ZOOM = 1;
-    var PREVIEW_PAN = false;
+    var PREVIEW_SPACE_PAN = false;   // space held = temporary hand tool, as in Acrobat
     var previewPdfDoc = null;      // kept so zooming re-renders without re-fetching the bytes
     var PREVIEW_ZOOM_STEPS = [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4];
 
@@ -2098,20 +2103,37 @@
       setPreviewZoom(target);
     }
 
-    // Pan is an explicit mode: dragging is text selection by default, so grabbing the page to move it
-    // has to be asked for. Selection still works normally the moment Pan is switched back off.
-    function togglePreviewPan() {
-      PREVIEW_PAN = !PREVIEW_PAN;
-      var c = document.getElementById('previewPdfSelect');
-      c.classList.toggle('panning', PREVIEW_PAN);
-      document.getElementById('pdfPanToggle').classList.toggle('active', PREVIEW_PAN);
+    // True when the pointer went down on actual text — that drag belongs to text selection, not panning.
+    function pointerIsOnText_(e) {
+      var el = e.target;
+      return !!(el && el.parentNode && el.parentNode.className === 'textLayer');
     }
 
     function initPreviewPanDrag() {
       var c = document.getElementById('previewPdfSelect');
       var dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
+
+      // Space held anywhere in the preview = hand tool, released = back to normal (Acrobat behaviour).
+      window.addEventListener('keydown', function (e) {
+        if (e.code !== 'Space' || PREVIEW_SPACE_PAN) return;
+        if (document.getElementById('previewModalOverlay').style.display === 'none') return;
+        var tag = (document.activeElement && document.activeElement.tagName) || '';
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return; // typing a space, not panning
+        PREVIEW_SPACE_PAN = true;
+        c.classList.add('spacepan');
+        e.preventDefault(); // stop the space from scrolling the page
+      });
+      window.addEventListener('keyup', function (e) {
+        if (e.code !== 'Space') return;
+        PREVIEW_SPACE_PAN = false;
+        c.classList.remove('spacepan');
+      });
+
       c.addEventListener('mousedown', function (e) {
-        if (!PREVIEW_PAN) return;
+        // Middle-button always pans. Left-button pans unless it started on text (or space is held,
+        // which forces panning even over text).
+        var wantPan = e.button === 1 || (e.button === 0 && (PREVIEW_SPACE_PAN || !pointerIsOnText_(e)));
+        if (!wantPan) return;   // let the browser run its normal text selection
         dragging = true; c.classList.add('dragging');
         sx = e.clientX; sy = e.clientY; sl = c.scrollLeft; st = c.scrollTop;
         e.preventDefault();
@@ -2153,7 +2175,6 @@
       previewPdfDoc = null;
       PREVIEW_ZOOM = 1;                                     // every invoice opens fit-to-width
       document.getElementById('pdfZoomLabel').textContent = '100%';
-      if (PREVIEW_PAN) togglePreviewPan();                  // don't carry pan mode to the next invoice
       if (!previewFileId || typeof pdfjsLib === 'undefined') { usePreviewDriveViewer(); return; }
       frame.style.display = 'none';
       sel.style.display = 'block';
@@ -3671,7 +3692,6 @@
       document.getElementById('pdfZoomIn').addEventListener('click', function () { stepPreviewZoom(1); });
       document.getElementById('pdfZoomOut').addEventListener('click', function () { stepPreviewZoom(-1); });
       document.getElementById('pdfZoomFit').addEventListener('click', function () { setPreviewZoom(1); });
-      document.getElementById('pdfPanToggle').addEventListener('click', togglePreviewPan);
       initPreviewPanDrag();
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();
