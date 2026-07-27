@@ -272,7 +272,12 @@ cursor is `grab`, but `.textLayer > span` keeps `cursor: text`, and `pointerIsOn
 mousedown landed on a text span — blank space drags to pan, text drags to select. Holding SPACE sets
 `.spacepan` (pointer-events off on the text layer) for a temporary hand tool; middle-button always pans.
 Zoom RE-RENDERS pages (`setPreviewZoom` → `renderPdfPage` at `previewFitWidth * PREVIEW_ZOOM`) rather than
-CSS-scaling, so the text layer stays aligned with the canvas. `stepPreviewZoom` is defined as "nearest
+CSS-scaling, so the text layer stays aligned with the canvas. It renders into a **DETACHED node** and swaps
+it in via `afterFirstPage` once page 1 is drawn (nodes MOVED, not `innerHTML`-copied — copying loses canvas
+bitmaps), because clearing the live pane first left it blank for a beat on every click = the "flash". Scroll
+is restored proportionally so the same part of the page stays in view. `renderPdfPage` measures the fit width
+from the LIVE pane, never from its `container` argument — a detached node has `clientWidth` 0 and would
+silently fall back to the 700px default and draw at the wrong size. `stepPreviewZoom` is defined as "nearest
 step above/below the current value", not index ±1 — the latter skipped a step from an off-step zoom.
 
 Bytes come from `getInvoicePdfData(fileId)` (DashboardServer.gs — base64, owner-run/read-only). Client:

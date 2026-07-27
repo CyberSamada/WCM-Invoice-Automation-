@@ -491,7 +491,10 @@
     .preview-locbar-text strong { color: var(--text); font-weight: 600; }
     .preview-copy { flex: 0 0 auto; border: 1px solid var(--input-border); background: var(--surface);
       color: var(--text); border-radius: 5px; cursor: pointer; font-size: 12px; line-height: 1; padding: 4px 7px; }
+    .preview-copy { display: inline-flex; align-items: center; justify-content: center; }
     .preview-copy:hover { background: var(--surface-hover); }
+    .preview-copy.copied { color: #2b6e4d; border-color: #2b6e4d; }
+    :root[data-theme="dark"] .preview-copy.copied { color: #6ee7a8; border-color: #3f7f5f; }
     .preview-note { font-size: 12px; color: #92400e; background: #fffbeb; border: 1px solid #fde68a; border-radius: 6px; padding: 7px 9px; margin: 0; line-height: 1.45; word-break: break-word; }
     .preview-note strong { color: #78350f; font-weight: 700; }
     /* Collapsed note: one line showing the newest event, expandable to the full history. */
@@ -937,7 +940,7 @@
            in the side column, pushing the edit fields down. -->
       <div class="preview-locbar">
         <span class="preview-locbar-text" id="previewLocation" title="">Looking up file location…</span>
-        <button type="button" class="preview-copy" id="previewCopyPath" title="Copy the full path">&#128203;</button>
+        <button type="button" class="preview-copy" id="previewCopyPath" title="Copy the full path" aria-label="Copy the full path"><svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
       </div>
       <div class="preview-body">
         <div class="preview-frame-wrap">
@@ -2043,10 +2046,18 @@
       el.title = previewFullPath;   // hover shows what the ellipsis hides
     }
 
+    // Minimal line icons rather than emoji, so they inherit the text colour and stay crisp.
+    var PREVIEW_ICON_COPY = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg>';
+    var PREVIEW_ICON_CHECK = '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg>';
+
     function copyPreviewPath() {
       var btn = document.getElementById('previewCopyPath');
       if (!previewFullPath) return;
-      var done = function () { btn.textContent = '\u2713'; setTimeout(function () { btn.innerHTML = '&#128203;'; }, 1200); };
+      var done = function () {
+        btn.innerHTML = PREVIEW_ICON_CHECK;
+        btn.classList.add('copied');
+        setTimeout(function () { btn.innerHTML = PREVIEW_ICON_COPY; btn.classList.remove('copied'); }, 1200);
+      };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(previewFullPath).then(done, fallbackCopy);
       } else { fallbackCopy(); }
@@ -2079,9 +2090,28 @@
       PREVIEW_ZOOM = Math.max(PREVIEW_ZOOM_STEPS[0], Math.min(z, PREVIEW_ZOOM_STEPS[PREVIEW_ZOOM_STEPS.length - 1]));
       document.getElementById('pdfZoomLabel').textContent = Math.round(PREVIEW_ZOOM * 100) + '%';
       if (!previewPdfDoc) return;
-      var container = document.getElementById('previewPdfSelect');
-      container.innerHTML = '';
-      renderPdfPage(previewPdfDoc, 1, container, ++previewPdfToken);
+      var live = document.getElementById('previewPdfSelect');
+
+      // Where we're looking now, as a fraction of the whole document — so the same part of the page
+      // stays in view after the zoom instead of jumping back to the top.
+      var fx = live.scrollWidth > live.clientWidth
+        ? (live.scrollLeft + live.clientWidth / 2) / live.scrollWidth : 0.5;
+      var fy = live.scrollHeight > live.clientHeight
+        ? (live.scrollTop + live.clientHeight / 2) / live.scrollHeight : 0;
+
+      // Render the new page into a DETACHED node and swap it in once it's drawn. Clearing the live
+      // container first (what this used to do) left the pane empty for a beat on every click, which
+      // read as a flash. Nodes are MOVED, not copied as HTML — copying would lose the canvas bitmaps.
+      var staging = document.createElement('div');
+      var token = ++previewPdfToken;
+      renderPdfPage(previewPdfDoc, 1, staging, token, function () {
+        if (token !== previewPdfToken) return live;   // superseded; drop this pass
+        live.innerHTML = '';
+        while (staging.firstChild) live.appendChild(staging.firstChild);
+        live.scrollLeft = Math.max(0, fx * live.scrollWidth - live.clientWidth / 2);
+        live.scrollTop = Math.max(0, fy * live.scrollHeight - live.clientHeight / 2);
+        return live;   // remaining pages render straight into the live container
+      });
     }
 
     // Zoom in -> the first step above the current value; zoom out -> the last step below it. Stated
@@ -2228,13 +2258,14 @@
 
     // Renders one page (canvas + text layer), then recurses to the next — keeps memory bounded and
     // lets the first page appear fast. Scale fits the container width.
-    function renderPdfPage(pdf, pageNum, container, token) {
+    function renderPdfPage(pdf, pageNum, container, token, afterFirstPage) {
       if (token !== previewPdfToken || pageNum > pdf.numPages) return;
       pdf.getPage(pageNum).then(function (page) {
         if (token !== previewPdfToken) return;
-        // Fit-to-width is the baseline; PREVIEW_ZOOM scales up from there. clientWidth shrinks once a
-        // vertical scrollbar appears, so the fit width is measured once per render pass and reused.
-        var targetW = previewFitWidth(container) * PREVIEW_ZOOM;
+        // Fit-to-width is the baseline; PREVIEW_ZOOM scales up from there. Measured from the LIVE pane,
+        // never from `container` — a zoom renders into a detached node whose clientWidth is 0, which
+        // would silently fall back to the default width and draw the page at the wrong size.
+        var targetW = previewFitWidth(document.getElementById('previewPdfSelect')) * PREVIEW_ZOOM;
         var base = page.getViewport({ scale: 1 });
         var scale = targetW / base.width;
         var viewport = page.getViewport({ scale: scale });
@@ -2259,7 +2290,11 @@
         }).then(function (textContent) {
           if (!textContent || token !== previewPdfToken) return;
           pdfjsLib.renderTextLayer({ textContent: textContent, container: textDiv, viewport: viewport, textDivs: [] });
-          renderPdfPage(pdf, pageNum + 1, container, token); // next page
+          // Page 1 is drawn: let the caller swap a staged render into view, and take the container it
+          // returns for the rest of the pages.
+          var next = container;
+          if (pageNum === 1 && typeof afterFirstPage === 'function') next = afterFirstPage() || container;
+          renderPdfPage(pdf, pageNum + 1, next, token); // next page
         }).catch(function () { /* skip a bad page, keep going */ if (token === previewPdfToken) renderPdfPage(pdf, pageNum + 1, container, token); });
       });
     }
