@@ -76,6 +76,7 @@ If a batch of invoices all need the same fix (say, several from one vendor that 
 
 1. Tick the **checkboxes** on each row you want to change — hold **Shift** and click to select a whole range, or use the header checkbox to select all shown.
 2. Click **Edit selected** in the bar that appears.
+   - Selections follow your filters: if you change a filter (or an edit moves an invoice out of the current view), those rows are unselected automatically — so the count always refers to invoices that match what you're looking at. When showing 50/100 per page, the bar tells you if part of your selection is on other pages.
 3. Choose the project/subproject/status to apply, and Save. A progress bar shows them being re-filed one by one.
 
 ## Downloading invoices in a batch

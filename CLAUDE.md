@@ -113,7 +113,15 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   `Needs Review/` and `Statements & Others/` (non-invoices only) inside the month. No match at all →
   top-level `_Unmatched`.
 - **`Duplicate` rows point at ANOTHER row's file.** Never move, rename, or trash a Duplicate row's
-  file — it belongs to the canon invoice.
+  file — it belongs to the canon invoice. The guard in `updateInvoiceRow` checks the status the row
+  **IS** as well as the one it's becoming (`touchesSharedFile`): checking only `newStatus` left a
+  hole where flipping a Duplicate row to Filed/Paid moved the CANON's file out of its folder —
+  easy to trigger from a bulk edit over a filtered set that happens to contain duplicates.
+- **Selection is scoped to the current filter.** `applyFilters` calls `pruneSelectionToFiltered`,
+  so a row that leaves the filtered set (filter changed, or an edit moved it out) is deselected.
+  Without it the bulk bar counted invisible rows and Edit selected / Download acted on them.
+  Pruning is against the whole FILTERED set, not the page, so selecting across pages still works;
+  the bulk bar says "(N on other pages)" when the selection reaches beyond the current page.
 - Adding a status touches all of: `ALLOWED_STATUSES` + `statusToClass_` (DashboardServer.gs), badge
   CSS + three status dropdowns + filter checkboxes (Dashboard.html), the resolver's bucket logic
   (DriveService.gs), and the refile bucket (Refile.gs).
