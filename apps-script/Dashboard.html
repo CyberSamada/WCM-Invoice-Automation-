@@ -41,6 +41,10 @@
     :root[data-theme="dark"] .card.notinvoice .card-value { color: #cbd5e1; }
     :root[data-theme="dark"] .card.error .card-value { color: #f87171; }
     :root[data-theme="dark"] .stat-strip strong { color: #7db4ff; }
+    /* The two grey status chips are the only fills close enough to the dark surface to sink into it —
+       lift them so they stay legible as chips. The coloured ones already contrast fine. */
+    :root[data-theme="dark"] .badge-notinvoice { background: #64748b; }
+    :root[data-theme="dark"] .badge-other { background: #71717a; }
     :root[data-theme="dark"] .hint-edit { background: #2b3543; color: #e6e9ee; }
     :root[data-theme="dark"] .hint-edit:hover { background: #34404f; }
     * { box-sizing: border-box; }
@@ -282,15 +286,19 @@
     /* Keep a multi-word status ("Not an Invoice", "Needs Review") on ONE line — it was wrapping into a
        stacked 3-line pill that made rows uneven. The column sizes itself to the widest badge. */
     .status-cell { white-space: nowrap; width: 1%; }
-    .badge-filed { background: #e8f7ee; color: #1c6b45; }
-    .badge-captured { background: #e0f2fe; color: #075985; }
-    .badge-paid { background: #dcfce7; color: #14532d; }
-    .badge-canceled { background: #ffe4e6; color: #9f1239; }
-    .badge-review { background: #fff4e0; color: #8a5a00; }
-    .badge-notinvoice { background: #eef0f2; color: #41474f; }
-    .badge-pastdue { background: #fdecec; color: #8f1414; }
-    .badge-duplicate { background: #ede9fe; color: #5b3fa6; }
-    .badge-other { background: #eef2f7; color: var(--text); }
+    /* Solid colour chips with white text — the fill is the identifying cue, so a status is readable
+       at a glance while scanning. Hues are deliberately spread apart: Filed (green), Paid (teal) and
+       Captured (blue) are the three common ones and must not read as the same colour. Every fill is
+       dark enough for white text to stay legible in both themes. */
+    .badge-filed { background: #15803d; color: #ffffff; }
+    .badge-paid { background: #0f766e; color: #ffffff; }
+    .badge-captured { background: #1d4ed8; color: #ffffff; }
+    .badge-review { background: #b45309; color: #ffffff; }
+    .badge-canceled { background: #be123c; color: #ffffff; }
+    .badge-duplicate { background: #6d28d9; color: #ffffff; }
+    .badge-notinvoice { background: #475569; color: #ffffff; }
+    .badge-pastdue { background: #b91c1c; color: #ffffff; }
+    .badge-other { background: #52525b; color: #ffffff; }
 
     /* Searchable-select: a filter box sitting above a native <select> in the edit/bulk modals */
     .select-search {
@@ -890,7 +898,8 @@
   <div class="modal-overlay" id="nexusModalOverlay" style="display:none">
     <div class="modal-box">
       <h3>Update statuses from Nexus</h3>
-      <p class="modal-subtitle">Upload the latest Nexus export (a .csv with <strong>Number</strong> and <strong>Status</strong> columns). Statuses map as <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Captured, <strong>REJECTED / VOID</strong> → Canceled. Because Nexus stores the <em>processed</em> invoice number (and amounts can differ by a holdback), invoices are matched on number, amount and vendor together: certain matches are applied automatically, and anything less certain is listed for you to confirm — each confirmation is remembered, so it's automatic next time. Duplicate and Not-an-Invoice rows are never changed.</p>
+      <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Captured, <strong>REJECTED / VOID</strong> → Canceled.</p>
+      <p class="modal-subtitle">Clear matches are applied automatically. Anything uncertain is listed for you to confirm, and remembered for next time.</p>
       <div class="modal-field">
         <label for="nexusFile">Nexus export (.csv)</label>
         <input type="file" id="nexusFile" accept=".csv,text/csv">
