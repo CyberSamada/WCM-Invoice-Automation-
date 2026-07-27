@@ -89,6 +89,25 @@ Need the actual PDFs — say, every invoice for a project this month — as file
 
 No Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is downloaded twice.
 
+## Updating statuses from Nexus
+
+Rather than marking invoices Paid or Canceled by hand, you can upload the latest **Nexus export** and let the dashboard set them for you. If you have edit permission, an **Update from Nexus** button appears in the header.
+
+1. Export the invoice list from Nexus as a **.csv** (it needs at least a **Number** and a **Status** column — the standard export has them).
+2. Click **Update from Nexus**, choose the file, and click **Analyze file**.
+3. You'll get a summary *before* anything changes: how many invoices will become Paid, Captured, or Canceled, how many already match, and how many of your logged invoices weren't in the export.
+4. If it looks right, click **Apply updates**. A progress bar runs through them, then the page reloads.
+
+Invoices are matched by **invoice number**, and Nexus statuses map like this:
+
+| Nexus says | Becomes |
+|---|---|
+| PAID | **Paid** |
+| POSTED, Pending Approval, In Progress, HOLD | **Captured** |
+| REJECTED, VOID | **Canceled** |
+
+Anything else in the Status column is ignored. **Duplicate** and **Not an Invoice** rows are never changed. Each update is recorded on the invoice's note (same as a manual edit), and files move to the right folder automatically. Re-uploading the same file is safe — invoices already at the right status are skipped.
+
 ## Managing project hints
 
 A **hint** tells the automation that a certain name or address printed on an invoice belongs to a particular project — or to a specific **subproject** — so invoices that don't spell out the number still file correctly (many vendors only print a job-site address). You don't need spreadsheet access to manage them.

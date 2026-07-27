@@ -159,6 +159,32 @@ name + mimeType, no zip); **two+ zip** under `sanitizeZipName_(zipName)` (strips
 keeps hyphens — caps length, ensures one `.zip`). UI: a **Download** button in the multi-select bulk
 bar — one selected downloads directly, multiple open the name-the-zip modal.
 
+## Nexus status sync (dashboard)
+
+Coordinators upload the latest **Nexus export CSV** and the dashboard MIRRORS payment/lifecycle status
+onto the log — this is the "don't hand-maintain AP status" decision made concrete (no manual
+Rejected/Paid labels; the system of record drives them). Server side is `previewNexusStatusUpdate` /
+`applyNexusStatusUpdate` (DashboardServer.gs), both gated by `canControlAutomation_`.
+
+- **Join key is the invoice NUMBER only** — `nexusInvoiceKey_` trims + uppercases, and deliberately
+  does NOT strip leading zeros or inner punctuation (`AWJul23-503` is meaningful verbatim). Vendor
+  names are NOT used to match: Nexus spellings don't agree with our canonical ones.
+- **Status map** (`mapNexusStatus_`): `PAID`→Paid; `POSTED`/`PENDING APPROVAL`/`IN PROGRESS`/`HOLD`→
+  Captured; `REJECTED`/`VOID`→Canceled; anything else → `null` = ignored (never guess).
+- **One invoice number can appear on several Nexus rows with different statuses** (~20 in the real
+  20k-row export). `nexusTargetRank_` resolves it by FINALITY: Paid(3) > Canceled(2) > Captured(1).
+- **Eligibility**: `NEXUS_ELIGIBLE_STATUSES_` = Filed/Captured/Paid/Canceled/Needs Review. A
+  `Duplicate` row (its file belongs to the canon) and `Not an Invoice` are NEVER touched.
+- **Preview-then-apply.** Preview changes nothing and returns counts + a 15-row sample. Apply is
+  **resumable**: it takes `startRow`, works under a 2.5-min budget, and returns `{done, nextRow}` for
+  the client to re-call (`stepNexusApply`) — the same long-job pattern as refile/archive, plus a
+  `LockService` script lock so it can't race `processInvoices`.
+- Every change goes through **`updateInvoiceRow`**, so the Drive file move, the `Review Note` stamp
+  and the Override Log entry are identical to a manual edit — no second write path. Idempotent: a row
+  already at its target is skipped, so re-uploading the same file is a no-op.
+- `Utilities.parseCsv` does the tokenizing; a file without a `Number` AND `Status` column is rejected
+  loudly so uploading the wrong export fails instead of silently matching nothing.
+
 ## Theming / dark mode (dashboard)
 
 Colors are driven by CSS tokens in `:root` (`--surface`, `--surface-alt`, `--surface-hover`, `--text`,
@@ -212,7 +238,9 @@ carries `data-review`/`data-match` (not a pre-joined `data-note`) so the popover
 
 ## Known future roadmap (user-stated)
 
-- Nexus integration: auto-mark invoices **Paid** (access path TBD: report email vs CSV vs API).
+- Nexus integration: **CSV-upload sync is DONE** (see "Nexus status sync" above — coordinator uploads
+  the export, statuses mirror in). Still open: getting that export **without a human upload** (API or a
+  scheduled report email), which would let this run on a trigger instead of on demand.
 - Month-close archive: a month "closes" when its invoices are Captured/Paid/Canceled and reviews
   resolved. `Canceled` is a terminal lifecycle status (invoice rejected outright, never paid) added
   alongside `Paid` — it files at the month root like a real invoice (no folder of its own) and exists

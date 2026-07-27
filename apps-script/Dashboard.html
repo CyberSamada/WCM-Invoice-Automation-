@@ -278,7 +278,10 @@
     .subproject-row .sub-cell { padding-left: 30px; position: relative; }
     .subproject-row .sub-cell::before { content: '└'; position: absolute; left: 14px; color: #9ca3af; }
 
-    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; }
+    /* Keep a multi-word status ("Not an Invoice", "Needs Review") on ONE line — it was wrapping into a
+       stacked 3-line pill that made rows uneven. The column sizes itself to the widest badge. */
+    .status-cell { white-space: nowrap; width: 1%; }
     .badge-filed { background: #e8f7ee; color: #1c6b45; }
     .badge-captured { background: #e0f2fe; color: #075985; }
     .badge-paid { background: #dcfce7; color: #14532d; }
@@ -432,6 +435,10 @@
     .bulk-progress-track { height: 8px; background: #e5e7eb; border-radius: 999px; overflow: hidden; }
     .bulk-progress-fill { height: 100%; width: 0%; background: #2563eb; transition: width 0.2s ease; }
     .bulk-progress-text { font-size: 12px; color: var(--text-muted); margin: 6px 0 0; }
+    .nexus-summary { font-size: 13px; margin: 4px 0 8px; color: var(--text); }
+    .nexus-summary ul { margin: 4px 0 8px 18px; padding: 0; }
+    .nexus-muted { color: var(--text-muted); font-size: 12px; margin: 4px 0; }
+    .nexus-samples { max-height: 130px; overflow: auto; margin: 4px 0 0 18px; }
 
     /* Bulk select/edit */
     .bulk-bar {
@@ -487,6 +494,7 @@
         <span class="auto-pill" id="autoPill">…</span>
         <button class="auto-btn" id="autoToggleBtn" type="button" style="display:none"></button>
         <button class="auto-btn auto-btn-secondary" id="manageHintsBtn" type="button" style="display:none" title="Add or remove the name/address hints that help match invoices to projects">Manage hints</button>
+        <button class="auto-btn auto-btn-secondary" id="nexusSyncBtn" type="button" style="display:none" title="Upload the latest Nexus export to update invoice statuses (Paid / Captured / Canceled)">Update from Nexus</button>
         <div class="settings-menu">
           <button class="auto-btn auto-btn-secondary settings-btn" id="settingsBtn" type="button" title="Settings" aria-label="Settings" aria-haspopup="true">&#9881;</button>
           <div class="settings-panel" id="settingsPanel">
@@ -868,6 +876,29 @@
     </div>
   </div>
 
+  <!-- Update from Nexus: upload the latest export, preview the status changes, then apply them -->
+  <div class="modal-overlay" id="nexusModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Update statuses from Nexus</h3>
+      <p class="modal-subtitle">Upload the latest Nexus export (a .csv with <strong>Number</strong> and <strong>Status</strong> columns). Invoices are matched by number, and their status is set from Nexus: <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Captured, <strong>REJECTED / VOID</strong> → Canceled. Duplicate and Not-an-Invoice rows are never changed. You'll see a summary before anything is applied.</p>
+      <div class="modal-field">
+        <label for="nexusFile">Nexus export (.csv)</label>
+        <input type="file" id="nexusFile" accept=".csv,text/csv">
+      </div>
+      <p class="modal-error" id="nexusModalError"></p>
+      <div id="nexusSummary" style="display:none"></div>
+      <div class="bulk-progress" id="nexusProgress" style="display:none">
+        <div class="bulk-progress-track"><div class="bulk-progress-fill" id="nexusProgressFill"></div></div>
+        <p class="bulk-progress-text" id="nexusProgressText"></p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="nexusCloseBtn">Close</button>
+        <button type="button" class="btn-primary" id="nexusAnalyzeBtn">Analyze file</button>
+        <button type="button" class="btn-primary" id="nexusApplyBtn" style="display:none">Apply updates</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Bulk edit -->
   <div class="modal-overlay" id="bulkModalOverlay" style="display:none">
     <div class="modal-box">
@@ -1058,6 +1089,7 @@
       }
       // "Manage hints" shares the same edit privilege as Start/Pause (canControlAutomation_).
       document.getElementById('manageHintsBtn').style.display = state.canControl ? '' : 'none';
+      document.getElementById('nexusSyncBtn').style.display = state.canControl ? '' : 'none';
     }
 
     function toggleAutomation() {
@@ -1434,7 +1466,7 @@
           '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
           '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
-          '<td>' + statusBadge + '</td>' +
+          '<td class="status-cell">' + statusBadge + '</td>' +
           '<td class="note-col">' + (note
             ? '<button type="button" class="note-info" data-review="' + escapeHtml(r.reviewNote || '') + '" data-match="' + escapeHtml(r.matchNote || '') + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
             : '') + '</td>' +
@@ -2021,6 +2053,144 @@
           errorEl.textContent = err && err.message ? err.message : 'Could not merge \u2014 try again.';
         })
         .mergeInvoiceAsDuplicate(rowId, canonId);
+    }
+
+    // --- Update from Nexus (status sync) --------------------------------------------------------
+    // Upload the latest Nexus export, preview the status changes (Paid/Captured/Canceled), then apply
+    // them. The CSV is read in the browser and sent to previewNexusStatusUpdate / applyNexusStatusUpdate
+    // (DashboardServer.gs). Apply is resumable — the server returns nextRow until done — so a large log
+    // finishes across a few calls without hitting Apps Script's time limit.
+
+    var NEXUS_CSV_TEXT = '';   // last uploaded file's text, reused by preview + each apply step
+    var NEXUS_APPLIED = false; // true once at least one row was changed — so Close reloads the page
+    var NEXUS_TOTAL_CHANGED = 0;
+    var NEXUS_ERRORS = [];
+
+    function openNexusModal() {
+      document.getElementById('nexusModalError').textContent = '';
+      var fileEl = document.getElementById('nexusFile'); fileEl.value = ''; fileEl.disabled = false;
+      var summary = document.getElementById('nexusSummary'); summary.style.display = 'none'; summary.innerHTML = '';
+      document.getElementById('nexusProgress').style.display = 'none';
+      document.getElementById('nexusProgressFill').style.width = '0%';
+      document.getElementById('nexusProgressText').textContent = '';
+      var analyzeBtn = document.getElementById('nexusAnalyzeBtn');
+      analyzeBtn.style.display = ''; analyzeBtn.disabled = false; analyzeBtn.textContent = 'Analyze file';
+      var applyBtn = document.getElementById('nexusApplyBtn');
+      applyBtn.style.display = 'none'; applyBtn.disabled = false;
+      document.getElementById('nexusCloseBtn').textContent = 'Close';
+      NEXUS_CSV_TEXT = ''; NEXUS_APPLIED = false; NEXUS_TOTAL_CHANGED = 0; NEXUS_ERRORS = [];
+      document.getElementById('nexusModalOverlay').style.display = 'flex';
+    }
+
+    function closeNexusModal() {
+      document.getElementById('nexusModalOverlay').style.display = 'none';
+      // If we changed any statuses, reload so the table, badges and summary cards reflect them.
+      if (NEXUS_APPLIED) { location.reload(); }
+    }
+
+    function analyzeNexusFile() {
+      var errEl = document.getElementById('nexusModalError'); errEl.textContent = '';
+      var input = document.getElementById('nexusFile');
+      var file = input.files && input.files[0];
+      if (!file) { errEl.textContent = 'Choose a Nexus .csv file first.'; return; }
+      var analyzeBtn = document.getElementById('nexusAnalyzeBtn');
+      analyzeBtn.disabled = true; analyzeBtn.textContent = 'Reading…';
+      document.getElementById('nexusApplyBtn').style.display = 'none';
+      var reader = new FileReader();
+      reader.onload = function () {
+        NEXUS_CSV_TEXT = String(reader.result || '');
+        google.script.run
+          .withSuccessHandler(function (res) {
+            analyzeBtn.disabled = false; analyzeBtn.textContent = 'Re-analyze';
+            renderNexusSummary(res);
+          })
+          .withFailureHandler(function (err) {
+            analyzeBtn.disabled = false; analyzeBtn.textContent = 'Analyze file';
+            errEl.textContent = (err && err.message) ? err.message : 'Could not analyze that file.';
+          })
+          .previewNexusStatusUpdate(NEXUS_CSV_TEXT);
+      };
+      reader.onerror = function () {
+        analyzeBtn.disabled = false; analyzeBtn.textContent = 'Analyze file';
+        errEl.textContent = 'Could not read that file.';
+      };
+      reader.readAsText(file);
+    }
+
+    function renderNexusSummary(res) {
+      var box = document.getElementById('nexusSummary');
+      var h = '<div class="nexus-summary">';
+      h += '<p><strong>' + res.changed + '</strong> invoice' + (res.changed === 1 ? '' : 's') + ' will be updated' + (res.changed ? ':' : '.') + '</p>';
+      if (res.changed) {
+        h += '<ul>';
+        h += '<li>&rarr; Paid: <strong>' + res.toPaid + '</strong></li>';
+        h += '<li>&rarr; Captured: <strong>' + res.toCaptured + '</strong></li>';
+        h += '<li>&rarr; Canceled: <strong>' + res.toCanceled + '</strong></li>';
+        h += '</ul>';
+      }
+      h += '<p class="nexus-muted">' + res.alreadyCorrect + ' already match Nexus &middot; ' +
+        res.logUnmatched + ' of your ' + res.logRows + ' logged invoices weren’t in this export &middot; ' +
+        res.matchedIneligible + ' matched but are Duplicate / Not-an-Invoice (left alone).</p>';
+      if (res.nexus) {
+        h += '<p class="nexus-muted">Nexus file: ' + res.nexus.uniqueMatched + ' invoice numbers read' +
+          (res.nexus.unknown ? ', ' + res.nexus.unknown + ' rows with a status we don’t act on' : '') + '.</p>';
+      }
+      if (res.samples && res.samples.length) {
+        h += '<p class="nexus-muted">Examples of what will change:</p><ul class="nexus-samples">';
+        res.samples.forEach(function (s) {
+          h += '<li>' + escapeHtml(s.invoiceNumber) + (s.vendor ? (' &mdash; ' + escapeHtml(s.vendor)) : '') +
+            ': ' + escapeHtml(s.from) + ' &rarr; <strong>' + escapeHtml(s.to) + '</strong></li>';
+        });
+        h += '</ul>';
+      }
+      h += '</div>';
+      box.innerHTML = h;
+      box.style.display = '';
+      var applyBtn = document.getElementById('nexusApplyBtn');
+      applyBtn.style.display = res.changed > 0 ? '' : 'none';
+      applyBtn.disabled = false;
+    }
+
+    function applyNexus() {
+      if (!NEXUS_CSV_TEXT) return;
+      document.getElementById('nexusApplyBtn').disabled = true;
+      document.getElementById('nexusAnalyzeBtn').disabled = true;
+      document.getElementById('nexusFile').disabled = true;
+      document.getElementById('nexusModalError').textContent = '';
+      document.getElementById('nexusProgress').style.display = '';
+      NEXUS_TOTAL_CHANGED = 0; NEXUS_ERRORS = [];
+      stepNexusApply(1);
+    }
+
+    function stepNexusApply(startRow) {
+      google.script.run
+        .withSuccessHandler(function (res) {
+          NEXUS_TOTAL_CHANGED += res.changed;
+          if (res.errors && res.errors.length) NEXUS_ERRORS = NEXUS_ERRORS.concat(res.errors);
+          var pct = res.totalRows ? Math.min(100, Math.round((res.nextRow - 1) / res.totalRows * 100)) : 100;
+          document.getElementById('nexusProgressFill').style.width = (res.done ? 100 : pct) + '%';
+          document.getElementById('nexusProgressText').textContent = res.done
+            ? ('Done — ' + NEXUS_TOTAL_CHANGED + ' invoice' + (NEXUS_TOTAL_CHANGED === 1 ? '' : 's') + ' updated' +
+               (NEXUS_ERRORS.length ? (', ' + NEXUS_ERRORS.length + ' could not be updated') : '') + '.')
+            : ('Updating… ' + NEXUS_TOTAL_CHANGED + ' updated so far');
+          if (!res.done) { stepNexusApply(res.nextRow); return; }
+          NEXUS_APPLIED = NEXUS_TOTAL_CHANGED > 0;
+          document.getElementById('nexusApplyBtn').style.display = 'none';
+          document.getElementById('nexusCloseBtn').textContent = NEXUS_APPLIED ? 'Close & reload' : 'Close';
+          if (NEXUS_ERRORS.length) {
+            var e0 = NEXUS_ERRORS[0];
+            document.getElementById('nexusModalError').textContent =
+              NEXUS_ERRORS.length + ' row(s) could not be updated (e.g. ' +
+              (e0.invoiceNumber || 'an invoice') + ': ' + e0.message + ').';
+          }
+        })
+        .withFailureHandler(function (err) {
+          document.getElementById('nexusProgressText').textContent = (err && err.message) ? err.message : 'The update stopped with an error.';
+          document.getElementById('nexusApplyBtn').disabled = false;
+          document.getElementById('nexusAnalyzeBtn').disabled = false;
+          document.getElementById('nexusFile').disabled = false;
+        })
+        .applyNexusStatusUpdate(NEXUS_CSV_TEXT, startRow);
     }
 
     // --- Manage hints (alias manager) -----------------------------------------------------------
@@ -2678,6 +2848,11 @@
       document.getElementById('mergeCanonSearch').addEventListener('input', function () { filterSelectByText(document.getElementById('mergeCanon'), this.value); });
       document.getElementById('mergeModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeMergeModal(); });
       document.getElementById('manageHintsBtn').addEventListener('click', openHintsModal);
+      document.getElementById('nexusSyncBtn').addEventListener('click', openNexusModal);
+      document.getElementById('nexusCloseBtn').addEventListener('click', closeNexusModal);
+      document.getElementById('nexusAnalyzeBtn').addEventListener('click', analyzeNexusFile);
+      document.getElementById('nexusApplyBtn').addEventListener('click', applyNexus);
+      document.getElementById('nexusModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeNexusModal(); });
       document.getElementById('hintsCloseBtn').addEventListener('click', closeHintsModal);
       document.getElementById('hintsAddBtn').addEventListener('click', addHint);
       document.getElementById('hintsProject').addEventListener('change', onHintsProjectChange);
