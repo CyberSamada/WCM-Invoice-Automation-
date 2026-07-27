@@ -245,6 +245,8 @@
     }
     .reset-btn:hover { background: #eef4fb; }
     .results-count { font-size: 12px; color: var(--text-muted); margin: 0; }
+    /* Controls on the left, the count on the right. */
+    .results-controls { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; }
     .results-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin: 0 0 8px 0; }
     .download-capture { display: flex; gap: 8px; align-items: flex-start; font-size: 12.5px;
       margin: 4px 0 10px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 6px;
@@ -345,6 +347,9 @@
     .icon-link:hover { color: var(--wcm-blue-dark); }
     #filterProject option.sub-option { padding-left: 14px; }
 
+    .note-link { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+    .note-link:hover { color: var(--text); }
+    .note-sep { margin: 0 6px; opacity: 0.6; }
     /* Page footer. Uses the theme token, not a raw hex, so it follows light/dark like everything
        else — and a rule above it so it reads as a footer rather than floating stray text. */
     .note {
@@ -778,28 +783,30 @@
       </div>
 
       <div class="results-header">
+        <div class="results-controls">
+          <div class="sort-control">
+            <label for="pageSize">Show</label>
+            <select id="pageSize">
+              <option value="all" selected>All</option>
+              <option value="50">50 per page</option>
+              <option value="100">100 per page</option>
+            </select>
+          </div>
+          <div class="sort-control">
+            <label for="sortField">Sort by</label>
+            <select id="sortField">
+              <option value="processed">Processed date</option>
+              <option value="received">Received date</option>
+              <option value="invoice">Invoice date</option>
+              <option value="vendor">Vendor</option>
+              <option value="project">Project</option>
+              <option value="amount">Amount</option>
+              <option value="status">Status</option>
+            </select>
+            <button type="button" class="sort-dir" id="sortDir" data-dir="desc" title="Toggle sort direction (newest/oldest, A–Z/Z–A)" aria-label="Toggle sort direction">&#8595;</button>
+          </div>
+        </div>
         <p class="results-count" id="resultsCount">Showing all invoices</p>
-        <div class="sort-control">
-          <label for="pageSize">Show</label>
-          <select id="pageSize">
-            <option value="all" selected>All</option>
-            <option value="50">50 per page</option>
-            <option value="100">100 per page</option>
-          </select>
-        </div>
-        <div class="sort-control">
-          <label for="sortField">Sort by</label>
-          <select id="sortField">
-            <option value="processed">Processed date</option>
-            <option value="received">Received date</option>
-            <option value="invoice">Invoice date</option>
-            <option value="vendor">Vendor</option>
-            <option value="project">Project</option>
-            <option value="amount">Amount</option>
-            <option value="status">Status</option>
-          </select>
-          <button type="button" class="sort-dir" id="sortDir" data-dir="desc" title="Toggle sort direction (newest/oldest, A–Z/Z–A)" aria-label="Toggle sort direction">&#8595;</button>
-        </div>
       </div>
 
       <div class="bulk-bar" id="bulkBar">
@@ -850,7 +857,13 @@
       </table>
     </div>
 
-    <p class="note">WCM Invoice Automation — automatically filed and logged from billing@wcmcon.com</p>
+    <!-- Bottom of a long table: a way back up and when the data was read, since the header
+         timestamp has scrolled out of sight by the time anyone reaches here. -->
+    <p class="note">
+      <a href="#" class="note-link" id="backToTopLink">&#8593; Back to top</a>
+      <span class="note-sep">·</span>
+      Data read <?= data.generatedAtFormatted ?> — reload the page for the latest
+    </p>
   </div>
 
   <div id="notePopover" role="tooltip"></div>
@@ -3651,6 +3664,10 @@
       document.getElementById('hintsModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeHintsModal(); });
       document.getElementById('previewNextBtn').addEventListener('click', function () { navigatePreview(1); });
       document.getElementById('previewCopyPath').addEventListener('click', copyPreviewPath);
+      document.getElementById('backToTopLink').addEventListener('click', function (e) {
+        e.preventDefault();
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      });
       document.getElementById('pdfZoomIn').addEventListener('click', function () { stepPreviewZoom(1); });
       document.getElementById('pdfZoomOut').addEventListener('click', function () { stepPreviewZoom(-1); });
       document.getElementById('pdfZoomFit').addEventListener('click', function () { setPreviewZoom(1); });
