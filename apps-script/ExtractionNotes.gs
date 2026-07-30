@@ -17,6 +17,7 @@ const SEED_EXTRACTION_NOTES = [
   'WCM / Westdell is always the CUSTOMER on these invoices, never the vendor. If "WCM Construction Management" or "Westdell" appears to be the issuer, look again — the vendor is the other party.',
   'Vendors\' own job/PO references (formats like "24-146" or "6.1-4") are NOT WCM project numbers. Match projects only against the reference list and aliases provided.',
   'The email subject or an invoice "Subject:/Re:/Project" line often names the job-site address — weigh it heavily when matching the project.',
+  'Hyland Centre (project 43) has two subprojects for the same unit 2D: 43.7 "2F (2D - TBC)" is the base/vacant unit and 43.14 "2F (2D - MAC)" is the MAC tenant fit-out. Use 43.14 when the tenant MAC is named; "MAC" alone is not enough, because 43.10 is "RHC - MAC Unit (Dollarama)".',
   'Progress billings with holdback lines (e.g. "LESS 10% HOLDBACK") are normal construction invoices; the amount due is the total AFTER holdback, including taxes.'
 ];
 

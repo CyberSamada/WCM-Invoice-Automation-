@@ -27,5 +27,12 @@ const SEED_ALIASES = [
   ['1110 Goderich St, Port Elgin', '49', ''],
   ['1105 Wellington Rd, London', '54', ''],
   ['237 Clarke Rd E, Ingersoll', '55', ''],
-  ['205 Renaud Line Rd, Belle River', '56', '']
+  ['205 Renaud Line Rd, Belle River', '56', ''],
+  // Hyland Centre unit 2D: the tenant fit-out is 43.14 ("2F (2D - MAC)"), which WCM tells vendors to
+  // print as "Hyland Centre - Unit 2D - MAC". Kept tenant-specific on purpose — "2D" alone is also
+  // 43.7 ("2F (2D - TBC)"), and "MAC" alone is also 43.10 ("RHC - MAC Unit (Dollarama)").
+  // NOT seeded: the bill-to address (Unit 3B, 1701 Richmond St). That is WCM's own office and
+  // already listed in CONFIG.OWN_BILLING_IDENTIFIERS as a thing to IGNORE when matching a project.
+  ['Hyland Centre - Unit 2D - MAC', '43', '43.14'],
+  ['Unit 2D - MAC', '43', '43.14']
 ];
