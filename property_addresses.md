@@ -57,6 +57,11 @@ that mentions only the address file to the right project.
   - 46+++ Ambassador Plaza → **1600 Huron Church Rd**
 - **Arnprior, same street.** 48 Arnprior Shopping Centre = **375 Daniel St S**; 52 Arnprior Gate =
   **245 Daniel St**. Both on Daniel St — the number decides.
+- **Hyland Centre unit 2D, two subprojects.** 43.7 "2F (2D - TBC)" is the base unit; 43.14
+  "2F (2D - MAC)" is the MAC tenant fit-out, which WCM tells vendors to bill as **"Hyland Centre -
+  Unit 2D - MAC"**. Name the tenant to pick 43.14 — "MAC" on its own is also 43.10 "RHC - MAC Unit
+  (Dollarama)". The bill-to on these (**Unit 3B, 1701 Richmond St**) is WCM's own office and must
+  never be read as the job site; it is already in `CONFIG.OWN_BILLING_IDENTIFIERS`.
 - **Hyde Park Square ≠ Hyde Park Plaza.** Project 02 is Westdell's **Hyde Park Square, 1175 Hyde Park
   Rd**. "Hyde Park Plaza" at 1180 Oxford St W is a *different company's* property — never map it to 02.
 
@@ -68,6 +73,9 @@ an explicit hint is a stronger, more direct signal than the reference name:
 
 - **06 Forest Edge Commons — 952 Southdale Rd** (invoices for 952 Southdale were misfiling)
 - **12 Sereno — 15 Capulet Walk** (the name abbreviates "Walk" to "WK")
+- **43.14 Hyland Centre unit 2D (MAC)** — seeded by *name*, not address: the job site's address is
+  the same 1701 Richmond St that appears as the bill-to on every project's invoices, so only the
+  tenant name identifies it
 
 These are shipped **defaults** in `apps-script/AliasSeed.gs`, copied **once** into the hints storage
 (the "Project Aliases" sheet tab) and edited from then on via the dashboard's **Manage hints** panel —
