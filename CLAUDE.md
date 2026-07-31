@@ -265,7 +265,51 @@ closes on a click OUTSIDE `.settings-menu` — a click on "Change logo" keeps th
 file dialog runs. `.logo-controls` no longer sets `display` in CSS (only `flex-direction: column`);
 the inline `display:none` + `renderBranding` supply it.
 
-**Presentation-only polish block.** The last block in `<style>` (elevation tokens `--shadow-1/2/pop`
+## Dashboard look, table density, and loading (Dashboard.html)
+
+The page is titled **"Invoice Desk"** (`.page-title-main`) with a static subtitle; the old
+`Live data — generated <timestamp>` line under it is gone, so the **footer note is the only
+freshness stamp left** — don't delete it without relocating that information.
+
+**The invoice table is `table-layout: fixed`** (`#invoiceTable`), and that is load-bearing, not
+decoration. Under auto layout the browser re-negotiated all 13 columns against the longest string
+on the page, so `Jul 31, 2026 1:39 PM` wrapped to three lines, a project name to three or four, and
+no two rows were the same height — the actual reason the table was hard to read. Column widths live
+in the polish block keyed off the **`<th>` classes** (`date-col`, `vendor-col`, `invnum-col`,
+`proj-col`, `sub-col`, `amount-col`, `status-col`, `note-col`, `links-col`, `edit-col`); a fixed
+table takes its grid from the FIRST row, so widths must go on the `th`, never the `td`. Measured
+uniform 52px rows with no horizontal overflow from 900px to 1920px. Cell renderers `dateCell` /
+`projectCell` / `amountCell` (near `projectKey`) cap each cell at two lines: date over muted time,
+project NUMBER as a chip over a one-line clipped name, right-aligned money with a muted currency
+code. **Nothing is hidden** — every clipped cell carries the full text in a `title`. `projectKey` /
+`subprojectKey` / `formatMoney` are deliberately untouched (grouping, the filter tree and the modals
+still use them), and a header label must never be clipped, hence
+`#invoiceTable thead th { white-space: normal }`.
+
+The header is **sticky**, which is why `table { overflow: hidden }` had to go (it makes
+`position: sticky` a no-op); the rounded corners are now on the corner CELLS instead. If you re-add
+`overflow` to a table, the sticky header silently stops working.
+
+**Loading.** The pdf.js CDN tag is `async` **on purpose**: as a plain `<script src>` it blocked HTML
+parsing, DOMContentLoaded and the first table render until cdnjs answered — measured 13.2s to a
+usable table with cdnjs unreachable, vs 0.6s once async. Nothing on first paint needs it (the
+preview already falls back to the Drive viewer when `pdfjsLib` is undefined). The first
+`applyFilters()` is deferred by **two** `requestAnimationFrame`s so the header, cards, filters and
+the table's spinner paint before the ~100ms/550-row row build; `#topProgress` (in the markup, not
+added by JS, so it animates from the first paint) and the `.loading-cell` spinner are cleared by
+`bootFinished()`.
+
+**Searchable selects say what is selected.** An unfocused `<select size=N>` greys its highlight out,
+so once focus moved to the search box above it nothing looked picked. Two fixes:
+`select[size] option:checked` forces the swatch via a `linear-gradient` (the only way to colour an
+`<option>`), and `initSelectSearchLabels()` rewrites each search box's **placeholder** to
+`Selected: <option>` (placeholder, not value — it vanishes the moment someone types). Pairs are
+listed in `SELECT_SEARCH_PAIRS`; the label is refreshed on the select's `change` and by a
+`MutationObserver` on the owning `.modal-overlay`'s `style`, which is how it is correct when a panel
+OPENS with something pre-selected without editing every `open*Modal()`. `filterProjectSearch` and
+`hintsProjectSearch` are NOT pairs — they filter trees, not a `<select>`.
+
+**Presentation-only polish block.** An earlier block in `<style>` (elevation tokens `--shadow-1/2/pop`
 + `--ring`, card hover lift, focus-visible rings, transitions, slim scrollbars, and dark-mode patches
 for fills that were hardcoded light — bulk bar, note dots, progress track, preview note). Rule for
 adding to it: **nothing may change layout.** Use `transform`, `box-shadow` (including `inset` for a
