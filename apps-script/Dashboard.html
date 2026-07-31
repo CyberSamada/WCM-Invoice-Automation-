@@ -703,6 +703,139 @@
     :root[data-theme="dark"] .badge { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
     :root[data-theme="dark"] .auto-pill { box-shadow: none; }
     :root[data-theme="dark"] .brand-header { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
+
+    /* ------------------------------------------------------------------------------------------
+       Readability pass. Unlike the block above, this one DOES change layout — deliberately. The
+       table was the problem: "Jul 31, 2026 1:39 PM" wrapped to three lines, a project name to
+       three or four, and since every column wrapped differently no two rows were the same height,
+       so there was no rhythm to scan down. The fix is to give the table a fixed column grid and
+       cap every cell at two lines, with the full text still available on hover.
+       ------------------------------------------------------------------------------------------ */
+
+    :root { --zebra: #fbfcfe; --chip-bg: #eef2f7; }
+    :root[data-theme="dark"] { --zebra: #1e2733; --chip-bg: #2b3543; }
+
+    /* Header: the title carries the page now that the generated-at line is gone. */
+    .brand-header-inner { padding: 18px 24px; }
+    .page-title-main { font-size: 21px; font-weight: 700; letter-spacing: -0.015em; }
+    .page-title-sub { font-size: 11.5px; letter-spacing: 0.02em; margin-top: 3px; }
+
+    /* Cards: the value and label were top-aligned inside a stretched grid cell, so on any row
+       where one label wrapped, every other card's text sat high and looked misplaced. Centring
+       both axes makes that impossible regardless of what the labels do. */
+    .cards { gap: 12px; margin-bottom: 16px; }
+    .card {
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      min-height: 88px; padding: 14px 10px; gap: 4px;
+    }
+    .card-value { font-size: 27px; line-height: 1.05; letter-spacing: -0.02em; }
+    .card-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em; margin-top: 0; }
+
+    .stat-strip { padding: 13px 16px; }
+    .section h2 { font-size: 16px; letter-spacing: -0.01em; padding-left: 11px; }
+
+    /* --- The invoice table ---------------------------------------------------------------- */
+    /* Fixed grid: with auto layout the browser re-negotiated every column against the longest
+       string on the page, which is what let three columns wrap at once. */
+    #invoiceTable { table-layout: fixed; overflow: visible; }
+    #invoiceTable th.select-cell { width: 34px; }
+    #invoiceTable th.date-col { width: 7.6%; }
+    #invoiceTable th.vendor-col { width: 11%; }
+    #invoiceTable th.invnum-col { width: 8.5%; }
+    #invoiceTable th.proj-col { width: 13%; }
+    #invoiceTable th.sub-col { width: 10%; }
+    #invoiceTable th.amount-col { width: 9%; }
+    #invoiceTable th.status-col { width: 9.5%; }
+    #invoiceTable th.note-col { width: 46px; }
+    #invoiceTable th.links-col { width: 64px; }
+    #invoiceTable th.edit-col { width: 42px; }
+    #invoiceTable td { overflow: hidden; }
+    /* A header label must never be clipped by its own column — let it wrap instead. */
+    #invoiceTable thead th { white-space: normal; }
+
+    /* Sticky header. `overflow: hidden` on the table (which was there only to clip the corners to
+       the border radius) makes position:sticky a no-op, so the corners are rounded on the corner
+       CELLS instead and the header keeps its labels on screen through a 550-row scroll. */
+    #invoiceTable thead th {
+      position: sticky; top: 0; z-index: 3;
+      background: var(--surface-alt); border-bottom: none;
+      box-shadow: inset 0 -1px 0 var(--border);
+    }
+    table { overflow: visible; }
+    thead tr:first-child th:first-child { border-top-left-radius: 10px; }
+    thead tr:first-child th:last-child { border-top-right-radius: 10px; }
+    tbody tr:last-child td:first-child { border-bottom-left-radius: 10px; }
+    tbody tr:last-child td:last-child { border-bottom-right-radius: 10px; }
+
+    th { font-size: 10px; letter-spacing: 0.06em; }
+    th, td { padding: 10px 12px; }
+    td { font-size: 12.5px; }
+
+    /* Zebra first, hover second — the hover rule has to come after so it still wins on even rows. */
+    #invoiceTable tbody tr:nth-child(even) td { background: var(--zebra); }
+    #invoiceTable tbody tr:hover td { background: var(--surface-hover); }
+
+    /* Date: calendar date on top, clock time muted underneath. Two lines, always. */
+    .date-col { white-space: nowrap; }
+    .cell-date { display: block; font-variant-numeric: tabular-nums; }
+    .cell-time { display: block; font-size: 10.5px; color: var(--text-muted); font-variant-numeric: tabular-nums; margin-top: 1px; }
+
+    .vendor-col { font-weight: 600; }
+    .clamp2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+
+    /* Project: the NUMBER is what gets matched against, so it reads as a chip and the name sits
+       under it, clipped to one line. Full "43.14 - 2F (2D - MAC)" is on the cell's title. */
+    .proj-num {
+      display: inline-block; font-size: 11.5px; font-weight: 700; line-height: 1.5;
+      padding: 0 7px; border-radius: 5px; background: var(--chip-bg); color: var(--text);
+      font-variant-numeric: tabular-nums;
+    }
+    .proj-name {
+      display: block; font-size: 10.5px; color: var(--text-muted); margin-top: 2px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .proj-col-sub .proj-num { background: none; padding: 0; font-weight: 600; color: var(--text-muted); }
+
+    /* Money right-aligned so the digits stack; the currency code steps back. */
+    .amount-col { text-align: right; white-space: nowrap; }
+    .amt-cur { font-size: 10px; color: var(--text-muted); margin-right: 4px; letter-spacing: 0.04em; }
+    .amt-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+    .invnum-cell .invnum { max-width: 100%; font-variant-numeric: tabular-nums; }
+    .links-cell { white-space: nowrap; }
+    .icon-link + .icon-link { margin-left: 10px; }
+
+    /* --- Loading state -------------------------------------------------------------------- */
+    /* A 550-row build takes long enough to look like nothing happened. The bar starts animating
+       with the first paint and the table says what it is doing, so the wait reads as work. */
+    #topProgress { position: fixed; top: 0; left: 0; right: 0; height: 3px; z-index: 2000; overflow: hidden; pointer-events: none; }
+    #topProgress::before {
+      content: ''; position: absolute; top: 0; bottom: 0; left: 0; width: 32%;
+      background: linear-gradient(90deg, transparent, var(--wcm-blue), transparent);
+      animation: wcm-topbar 1.05s ease-in-out infinite;
+    }
+    #topProgress.done { display: none; }
+    @keyframes wcm-topbar { from { transform: translateX(-110%); } to { transform: translateX(420%); } }
+    .spinner {
+      display: inline-block; width: 14px; height: 14px; border-radius: 50%; margin-right: 9px;
+      border: 2px solid var(--border); border-top-color: var(--wcm-blue);
+      animation: wcm-spin 0.7s linear infinite; vertical-align: -2px;
+    }
+    @keyframes wcm-spin { to { transform: rotate(360deg); } }
+    .loading-cell { text-align: center; padding: 30px 12px; color: var(--text-muted); font-size: 13px; }
+    @media (prefers-reduced-motion: reduce) { .spinner, #topProgress::before { animation: none; } }
+
+    /* --- Which option is selected --------------------------------------------------------- */
+    /* An unfocused size/multiple <select> greys its selection out, so as soon as focus moved to
+       the search box above it the highlight faded and the list looked like nothing was picked.
+       The gradient is the only way to force the swatch on an <option>. */
+    select[size] option:checked, select[multiple] option:checked {
+      background: var(--wcm-blue) linear-gradient(0deg, var(--wcm-blue) 0%, var(--wcm-blue) 100%);
+      color: #fff; font-weight: 600;
+    }
+    /* ...and the search box names the current selection instead of showing its generic prompt. */
+    .select-search.has-selection { border-color: var(--wcm-blue); background: var(--surface); }
+    .select-search.has-selection::placeholder { color: var(--text); opacity: 1; font-weight: 600; }
   </style>
   <script>
     // Apply the saved theme before the body paints, so there's no light-mode flash. Per-viewer,
@@ -717,15 +850,18 @@
   </script>
 </head>
 <body>
+  <!-- Indeterminate bar pinned to the very top. It is in the markup (not added by JS) so it is
+       already painting while the rest of the page is still parsing; bootFinished() removes it. -->
+  <div id="topProgress" aria-hidden="true"></div>
   <div class="brand-header">
     <div class="brand-header-inner">
       <div class="brand-logo-wrap">
         <img class="brand-logo" id="brandLogo" src="<?!= data.logoDataUri ?>" alt="WCM Construction Management">
       </div>
       <div class="brand-divider"></div>
-      <div>
-        <div class="page-title-main">Invoice Automation Dashboard</div>
-        <div class="page-title-sub">Live data — generated <?= data.generatedAtFormatted ?>. Reload for the latest.</div>
+      <div class="page-title">
+        <div class="page-title-main">Invoice Desk</div>
+        <div class="page-title-sub">Accounts payable &middot; WCM Construction Management</div>
       </div>
       <div class="automation-controls">
         <span class="auto-pill" id="autoPill">…</span>
@@ -923,12 +1059,12 @@
         <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
       </div>
 
-      <table>
+      <table id="invoiceTable">
         <thead>
-          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th>Date Processed</th><th>Date Received</th><th>Invoice Date</th><th>Vendor</th><th>Invoice #</th><th>Project</th><th>Subproject</th><th>Amount</th><th>Status</th><th class="note-col">Note</th><th>Links</th><th></th></tr>
+          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th class="date-col">Processed</th><th class="date-col">Received</th><th class="date-col">Invoice Date</th><th class="vendor-col">Vendor</th><th class="invnum-col">Invoice #</th><th class="proj-col">Project</th><th class="sub-col">Subproject</th><th class="amount-col">Amount</th><th class="status-col">Status</th><th class="note-col">Note</th><th class="links-col">Links</th><th class="edit-col"></th></tr>
         </thead>
         <tbody id="resultsBody">
-          <tr><td colspan="13" class="empty-cell">Loading…</td></tr>
+          <tr><td colspan="13" class="loading-cell"><span class="spinner"></span>Loading invoices&hellip;</td></tr>
         </tbody>
       </table>
       <!-- Only shown when a page size is chosen; "All" (the default) has nothing to page through. -->
@@ -964,8 +1100,9 @@
       </table>
     </div>
 
-    <!-- Bottom of a long table: a way back up and when the data was read, since the header
-         timestamp has scrolled out of sight by the time anyone reaches here. -->
+    <!-- Bottom of a long table: a way back up, and when the data was read. This is now the ONLY
+         freshness stamp on the page — the header one was dropped so the title reads cleanly — so
+         don't remove it without putting that information somewhere else. -->
     <p class="note">
       <a href="#" class="note-link" id="backToTopLink">&#8593; Back to top</a>
       <span class="note-sep">·</span>
@@ -1300,7 +1437,11 @@
 
   <!-- PDF.js (text-selectable preview mode only) — loaded from CDN; if it can't load, the preview
        silently falls back to the Drive viewer. -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+  <!-- async, NOT a blocking load. A plain <script src> here stalled HTML parsing (and therefore
+       DOMContentLoaded and the first table render) until cdnjs answered, so a slow or filtered
+       network made the whole page look frozen. Nothing on first paint needs PDF.js: the preview
+       already falls back to the Drive viewer whenever pdfjsLib is undefined. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js" async></script>
   <script>
     var ALL_RECORDS = <?!= data.recordsJson ?>;
     var ALL_ERROR_TIMESTAMPS = <?!= data.errorTimestampsJson ?>;
@@ -1466,6 +1607,44 @@
         }
       }
       return 0;
+    }
+
+    // ---- Row cell renderers -------------------------------------------------------------------
+    // These exist purely so a row stays a predictable two lines tall. Before them, "Jul 31, 2026
+    // 1:39 PM" wrapped to three lines and a project name to three or four, so every row was a
+    // different height and the table was hard to scan. Nothing is hidden: the clamped cells carry
+    // the full text in a title tooltip, and projectKey/subprojectKey (used for grouping and the
+    // filter tree) are deliberately untouched.
+
+    // "Jul 31, 2026 1:39 PM" -> date on one line, time muted underneath. Falls back to the raw
+    // string whenever it isn't in that shape, so an unexpected format still renders.
+    function dateCell(stamp) {
+      var s = String(stamp == null ? '' : stamp).trim();
+      if (!s) return '<td class="date-col"><span class="muted-dash">—</span></td>';
+      var m = /^(.*\d{4})\s+(\d{1,2}:\d{2}\s*[AaPp][Mm])$/.exec(s);
+      if (!m) return '<td class="date-col"><span class="cell-date">' + escapeHtml(s) + '</span></td>';
+      return '<td class="date-col"><span class="cell-date">' + escapeHtml(m[1]) + '</span>' +
+        '<span class="cell-time">' + escapeHtml(m[2]) + '</span></td>';
+    }
+
+    // Right-aligned money with the currency code de-emphasised, so the digits line up column-wise
+    // and the eye lands on the figure. Same text as formatMoney (left untouched — it is also used
+    // for the summary strips and the modals), just split for styling.
+    function amountCell(amount, currency) {
+      var s = formatMoney(amount, currency);
+      var i = s.indexOf('$');
+      if (i < 1) return '<td class="amount-col">' + escapeHtml(s) + '</td>';
+      return '<td class="amount-col"><span class="amt-cur">' + escapeHtml(s.slice(0, i).trim()) + '</span>' +
+        '<span class="amt-val">' + escapeHtml(s.slice(i)) + '</span></td>';
+    }
+
+    // Number as a chip, name clamped beside it. The number is what people actually match on.
+    function projectCell(num, name, extraClass) {
+      if (!num) return '<td class="proj-col"></td>';
+      var full = name ? (num + ' - ' + name) : String(num);
+      return '<td class="proj-col ' + (extraClass || '') + '" title="' + escapeHtml(full) + '">' +
+        '<span class="proj-num">' + escapeHtml(String(num)) + '</span>' +
+        (name ? '<span class="proj-name">' + escapeHtml(name) + '</span>' : '') + '</td>';
     }
 
     function projectKey(r) {
@@ -1868,14 +2047,14 @@
           '<td class="select-cell">' + (r.rowId
             ? '<input type="checkbox" data-select-id="' + escapeHtml(r.rowId) + '"' + (SELECTED_ROWIDS[r.rowId] ? ' checked' : '') + '>'
             : '') + '</td>' +
-          '<td>' + escapeHtml(r.dateProcessedFormatted) + '</td>' +
-          '<td>' + escapeHtml(r.dateReceivedFormatted || '—') + '</td>' +
-          '<td>' + escapeHtml(r.invoiceDateFormatted || '—') + '</td>' +
-          '<td>' + escapeHtml(r.vendor) + '</td>' +
+          dateCell(r.dateProcessedFormatted) +
+          dateCell(r.dateReceivedFormatted) +
+          dateCell(r.invoiceDateFormatted) +
+          '<td class="vendor-col" title="' + escapeHtml(r.vendor || '') + '"><span class="clamp2">' + escapeHtml(r.vendor) + '</span></td>' +
           '<td class="invnum-cell"' + (r.invoiceNumber ? ' title="' + escapeHtml(r.invoiceNumber) + '"' : '') + '>' + (r.invoiceNumber ? '<span class="invnum">' + escapeHtml(r.invoiceNumber) + '</span>' : '<span class="muted-dash">—</span>') + '</td>' +
-          '<td>' + escapeHtml(r.projectNumber ? projectKey(r) : '') + '</td>' +
-          '<td>' + escapeHtml(r.subprojectNumber ? subprojectKey(r) : '') + '</td>' +
-          '<td>' + escapeHtml(formatMoney(r.amount, r.currency)) + '</td>' +
+          projectCell(r.projectNumber, r.projectName) +
+          projectCell(r.subprojectNumber, r.subprojectName, 'proj-col-sub') +
+          amountCell(r.amount, r.currency) +
           '<td class="status-cell">' + statusBadge + '</td>' +
           '<td class="note-col">' + (note
             ? '<button type="button" class="note-info" data-review="' + escapeHtml(r.reviewNote || '') + '" data-match="' + escapeHtml(r.matchNote || '') + '" title="' + escapeHtml(note) + '" aria-label="Show note">i</button>'
@@ -1950,6 +2129,61 @@
 
     // Filters a project <select>'s options by typed text (the modal project pickers are long).
     // Placeholder options and the current selection always stay visible so the value can't hide.
+    // ---- "What's selected?" on the searchable selects ------------------------------------------
+    // Each of these is a search box sitting above a native <select size=N>. Two things hid the
+    // current selection: an unfocused list greys its highlight out (handled in CSS), and the search
+    // box kept showing its generic prompt no matter what was picked. Here the box's PLACEHOLDER
+    // becomes the selected option, so the answer is visible without scrolling the list — and it is
+    // the placeholder, not the value, so it disappears the moment someone types a new search.
+    var SELECT_SEARCH_PAIRS = [
+      ['editProjectSearch', 'editProject'],
+      ['previewProjectSearch', 'previewProject'],
+      ['bulkProjectSearch', 'bulkProject'],
+      ['mergeCanonSearch', 'mergeCanon']
+    ];
+
+    function syncSelectSearchLabel(searchEl, selectEl) {
+      if (!searchEl || !selectEl) return;
+      if (searchEl.getAttribute('data-default-ph') === null) {
+        searchEl.setAttribute('data-default-ph', searchEl.placeholder || '');
+      }
+      var opt = selectEl.options[selectEl.selectedIndex];
+      // "(don't change)" / "(no project match)" style placeholder options carry no real selection.
+      var text = (opt && selectEl.value !== '' && selectEl.value !== '__keep__') ? opt.textContent.trim() : '';
+      if (text) {
+        searchEl.placeholder = 'Selected: ' + text;
+        searchEl.classList.add('has-selection');
+      } else {
+        searchEl.placeholder = searchEl.getAttribute('data-default-ph') || '';
+        searchEl.classList.remove('has-selection');
+      }
+    }
+
+    function refreshSelectSearchLabels() {
+      SELECT_SEARCH_PAIRS.forEach(function (p) {
+        syncSelectSearchLabel(document.getElementById(p[0]), document.getElementById(p[1]));
+      });
+    }
+
+    // Wires each pair, then watches the modal that owns it. The observer is how the label is right
+    // when a panel OPENS with something already selected, without having to edit every open*Modal()
+    // function — they all reveal their overlay by writing style.display, which this sees.
+    function initSelectSearchLabels() {
+      SELECT_SEARCH_PAIRS.forEach(function (p) {
+        var searchEl = document.getElementById(p[0]);
+        var selectEl = document.getElementById(p[1]);
+        if (!searchEl || !selectEl) return;
+        searchEl.setAttribute('data-default-ph', searchEl.placeholder || '');
+        selectEl.addEventListener('change', function () { syncSelectSearchLabel(searchEl, selectEl); });
+        var overlay = selectEl.closest ? selectEl.closest('.modal-overlay') : null;
+        if (overlay && window.MutationObserver) {
+          new MutationObserver(function () { syncSelectSearchLabel(searchEl, selectEl); })
+            .observe(overlay, { attributes: true, attributeFilter: ['style'] });
+        }
+      });
+      refreshSelectSearchLabels();
+    }
+
     function filterSelectByText(selectEl, query) {
       var q = String(query || '').trim().toLowerCase();
       var opts = selectEl.options;
@@ -3826,10 +4060,30 @@
       document.getElementById('pdfZoomOut').addEventListener('click', function () { stepPreviewZoom(-1); });
       document.getElementById('pdfZoomFit').addEventListener('click', function () { setPreviewZoom(1); });
       initPreviewPanDrag();
+      initSelectSearchLabels();
       document.getElementById('previewModalOverlay').addEventListener('click', function (e) { if (e.target === this) closePreviewModal(); });
       updateSummaryCards();
-      applyFilters();
+      // Build the table on the NEXT frame, not inline. Rendering every row is the single longest
+      // job on load (~100ms at 550 rows, more on a slow machine) and doing it here would hold the
+      // first paint hostage — the whole page would appear at once, after the wait. Yielding first
+      // lets the header, cards, filters and the table's spinner paint immediately, so the wait
+      // reads as "loading" instead of "stuck". Two frames because one only guarantees the layout
+      // is scheduled; the second guarantees it has actually been painted.
+      requestAnimationFrame(function () {
+        requestAnimationFrame(function () {
+          applyFilters();
+          bootFinished();
+        });
+      });
     });
+
+    // Removes the top progress bar once the first table render is on screen. Idempotent, and
+    // wrapped so a failure here can never leave the page without its data.
+    function bootFinished() {
+      var bar = document.getElementById('topProgress');
+      if (bar) bar.classList.add('done');
+      document.body.classList.add('booted');
+    }
   </script>
 </body>
 </html>
