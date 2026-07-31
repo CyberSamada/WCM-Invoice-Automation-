@@ -18,6 +18,12 @@
       --text: #1f2937;           /* primary text */
       --text-muted: #6b7280;     /* labels, secondary text */
       --input-border: #d1d5db;   /* inputs/selects */
+      /* Elevation + focus ring, tokenized so light and dark each get a shadow that actually reads.
+         A flat rgba black shadow disappears on a dark surface, which is why these are tokens. */
+      --shadow-1: 0 1px 2px rgba(16, 24, 40, 0.05), 0 1px 3px rgba(16, 24, 40, 0.04);
+      --shadow-2: 0 4px 12px rgba(16, 24, 40, 0.09), 0 1px 3px rgba(16, 24, 40, 0.05);
+      --shadow-pop: 0 12px 34px rgba(16, 24, 40, 0.18);
+      --ring: rgba(29, 93, 166, 0.26);
     }
     /* Dark theme: redefine the tokens (the tokenized rules below pick these up automatically), plus a
        few accent tweaks for contrast. Set via the Settings menu; stored per-viewer in localStorage. */
@@ -31,6 +37,10 @@
       --text: #e6e9ee;
       --text-muted: #9aa4b2;
       --input-border: #3a4552;
+      --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.35);
+      --shadow-2: 0 6px 18px rgba(0, 0, 0, 0.45);
+      --shadow-pop: 0 14px 36px rgba(0, 0, 0, 0.6);
+      --ring: rgba(125, 180, 255, 0.32);
     }
     :root[data-theme="dark"] .brand-header { background: #141a22; }
     :root[data-theme="dark"] .project-row td { background: #222b38; }
@@ -54,6 +64,8 @@
       color: var(--text);
       margin: 0;
       padding: 0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
     }
 
     /* Brand header */
@@ -69,14 +81,18 @@
     }
     .brand-logo-wrap { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
     .brand-logo { height: 56px; width: auto; max-width: 220px; object-fit: contain; flex-shrink: 0; display: block; }
-    .logo-controls { display: flex; align-items: center; gap: 8px; }
+    /* The logo controls live inside the Settings menu, not under the logo, so the header shows the
+       brand mark on its own. renderBranding() still toggles this whole block's display. */
+    .logo-controls { flex-direction: column; align-items: stretch; gap: 2px;
+      margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--border); }
     .logo-link {
-      font: inherit; font-size: 11px; font-weight: 600; color: var(--wcm-blue);
-      background: none; border: none; padding: 0; cursor: pointer;
-      text-decoration: underline; text-underline-offset: 2px;
+      font: inherit; font-size: 13px; font-weight: 500; color: var(--text);
+      background: none; border: none; padding: 5px 6px; cursor: pointer;
+      text-align: left; border-radius: 5px;
     }
-    .logo-link:hover { color: var(--wcm-blue-dark); }
-    .logo-status { font-size: 11px; color: var(--text-muted); }
+    .logo-link:hover { background: var(--surface-hover); color: var(--wcm-blue); }
+    .logo-status { font-size: 11px; color: var(--text-muted); padding: 2px 6px 0; }
+    .logo-status:empty { display: none; }
     .brand-divider { width: 1px; align-self: stretch; background: var(--border); margin: 2px 4px; }
 
     /* Automation Start/Pause (right side of the header) */
@@ -115,7 +131,7 @@
       border-radius: 10px;
       padding: 10px 8px;
       text-align: center;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+      box-shadow: var(--shadow-1);
     }
     .card-value { font-size: 20px; font-weight: 700; }
     .card-label { font-size: 10.5px; color: var(--text-muted); margin-top: 2px; }
@@ -161,7 +177,7 @@
       padding: 12px 16px;
       margin-bottom: 12px;
       font-size: 13px;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+      box-shadow: var(--shadow-1);
     }
     .stat-strip strong { color: var(--wcm-blue-dark); }
 
@@ -187,7 +203,7 @@
       border-radius: 10px;
       padding: 14px 16px;
       margin-bottom: 14px;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+      box-shadow: var(--shadow-1);
     }
     .filter-field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .filter-field label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
@@ -272,7 +288,7 @@
       border-radius: 10px;
       overflow: hidden;
       font-size: 13px;
-      box-shadow: 0 1px 2px rgba(16, 24, 40, 0.04);
+      box-shadow: var(--shadow-1);
     }
     th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--border); }
     th {
@@ -608,6 +624,85 @@
       padding: 10px 18px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.18);
     }
     .feedback-btn:hover { background: var(--wcm-blue-dark); }
+
+    /* ------------------------------------------------------------------------------------------
+       Visual polish. Deliberately presentation-only: elevation, focus, motion and the dark-mode
+       patches below change how the dashboard LOOKS, never what it does. Nothing here alters
+       layout flow (no size/padding/position changes), so no element moves and no handler is
+       affected. Kept in one block at the end of the stylesheet so it is easy to see and to undo.
+       ------------------------------------------------------------------------------------------ */
+
+    /* Elevation. The header gets a hairline shadow so the content scrolls "under" it, and the
+       floating surfaces (modals, dropdown panels) get a deeper one so they read as on top. */
+    .brand-header { box-shadow: 0 1px 3px rgba(16, 24, 40, 0.06); }
+    /* The hairline edge is an INSET shadow, not a border: a real 1px border would add 2px to every
+       modal's height, and these are meant to be pixel-identical to before. */
+    .modal-box { box-shadow: var(--shadow-pop), inset 0 0 0 1px var(--border); }
+    .modal-overlay { backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
+    .settings-panel, .proj-dropdown-panel, #notePopover { box-shadow: var(--shadow-pop); }
+    .settings-panel { min-width: 186px; }
+
+    /* Cards lift very slightly on hover. Transform only, so nothing reflows. */
+    .card { transition: box-shadow 0.16s ease, transform 0.16s ease; }
+    .card:hover { box-shadow: var(--shadow-2); transform: translateY(-1px); }
+    /* Figures line up column-to-column with tabular numerals. */
+    .card-value, .stat-strip strong, .pdf-zoom-label, .preview-nav-pos { font-variant-numeric: tabular-nums; }
+
+    /* Motion: colour-only transitions, plus a 1px press on the buttons that look pressable. */
+    .auto-btn, .btn-primary, .btn-secondary, .reset-btn, .feedback-btn, .hint-btn, .hint-remove,
+    .sort-dir, .preview-copy, .pdf-toolbar button, .note-info, .logo-link, .hints-node,
+    .proj-dropdown-toggle, a { transition: background-color 0.14s ease, color 0.14s ease, border-color 0.14s ease, box-shadow 0.14s ease; }
+    tr td { transition: background-color 0.12s ease; }
+    .auto-btn:active, .btn-primary:active, .btn-secondary:active, .reset-btn:active,
+    .feedback-btn:active { transform: translateY(1px); }
+    .feedback-btn { box-shadow: var(--shadow-2); }
+
+    /* Focus. Keyboard users get a real ring; mouse users see nothing new (:focus-visible). The ring
+       is a box-shadow/outline, neither of which takes up layout space. */
+    input:focus-visible, select:focus-visible, textarea:focus-visible {
+      outline: none; border-color: var(--wcm-blue); box-shadow: 0 0 0 3px var(--ring);
+    }
+    button:focus-visible, a:focus-visible, summary:focus-visible,
+    input[type="checkbox"]:focus-visible, input[type="radio"]:focus-visible {
+      outline: 2px solid var(--wcm-blue); outline-offset: 2px; box-shadow: none;
+    }
+
+    /* Chips and headings: a hairline inside the chip keeps it crisp on both surfaces. */
+    .badge { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10); }
+    .section h2 { border-radius: 2px; }
+    .auto-pill { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05); }
+
+    /* Slim, themed scrollbars — the default chunky grey bar is the loudest thing on the page in
+       dark mode, and there are several scrolling panes (project filter, hints tree, PDF pane). */
+    * { scrollbar-width: thin; scrollbar-color: var(--input-border) transparent; }
+    ::-webkit-scrollbar { width: 10px; height: 10px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb {
+      background: var(--input-border); border-radius: 8px;
+      border: 2px solid transparent; background-clip: content-box;
+    }
+    ::-webkit-scrollbar-thumb:hover { background: var(--wcm-grey); background-clip: content-box; }
+
+    /* Dark-mode patches: fills that were hardcoded light and glared against the dark surface. */
+    :root[data-theme="dark"] .auto-btn.pause:hover,
+    :root[data-theme="dark"] .auto-btn-secondary:hover,
+    :root[data-theme="dark"] .reset-btn:hover { background: #22304a; }
+    :root[data-theme="dark"] .bulk-bar { background: #1c2b3f; border-color: #33486a; }
+    :root[data-theme="dark"] .bulk-bar .bulk-count { color: #7db4ff; }
+    :root[data-theme="dark"] .note-info { background: #313b4a; color: var(--text-muted); }
+    :root[data-theme="dark"] .note-info:hover { background: #3c4859; color: var(--text); }
+    :root[data-theme="dark"] .bulk-progress-track { background: #2b3543; }
+    :root[data-theme="dark"] .hint-remove { background: #3b2429; color: #f4a6ad; }
+    :root[data-theme="dark"] .hint-remove:hover { background: #4b2c33; }
+    :root[data-theme="dark"] .hint-base-badge { color: #a9c6ff; background: #1f2f4a; }
+    :root[data-theme="dark"] .preview-note { color: #f0d9a8; background: #2a2417; border-color: #5a4a22; }
+    :root[data-theme="dark"] .preview-note strong { color: #f7e6bd; }
+    :root[data-theme="dark"] .preview-note-details summary::before { color: #d9b36a; }
+    :root[data-theme="dark"] .learn-field { border-top-color: var(--border); }
+    :root[data-theme="dark"] .select-search { background: var(--surface); }
+    :root[data-theme="dark"] .badge { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
+    :root[data-theme="dark"] .auto-pill { box-shadow: none; }
+    :root[data-theme="dark"] .brand-header { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
   </style>
   <script>
     // Apply the saved theme before the body paints, so there's no light-mode flash. Per-viewer,
@@ -626,12 +721,6 @@
     <div class="brand-header-inner">
       <div class="brand-logo-wrap">
         <img class="brand-logo" id="brandLogo" src="<?!= data.logoDataUri ?>" alt="WCM Construction Management">
-        <div class="logo-controls" id="logoControls" style="display:none">
-          <input type="file" id="logoFileInput" accept="image/*" style="display:none">
-          <button type="button" class="logo-link" id="changeLogoBtn">Change logo</button>
-          <button type="button" class="logo-link" id="resetLogoBtn" style="display:none">Reset to default</button>
-          <span class="logo-status" id="logoStatus"></span>
-        </div>
       </div>
       <div class="brand-divider"></div>
       <div>
@@ -650,6 +739,15 @@
             <label class="settings-opt"><input type="radio" name="wcmTheme" value="light"> Light</label>
             <label class="settings-opt"><input type="radio" name="wcmTheme" value="dark"> Dark</label>
             <label class="settings-opt"><input type="radio" name="wcmTheme" value="system"> Match system</label>
+            <!-- Moved here from under the logo so the header just shows the logo. Same IDs and same
+                 handlers; renderBranding() shows/hides this block for people who can control it. -->
+            <div class="logo-controls" id="logoControls" style="display:none">
+              <div class="settings-title">Logo</div>
+              <input type="file" id="logoFileInput" accept="image/*" style="display:none">
+              <button type="button" class="logo-link" id="changeLogoBtn">Change logo</button>
+              <button type="button" class="logo-link" id="resetLogoBtn" style="display:none">Reset to default</button>
+              <span class="logo-status" id="logoStatus"></span>
+            </div>
           </div>
         </div>
       </div>
