@@ -254,8 +254,24 @@ color to a rule should use a token, not a raw hex, or it won't theme. `data-them
 `document.documentElement` by a tiny inline script in `<head>` BEFORE paint (no flash), and again by
 `initSettings()`. Preference (`light`/`dark`/`system`) is per-viewer in `localStorage['wcm_theme']`
 (NOT a Script Property — that'd be shared); `system` follows `prefers-color-scheme` live. The **⚙
-Settings** menu in the header holds the theme radios. Note: the brand logo can be low-contrast on the
-dark header depending on the uploaded image — no auto-fix.
+Settings** menu in the header holds the theme radios **and the logo controls**. Note: the brand logo
+can be low-contrast on the dark header depending on the uploaded image — no auto-fix.
+
+**Logo controls live in the Settings menu, not under the logo** — the header shows the brand mark on
+its own. `#logoControls` (with `changeLogoBtn` / `resetLogoBtn` / `logoStatus` / the hidden file input)
+was MOVED into `#settingsPanel`; the IDs and handlers are unchanged, so `renderBranding()` still
+shows/hides the whole block for viewers who can control it. This works because the settings menu only
+closes on a click OUTSIDE `.settings-menu` — a click on "Change logo" keeps the panel open while the
+file dialog runs. `.logo-controls` no longer sets `display` in CSS (only `flex-direction: column`);
+the inline `display:none` + `renderBranding` supply it.
+
+**Presentation-only polish block.** The last block in `<style>` (elevation tokens `--shadow-1/2/pop`
++ `--ring`, card hover lift, focus-visible rings, transitions, slim scrollbars, and dark-mode patches
+for fills that were hardcoded light — bulk bar, note dots, progress track, preview note). Rule for
+adding to it: **nothing may change layout.** Use `transform`, `box-shadow` (including `inset` for a
+hairline edge) and colors — never width/height/padding/border. A real `1px` border on `.modal-box`
+added 2px to every modal's height, which is why that edge is an inset shadow. Verified with a
+before/after geometry probe (Playwright, both themes): every element keeps its x, width and height.
 
 ## Text-select preview (dashboard)
 
