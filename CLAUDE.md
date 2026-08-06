@@ -49,6 +49,29 @@ The learn-while-fixing field saves the alias at the corrected invoice's project+
 the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P, Subproject S` (or
 `(project level — no specific subproject)`) and is described as AUTHORITATIVE.
 
+## What must never go in this repo
+
+**This repo is readable by anyone who can see it** (as of this writing, publicly). So:
+
+- **No staff names or email addresses.** The project → site-coordinator mapping used to live in
+  `site_coordinators_PRIVATE.md`; it was removed and `.gitignore` now blocks `site_coordinators*.md`
+  so a local copy can't be committed again. The real list lives in Drive. When "notify the coordinator"
+  finally gets built, the addresses belong in a **sheet tab or Script Property**, the same place
+  aliases and the API key already live — never in the code.
+- **No credentials, ever.** The Gemini key is a Script Property; `clasp`'s OAuth token
+  (`.clasprc.json`) and the web-app deployment ID are GitHub Actions secrets (`CLASPRC_JSON`,
+  `WEBAPP_DEPLOYMENT_ID`). `.gitignore` covers the usual credential filenames.
+- **Google IDs that ARE still committed**, knowingly: the Apps Script `scriptId`
+  (`apps-script/.clasp.json`, needed by the deploy workflow), `INVOICE_ARCHIVE_PARENT_FOLDER_ID`
+  (DriveSetup.gs) and `CONFIG.TEST_FOLDER_ID`. None is a credential — Drive and Apps Script still
+  enforce permissions — but a Drive folder ID **is** the link if that folder is ever shared "anyone
+  with the link", so those two folders must stay restricted. Moving them into Script Properties is
+  possible but is a coordinated config change: unset properties would stop filing on the next
+  trigger, so don't do it casually.
+- **Removing a file does not remove it from history.** Anything already pushed stays readable in
+  earlier commits, forks and caches. The only real fix for a past leak is to make the repo private
+  and/or rotate the exposed thing.
+
 ## Deploy model — read this before debugging "it's not working"
 
 - Merging to `main` auto-runs `.github/workflows/deploy-apps-script.yml` → `clasp push -f` to the
@@ -370,6 +393,11 @@ needs no expanding — 34px collapsed vs ~171px open on a 4-entry note.
   are shipped DEFAULTS seeded into the **Project Aliases**/**AI Notes** tabs once (see the knowledge
   rule up top); the live home is the tabs, edited via the dashboard's **Manage hints** panel.
   `property_addresses.md` + `project_aliases_seed.csv` are human-readable mirrors of the defaults.
+- `tools/build-gem-pack.js` + `tools/GEM_SETUP.md` — bundles the repo into two upload files for an
+  AI Studio **Gem** that answers questions about the system. The pack is a SNAPSHOT (a Gem has no
+  link back here), so it carries a generated-on date and has to be rebuilt and re-uploaded after a
+  batch of changes. `gem-pack/` is gitignored. If the docs list or a `.gs` filename changes, update
+  the `DOCS` / `SOURCE` arrays in the builder.
 - `apps-script/ExtractionNotes.gs` — standing domain notes injected into every Gemini extraction
   prompt (merged with the optional "AI Notes" sheet tab, which lets the team add hints without a
   deploy). This is the extractor's CLAUDE.md.

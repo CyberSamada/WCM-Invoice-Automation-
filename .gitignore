@@ -1,1 +1,28 @@
 projects_list.txt
+
+# Staff contact info stays OUT of the repo (names + email addresses). Keep your working copy
+# locally or in Drive; this pattern stops it being committed again by accident.
+site_coordinators_PRIVATE.md
+site_coordinators*.md
+
+# Credentials. clasp writes .clasprc.json (an OAuth refresh token) into the project dir when you
+# log in locally — committing it would hand over write access to the Apps Script project. The
+# deploy workflow injects it from the CLASPRC_JSON repository secret instead.
+.clasprc.json
+**/.clasprc.json
+.clasp.json.local
+*.pem
+*.key
+.env
+.env.*
+credentials.json
+client_secret*.json
+service-account*.json
+token.json
+
+# Local scratch
+node_modules/
+.DS_Store
+
+# Generated Gem upload files (see tools/GEM_SETUP.md) - regenerate, do not commit
+gem-pack/
