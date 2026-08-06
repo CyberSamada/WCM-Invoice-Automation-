@@ -15,7 +15,8 @@ that mentions only the address file to the right project.
 **Source legend**
 - `name` — the address is already embedded in the project name in `project_reference.csv` (so Gemini
   already sees it; no hint strictly needed).
-- `records` — from another file in this repo (`site_coordinators_PRIVATE.md`).
+- `records` — from WCM's own site-coordinator records, which are kept **outside this repo**
+  (staff contact info; see the note in `WCM_Invoice_Automation_Plan.md`).
 - `owner` — confirmed directly by WCM/Westdell staff.
 - `web` — researched from public listings; treated as good but not owner-confirmed.
 

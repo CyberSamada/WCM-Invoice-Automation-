@@ -108,7 +108,7 @@ Workflow once a PDF lands there: the project coordinator/PM checks their subfold
 
 ## 8b. Site coordinators
 
-[`site_coordinators_PRIVATE.md`](./site_coordinators_PRIVATE.md) maps some projects/subprojects to a site coordinator name + email. It's committed to this repo but intentionally not linked from the README — kept low-profile rather than front-and-center since it contains staff contact info, though the repo itself is public. Not wired into the automated workflow yet.
+The project → site-coordinator mapping (name + email per project) is **deliberately kept out of this repo** — it is staff contact information and this repo is readable by anyone who can see it. `.gitignore` blocks `site_coordinators*.md` so a local working copy can't be committed by accident; keep the real list in Drive. Nothing in the automation reads it — it exists for the day "email the coordinator when their project has an invoice in Needs Review" gets built, and at that point the addresses belong in a **sheet tab or Script Property**, the same way aliases and API keys are handled, never in the code.
 
 ## 9a. Feasibility check (2026-07-06)
 
