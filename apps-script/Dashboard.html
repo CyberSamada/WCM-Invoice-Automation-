@@ -836,6 +836,180 @@
     /* ...and the search box names the current selection instead of showing its generic prompt. */
     .select-search.has-selection { border-color: var(--wcm-blue); background: var(--surface); }
     .select-search.has-selection::placeholder { color: var(--text); opacity: 1; font-weight: 600; }
+
+    /* ------------------------------------------------------------------------------------------
+       Brand identity ("Option A"). Two problems this fixes. One: the page opened on a white
+       header with a 3px rule, so it began with nothing. Two: light mode was near-white surfaces
+       on a near-white ground, which is what made it read as bland no matter how well laid out it
+       was. Depth in a light UI comes from VALUE SEPARATION, not from more shadow, so the page
+       ground is deepened and the recurring fills are pulled towards blue-grey; white panels then
+       read as raised without a single extra pixel of chrome.
+       ------------------------------------------------------------------------------------------ */
+
+    /* System UI first. 'Segoe UI' alone silently falls back to Arial off Windows. */
+    body {
+      font-family: system-ui, -apple-system, "Segoe UI Variable Text", "Segoe UI", Roboto,
+        "Helvetica Neue", Arial, sans-serif;
+    }
+
+    /* Light palette, re-grounded. --bg was #F4F5F7, one step off white; every white card sat on it
+       almost invisibly. These are the same hues, moved far enough apart to see. */
+    :root {
+      --bg: #e8ecf3;
+      --surface-alt: #eef2f8;
+      --surface-hover: #f3f7fc;
+      --border: #d9e0ea;
+      --zebra: #f6f9fc;
+      --chip-bg: #e4ebf5;
+    }
+    body {
+      background-image: radial-gradient(1200px 460px at 50% -160px, rgba(29, 93, 166, 0.10), rgba(29, 93, 166, 0) 70%);
+      background-repeat: no-repeat;
+      background-attachment: fixed;
+    }
+    :root[data-theme="dark"] body {
+      background-image: radial-gradient(1200px 460px at 50% -160px, rgba(96, 155, 224, 0.13), rgba(96, 155, 224, 0) 70%);
+    }
+
+    /* --- Brand header --------------------------------------------------------------------- */
+    .brand-header {
+      background: linear-gradient(135deg, #0f3459 0%, #1D5DA6 56%, #2d7ace 100%);
+      border-bottom: none;
+      box-shadow: 0 3px 20px rgba(9, 30, 55, 0.30);
+    }
+    :root[data-theme="dark"] .brand-header {
+      background: linear-gradient(135deg, #0c1520 0%, #15243a 56%, #1e3556 100%);
+      box-shadow: 0 3px 20px rgba(0, 0, 0, 0.60);
+    }
+    /* The logo gets its own white card. This also settles the standing note that an uploaded logo
+       can be low-contrast on a dark header: every logo is drawn to work on white, so give it white. */
+    .brand-logo {
+      background: #ffffff; border-radius: 10px; padding: 5px 10px; height: 54px;
+      box-shadow: 0 2px 8px rgba(6, 24, 45, 0.24);
+    }
+    .brand-divider { background: rgba(255, 255, 255, 0.26); }
+    .page-title-main { color: #ffffff; }
+    .page-title-sub { color: rgba(255, 255, 255, 0.76); }
+
+    /* Header controls go light-on-brand. Classes are unchanged, so renderAutomation() is untouched:
+       primary is a solid white button, secondary is a glass outline. */
+    .auto-btn { background: #ffffff; color: #123f6d; box-shadow: 0 1px 3px rgba(6, 24, 45, 0.24); }
+    .auto-btn:hover { background: #e8f0fa; color: #0d3257; }
+    .auto-btn.pause, .auto-btn-secondary, .settings-btn {
+      background: rgba(255, 255, 255, 0.13); color: #ffffff;
+      border: 1px solid rgba(255, 255, 255, 0.42); box-shadow: none;
+    }
+    .auto-btn.pause:hover, .auto-btn-secondary:hover, .settings-btn:hover {
+      background: rgba(255, 255, 255, 0.24); color: #ffffff;
+    }
+    :root[data-theme="dark"] .auto-btn.pause:hover,
+    :root[data-theme="dark"] .auto-btn-secondary:hover,
+    :root[data-theme="dark"] .settings-btn:hover { background: rgba(255, 255, 255, 0.18); }
+    .auto-pill { box-shadow: 0 1px 3px rgba(6, 24, 45, 0.20); }
+    .auto-pill.running { background: #e4f6ec; }
+    .auto-pill.paused { background: #fff3de; }
+    .auto-pill.stopped { background: #eff1f4; }
+    /* The panel hangs off a dark header, so pull it back to page colours. */
+    .settings-panel { color: var(--text); border-radius: 10px; }
+
+    /* --- Summary cards ------------------------------------------------------------------- */
+    /* Each card already MEANS a colour; now it is washed in it. At the old alpha the wash was
+       invisible in light mode, which is most of why the row read as five identical white boxes. */
+    .card {
+      border-radius: 12px; border-top-width: 4px;
+      background-image: linear-gradient(170deg, var(--card-tint, transparent) 0%, rgba(255, 255, 255, 0) 74%);
+    }
+    .card.total { --card-tint: rgba(29, 93, 166, 0.20); }
+    .card.filed { --card-tint: rgba(43, 110, 77, 0.20); }
+    .card.review { --card-tint: rgba(224, 169, 64, 0.26); }
+    .card.notinvoice { --card-tint: rgba(99, 102, 106, 0.18); }
+    .card.error { --card-tint: rgba(214, 69, 80, 0.19); }
+    .card.pastdue { --card-tint: rgba(185, 28, 28, 0.19); }
+    :root[data-theme="dark"] .card.total { --card-tint: rgba(125, 180, 255, 0.15); }
+    :root[data-theme="dark"] .card.filed { --card-tint: rgba(74, 222, 128, 0.12); }
+    :root[data-theme="dark"] .card.review { --card-tint: rgba(251, 191, 36, 0.14); }
+    :root[data-theme="dark"] .card.notinvoice { --card-tint: rgba(203, 213, 225, 0.11); }
+    :root[data-theme="dark"] .card.error { --card-tint: rgba(248, 113, 113, 0.14); }
+    :root[data-theme="dark"] .card.pastdue { --card-tint: rgba(248, 113, 113, 0.14); }
+    .card-label { color: var(--text-muted); }
+
+    /* --- Metric strips -------------------------------------------------------------------- */
+    /* Two identical white bars stacked on each other was the flattest thing on the page. Split
+       them into cells with hairline dividers so they read as one metric row. */
+    .stat-strip { gap: 0; padding: 0; border-radius: 12px; overflow: hidden; align-items: stretch; }
+    .stat-strip > div {
+      flex: 1 1 0; min-width: 0; padding: 13px 18px;
+      border-left: 1px solid var(--border);
+      background-image: linear-gradient(180deg, rgba(29, 93, 166, 0.055), rgba(255, 255, 255, 0) 62%);
+    }
+    .stat-strip > div:first-child { border-left: none; }
+    .stat-strip strong { font-size: 14.5px; font-variant-numeric: tabular-nums; }
+    @media (max-width: 900px) {
+      .stat-strip > div { border-left: none; border-top: 1px solid var(--border); }
+      .stat-strip > div:first-child { border-top: none; }
+    }
+
+    /* --- Sections, panels, table ---------------------------------------------------------- */
+    .section h2 {
+      display: flex; align-items: center; gap: 10px;
+      border-left: none; padding-left: 0; font-size: 17px; font-weight: 700;
+    }
+    .section h2::before {
+      content: ''; flex: 0 0 auto; width: 4px; height: 19px; border-radius: 2px;
+      background: linear-gradient(180deg, #2d7ace, var(--wcm-blue-dark));
+    }
+    .filter-bar, table, .stat-strip, .card { border-radius: 12px; box-shadow: var(--shadow-2); }
+    .filter-bar { background-image: linear-gradient(180deg, rgba(29, 93, 166, 0.05), rgba(255, 255, 255, 0) 44%); }
+    thead tr:first-child th:first-child { border-top-left-radius: 12px; }
+    thead tr:first-child th:last-child { border-top-right-radius: 12px; }
+    tbody tr:last-child td:first-child { border-bottom-left-radius: 12px; }
+    tbody tr:last-child td:last-child { border-bottom-right-radius: 12px; }
+    /* A header row that reads as one: blue-grey rather than off-white, with a defined bottom edge. */
+    #invoiceTable thead th, .section table thead th {
+      background-image: linear-gradient(180deg, rgba(15, 42, 74, 0.06), rgba(255, 255, 255, 0));
+      color: var(--wcm-grey-dark); font-weight: 700; letter-spacing: 0.07em;
+      box-shadow: inset 0 -1px 0 #c9d3e0;
+    }
+    :root[data-theme="dark"] #invoiceTable thead th,
+    :root[data-theme="dark"] .section table thead th {
+      background-image: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0));
+      color: var(--text-muted); box-shadow: inset 0 -1px 0 var(--border);
+    }
+    .proj-num { border: 1px solid rgba(15, 42, 74, 0.07); }
+    :root[data-theme="dark"] .proj-num { border-color: transparent; }
+    .modal-box { border-radius: 12px; }
+    .feedback-btn {
+      background: linear-gradient(135deg, #2d7ace, #123f6d);
+      box-shadow: 0 6px 20px rgba(9, 30, 55, 0.34);
+    }
+    .feedback-btn:hover { background: linear-gradient(135deg, #3d8ade, #164b81); }
+
+    /* Column budget: the amount and status columns were a hair too narrow for the wider system-ui
+       digits, so "CAD $1,200.50" and the "Not an Invoice" chip both clipped. Widen both and take
+       it back from project and vendor, which have a title tooltip to fall back on. */
+    #invoiceTable th.amount-col { width: 10%; }
+    #invoiceTable th.status-col { width: 10.5%; }
+    #invoiceTable th.proj-col { width: 12%; }
+    /* Column budget, sized from MEASURED text width rather than guessed percentages.
+       The nowrap columns (the three dates, the amount, the status chip) have no ellipsis, so if they
+       are short the text is silently sliced -- a clipped "Jul 31, 2026" loses the last digit of the
+       year and reads as a typo, not as truncation. Those three get exactly what they need; the
+       wrapping columns (vendor, project, subproject) absorb the remainder because they clip with an
+       ellipsis AND carry the full value in a title tooltip.
+
+       Budget at the container's 1152px: 186px goes to the four icon columns (select/note/links/edit),
+       leaving 966px, which is what these percentages divide up. min-width pins that 1152px so a
+       narrow window scrolls the PAGE sideways instead of quietly slicing every figure -- the one
+       thing a table of money must never do. */
+    #invoiceTable { min-width: 1152px; }
+    #invoiceTable th.date-col { width: 8.07%; }
+    #invoiceTable td.date-col, #invoiceTable th.date-col { padding-left: 9px; padding-right: 9px; }
+    #invoiceTable th.amount-col { width: 12.15%; }
+    #invoiceTable th.status-col { width: 11.37%; }
+    #invoiceTable th.invnum-col { width: 8.33%; }
+    #invoiceTable th.vendor-col { width: 10.07%; }
+    #invoiceTable th.proj-col { width: 9.72%; }
+    #invoiceTable th.sub-col { width: 7.99%; }
   </style>
   <script>
     // Apply the saved theme before the body paints, so there's no light-mode flash. Per-viewer,
