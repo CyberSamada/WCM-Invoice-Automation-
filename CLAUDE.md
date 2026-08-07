@@ -332,6 +332,27 @@ listed in `SELECT_SEARCH_PAIRS`; the label is refreshed on the select's `change`
 OPENS with something pre-selected without editing every `open*Modal()`. `filterProjectSearch` and
 `hintsProjectSearch` are NOT pairs — they filter trees, not a `<select>`.
 
+**Brand identity block (last in `<style>`).** The header carries a blue gradient with the logo on a
+white card, white title and glass buttons; the summary cards are washed in the status colour they
+already mean; the two metric bars become one divided row. The light palette is re-grounded on purpose
+(`--bg` #e8ecf3, `--surface-alt` #eef2f8, `--border` #d9e0ea): the old values were one step off white,
+so white panels sat on a white ground and the page read as **bland no matter how well laid out it
+was**. Depth in a light UI comes from VALUE SEPARATION, not more shadow — if you lighten `--bg` back
+towards #f4f5f7 the flatness returns. The white logo card also settles the old note about a
+low-contrast logo on a dark header: every logo is drawn to work on white, so give it white.
+
+**Column widths come from MEASURED text, not guessed percentages.** The nowrap columns (three dates,
+amount, status chip) have no ellipsis, so a short column SLICES the text silently — a clipped
+`Jul 31, 2026` loses the last digit of the year and reads as a typo, not as truncation. This actually
+shipped: the dates were sliced for two PRs while "uniform 52px rows, no page overflow" checks passed,
+because those measure row height and document width, never per-cell fit. The check that catches it
+compares `scrollWidth` to `clientWidth` on `.cell-date` / `.cell-time` / `.amount-col` / `.proj-num`
+and the badge against its cell, at several viewport widths (`clip.js` pattern). Budget: 186px for the
+four icon columns, 966px of the 1152 for the rest; nowrap columns take exactly what they need and
+vendor/project/subproject absorb the remainder because they clip WITH an ellipsis and a `title`.
+`#invoiceTable` has `min-width: 1152px` so a narrow window scrolls the page sideways rather than
+slicing every figure — for a table of money that is the right trade.
+
 **Presentation-only polish block.** An earlier block in `<style>` (elevation tokens `--shadow-1/2/pop`
 + `--ring`, card hover lift, focus-visible rings, transitions, slim scrollbars, and dark-mode patches
 for fills that were hardcoded light — bulk bar, note dots, progress track, preview note). Rule for
