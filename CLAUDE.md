@@ -145,6 +145,25 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   Without it the bulk bar counted invisible rows and Edit selected / Download acted on them.
   Pruning is against the whole FILTERED set, not the page, so selecting across pages still works;
   the bulk bar says "(N on other pages)" when the selection reaches beyond the current page.
+- **Paging defaults to 100 per page** (`#pageSize`; the other options are 50 and All). Three rules
+  make paging and selection coexist, and each exists because the default change exposed it:
+  - **`applyFilters(opts)` takes an OPTIONS OBJECT, never a positional flag.** It is registered
+    directly as an `input`/`change` listener on seven filter fields, so its first argument is usually
+    an **Event** — a positional `keepPage` boolean reads that Event as truthy and silently keeps the
+    page on every keystroke. The test caught exactly this. `keepPage` is checked as
+    `opts && opts.keepPage === true`.
+  - **A filter or sort change resets to page 1; a post-edit refresh keeps the page.** The five save/
+    merge/bulk/mark-captured success handlers pass `{ keepPage: true }` — being bounced to page 1 on
+    every save makes paging unusable when you are working through page 4. `renderResults` clamps the
+    index, so keeping a now-out-of-range page is safe.
+  - **Preview Prev/Next walks `FILTERED_ROWS`, not the page.** `openPreviewModal` snapshots the whole
+    filtered list and `syncPageToRow_` pulls the table onto the page holding the previewed row, so
+    stepping past row 100 of 600 continues instead of dead-ending, and closing the modal leaves you
+    on the matching page. Snapshotting `LAST_RENDERED` (the page) is what made it dead-end.
+  The header checkbox is per-PAGE on purpose (`title="Select all on this page"`, acting on
+  `LAST_RENDERED`) so a bulk edit can never quietly reach rows nobody has seen. Note `DOWNLOAD_MAX_FILES`
+  is 100, so select-all on one page is exactly at the cap and selecting across two pages gets a clear
+  server-side refusal.
 - Adding a status touches all of: `ALLOWED_STATUSES` + `statusToClass_` (DashboardServer.gs), badge
   CSS + three status dropdowns + filter checkboxes (Dashboard.html), the resolver's bucket logic
   (DriveService.gs), and the refile bucket (Refile.gs).

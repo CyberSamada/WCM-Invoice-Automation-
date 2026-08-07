@@ -1204,9 +1204,9 @@
           <div class="sort-control">
             <label for="pageSize">Show</label>
             <select id="pageSize">
-              <option value="all" selected>All</option>
+              <option value="100" selected>100 per page</option>
               <option value="50">50 per page</option>
-              <option value="100">100 per page</option>
+              <option value="all">All</option>
             </select>
           </div>
           <div class="sort-control">
@@ -1235,7 +1235,7 @@
 
       <table id="invoiceTable">
         <thead>
-          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all shown"></th><th class="date-col">Processed</th><th class="date-col">Received</th><th class="date-col">Invoice Date</th><th class="vendor-col">Vendor</th><th class="invnum-col">Invoice #</th><th class="proj-col">Project</th><th class="sub-col">Subproject</th><th class="amount-col">Amount</th><th class="status-col">Status</th><th class="note-col">Note</th><th class="links-col">Links</th><th class="edit-col"></th></tr>
+          <tr><th class="select-cell"><input type="checkbox" id="selectAllBox" title="Select all on this page"></th><th class="date-col">Processed</th><th class="date-col">Received</th><th class="date-col">Invoice Date</th><th class="vendor-col">Vendor</th><th class="invnum-col">Invoice #</th><th class="proj-col">Project</th><th class="sub-col">Subproject</th><th class="amount-col">Amount</th><th class="status-col">Status</th><th class="note-col">Note</th><th class="links-col">Links</th><th class="edit-col"></th></tr>
         </thead>
         <tbody id="resultsBody">
           <tr><td colspan="13" class="loading-cell"><span class="spinner"></span>Loading invoices&hellip;</td></tr>
@@ -1964,7 +1964,12 @@
       document.getElementById('customDateRange').classList.toggle('shown', isCustom);
     }
 
-    function applyFilters() {
+    function applyFilters(opts) {
+      // NOTE: this function is registered directly as an input/change listener on seven filter
+      // fields, so its first argument is often an Event. Hence an options OBJECT and an explicit
+      // property test - a positional boolean would read the Event as truthy and keep the page on
+      // every keystroke, which is exactly the bug this shape prevents.
+      var keepPage = !!(opts && opts.keepPage === true);
       // Multi-select status: collect the ticked statuses. None ticked = no status filter (show all).
       var selectedStatuses = [];
       document.querySelectorAll('#filterStatus input[type="checkbox"]').forEach(function (b) {
@@ -2028,7 +2033,11 @@
       // the current filter — and the bulk bar then counts rows nobody can see, with Edit selected /
       // Download silently acting on them. Runs on every filter, sort and post-edit refresh.
       pruneSelectionToFiltered(filtered);
-      PAGE_INDEX = 0; // a filter or sort change makes the previous page position meaningless
+      // A filter or sort change makes the old page number meaningless, so it resets. A refresh
+      // AFTER AN EDIT is different: you were on page 4 fixing an invoice and being thrown back to
+      // page 1 every save makes paging unusable. Those call sites pass keepPage; renderResults
+      // clamps it, so keeping a now-out-of-range page is safe.
+      if (!keepPage) PAGE_INDEX = 0;
       renderResults(filtered);
     }
 
@@ -2196,7 +2205,9 @@
       if (size && list.length > size) {
         var from = list.length ? PAGE_INDEX * size + 1 : 0;
         countEl.textContent = 'Showing ' + from + '–' + (PAGE_INDEX * size + pageRows.length) +
-          ' of ' + list.length + ' matching invoices (' + ALL_RECORDS.length + ' total)';
+          ' of ' + list.length + (list.length === ALL_RECORDS.length
+            ? ' invoices'
+            : ' matching invoices (' + ALL_RECORDS.length + ' total)');
       } else {
         countEl.textContent = 'Showing ' + list.length + ' of ' + ALL_RECORDS.length + ' invoices';
       }
@@ -2462,7 +2473,7 @@
           var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
           if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
           closeEditModal();
-          applyFilters();
+          applyFilters({ keepPage: true }); // keep the page position across a save
         })
         .withFailureHandler(function (err) {
           saveBtn.disabled = false;
@@ -2488,8 +2499,24 @@
     // Opens the preview for a table row and snapshots the current list order, so Prev/Next stays stable
     // even as saving edits re-filters the table underneath.
     function openPreviewModal(rowId) {
-      previewNavList = (LAST_RENDERED || []).slice();
+      // Snapshot the whole FILTERED list, not just the page on screen. Prev/Next is how a
+      // coordinator walks a review stack, and with a page size set, snapshotting the page would
+      // dead-end them at row 100 of 600 with no indication why.
+      previewNavList = (FILTERED_ROWS || []).slice();
       showPreview_(rowId);
+    }
+
+    // Moves the table to the page holding a row, so the list behind the modal matches what is being
+    // previewed and you land on the right page when you close it. No-op when showing everything.
+    function syncPageToRow_(rowId) {
+      var size = currentPageSize();
+      if (!size) return;
+      var i = FILTERED_ROWS.findIndex(function (r) { return r.rowId === rowId; });
+      if (i === -1) return;
+      var want = Math.floor(i / size);
+      if (want === PAGE_INDEX) return;
+      PAGE_INDEX = want;
+      rerenderCurrentPage();
     }
 
     function showPreview_(rowId) {
@@ -2835,7 +2862,9 @@
       var i = list.findIndex(function (r) { return r.rowId === previewRowId; });
       if (i === -1) return;
       var j = previewNeighborIndex_(i, delta);
-      if (j !== -1) showPreview_(list[j].rowId); // showPreview_, not openPreviewModal, to keep the snapshot
+      if (j === -1) return;
+      showPreview_(list[j].rowId); // showPreview_, not openPreviewModal, to keep the snapshot
+      syncPageToRow_(list[j].rowId); // stepping past the end of a page pulls the table forward with it
     }
 
     // Fills the preview modal's own subproject <select> for a chosen project (its own copy so it
@@ -2900,7 +2929,7 @@
           saveBtn.disabled = false; saveBtn.textContent = 'Save changes';
           var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
           if (idx > -1) Object.assign(ALL_RECORDS[idx], updated);
-          applyFilters(); // refresh the table behind the modal
+          applyFilters({ keepPage: true }); // refresh the table behind the modal, keeping the page position
           document.getElementById('previewLearnAlias').value = '';
           var rec = idx > -1 ? ALL_RECORDS[idx] : updated;
           renderPreviewNote(rec.reviewNote, rec.matchNote);
@@ -3007,7 +3036,7 @@
           btn.disabled = false; btn.textContent = 'Merge';
           var i = ALL_RECORDS.findIndex(function (r) { return r.rowId === rowId; });
           if (i > -1) Object.assign(ALL_RECORDS[i], updated);
-          applyFilters();
+          applyFilters({ keepPage: true });
           closeMergeModal();
           // Refresh the preview in place: it now shows the KEPT copy's PDF and Duplicate status.
           previewDriveLink = updated.driveLink || previewDriveLink;
@@ -3831,7 +3860,7 @@
             var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === u.rowId; });
             if (idx > -1) Object.assign(ALL_RECORDS[idx], u);
           });
-          applyFilters();
+          applyFilters({ keepPage: true });
         })
         .withFailureHandler(function (err) {
           statusEl.style.color = '';
@@ -3986,7 +4015,7 @@
         bulkSaving = false;
         applyBtn.disabled = false; applyBtn.textContent = 'Apply to selected';
         cancelBtn.disabled = false;
-        applyFilters();
+        applyFilters({ keepPage: true });
         if (failed) {
           progressText.textContent = 'Done — ' + failed + ' of ' + total + ' failed and stay selected.';
           errorEl.textContent = failed + ' row(s) failed. First error: ' + firstError;
