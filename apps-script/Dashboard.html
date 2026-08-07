@@ -1018,12 +1018,22 @@
        own object rather than a rectangle of paint. The text gets a 1px shadow because white on a
        mid-tone fill is where legibility usually goes.
 
-       Nothing here changes the chip's box: no padding, font-size, weight or letter-spacing changes,
-       because the status column is sized to the exact width of the widest chip ("Not an Invoice")
-       and a heavier or wider glyph run would push it back into clipping. Verified with the clip
-       check after.
+       Nothing here changes the chip's WIDTH: no horizontal padding, font-size, weight or
+       letter-spacing changes, because the status column is sized to the exact width of the widest
+       chip ("Not an Invoice") and a heavier or wider glyph run would push it back into clipping.
+       Verified with the clip check after. (Vertical padding IS adjusted, one block down, to centre
+       the text optically -- that costs no width.)
        ------------------------------------------------------------------------------------------ */
+    /* Optically centre the text. The BOX was already symmetric (2px padding above and below a 13px
+       line box), but a line box reserves room for descenders whether the label has any or not, so
+       "Filed" / "Needs Review" / "Paid" -- none of which descend -- had their ink sitting high with
+       an empty 1px band underneath. Measured: the cap-height block (cap top to baseline) ran 4px
+       from the top and 5px from the bottom. Padding 3px/2px on a 18px pill puts it at 5px and 5px,
+       centred, with integers rather than a half-pixel that rounds unpredictably. Descenders on
+       "Duplicate" now hang below the centred block, which is what type is supposed to do.
+       Horizontal padding is untouched, so the status column's measured width still holds. */
     .badge {
+      padding: 3px 8px 2px;
       background-image:
         linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 52%, rgba(0, 0, 0, 0.12) 100%);
       box-shadow:
