@@ -166,7 +166,20 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   server-side refusal.
 - Adding a status touches all of: `ALLOWED_STATUSES` + `statusToClass_` (DashboardServer.gs), badge
   CSS + three status dropdowns + filter checkboxes (Dashboard.html), the resolver's bucket logic
-  (DriveService.gs), and the refile bucket (Refile.gs).
+  (DriveService.gs), and the refile bucket (Refile.gs). **Plus two colour hooks in the identity
+  block**: `--chip-glow` on `.badge-<class>` (the chip's own tinted drop shadow) and
+  `--row-accent` on `#invoiceTable tbody tr.row-<class>` (the 3px left edge). A status with
+  neither still renders, it just loses the glow and the row edge.
+- **Status chips are solid with white text on purpose** — that was an explicit request; the fill
+  IS the identifying cue while scanning, so don't "modernise" them into tinted-background /
+  coloured-text badges. Style is added through depth instead: a gradient over the base colour, a
+  white hairline on the top edge and a dark one on the bottom, a drop shadow in the chip's own
+  hue, and a 1px text shadow (white on a mid-tone fill is where legibility goes). **None of it may
+  change the chip's box** — no padding, font-size, weight or letter-spacing — because the status
+  column is sized to the exact width of the widest chip ("Not an Invoice") and a heavier or wider
+  glyph run puts it straight back into clipping. Re-run the clip check after touching them.
+  The matching row edge is an **inset shadow on the `.select-cell`**, not a border, so it costs no
+  width; the `<tr>` carries `row-<statusClass>` for it.
 - Long jobs (refile, archive, reconcile) follow one pattern: `LockService.getScriptLock()`, a
   time budget under the ~6-min kill, idempotent re-runs that skip already-done work, and a final
   `Logger.log` that says "Done." or "re-run to continue".

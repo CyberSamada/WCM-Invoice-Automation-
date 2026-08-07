@@ -668,7 +668,6 @@
     }
 
     /* Chips and headings: a hairline inside the chip keeps it crisp on both surfaces. */
-    .badge { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.10); }
     .section h2 { border-radius: 2px; }
     .auto-pill { box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.05); }
 
@@ -700,7 +699,6 @@
     :root[data-theme="dark"] .preview-note-details summary::before { color: #d9b36a; }
     :root[data-theme="dark"] .learn-field { border-top-color: var(--border); }
     :root[data-theme="dark"] .select-search { background: var(--surface); }
-    :root[data-theme="dark"] .badge { box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.07); }
     :root[data-theme="dark"] .auto-pill { box-shadow: none; }
     :root[data-theme="dark"] .brand-header { box-shadow: 0 1px 3px rgba(0, 0, 0, 0.5); }
 
@@ -1010,6 +1008,60 @@
     #invoiceTable th.vendor-col { width: 10.07%; }
     #invoiceTable th.proj-col { width: 9.72%; }
     #invoiceTable th.sub-col { width: 7.99%; }
+
+    /* ------------------------------------------------------------------------------------------
+       Status chips. Kept SOLID with white text on purpose -- the fill is the identifying cue when
+       scanning, which is the whole point of them -- but given dimension instead of sitting flat:
+       a light-to-dark gradient over the base colour, a hairline highlight along the top edge and a
+       darker one along the bottom (so the pill reads as a physical object), and a drop shadow tinted
+       in the chip's OWN hue rather than generic black, which is what makes each one feel like its
+       own object rather than a rectangle of paint. The text gets a 1px shadow because white on a
+       mid-tone fill is where legibility usually goes.
+
+       Nothing here changes the chip's box: no padding, font-size, weight or letter-spacing changes,
+       because the status column is sized to the exact width of the widest chip ("Not an Invoice")
+       and a heavier or wider glyph run would push it back into clipping. Verified with the clip
+       check after.
+       ------------------------------------------------------------------------------------------ */
+    .badge {
+      background-image:
+        linear-gradient(180deg, rgba(255, 255, 255, 0.20) 0%, rgba(255, 255, 255, 0) 52%, rgba(0, 0, 0, 0.12) 100%);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.26),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.16),
+        0 1px 2px var(--chip-glow, rgba(16, 24, 40, 0.28));
+      text-shadow: 0 1px 1px rgba(0, 0, 0, 0.22);
+    }
+    .badge-filed { --chip-glow: rgba(43, 110, 77, 0.42); }
+    .badge-paid { --chip-glow: rgba(41, 106, 112, 0.42); }
+    .badge-captured { --chip-glow: rgba(42, 74, 121, 0.42); }
+    .badge-review { --chip-glow: rgba(127, 74, 36, 0.42); }
+    .badge-canceled { --chip-glow: rgba(121, 42, 58, 0.42); }
+    .badge-duplicate { --chip-glow: rgba(101, 55, 123, 0.42); }
+    .badge-notinvoice { --chip-glow: rgba(83, 90, 101, 0.42); }
+    .badge-pastdue { --chip-glow: rgba(120, 45, 38, 0.42); }
+    .badge-other { --chip-glow: rgba(87, 87, 96, 0.42); }
+    /* On a dark surface a dark glow is invisible and the top highlight is what gives the edge, so
+       lean on the highlight and drop the coloured shadow to almost nothing. */
+    :root[data-theme="dark"] .badge {
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.20),
+        inset 0 -1px 0 rgba(0, 0, 0, 0.30),
+        0 1px 3px rgba(0, 0, 0, 0.45);
+    }
+
+    /* The same colour repeated as a 3px edge down the row, so a status is findable by running your
+       eye down the left margin instead of reading the chip on every line. It is an INSET shadow on
+       the checkbox cell, not a border, so it costs no width and shifts nothing. */
+    #invoiceTable tbody tr td.select-cell { box-shadow: inset 3px 0 0 var(--row-accent, transparent); }
+    #invoiceTable tbody tr.row-filed { --row-accent: #2b6e4d; }
+    #invoiceTable tbody tr.row-paid { --row-accent: #296a70; }
+    #invoiceTable tbody tr.row-captured { --row-accent: #2a4a79; }
+    #invoiceTable tbody tr.row-review { --row-accent: #c98a3c; }
+    #invoiceTable tbody tr.row-canceled { --row-accent: #792a3a; }
+    #invoiceTable tbody tr.row-duplicate { --row-accent: #65377b; }
+    #invoiceTable tbody tr.row-notinvoice { --row-accent: #9aa1ab; }
+    #invoiceTable tbody tr.row-pastdue { --row-accent: #782d26; }
   </style>
   <script>
     // Apply the saved theme before the body paints, so there's no light-mode flash. Per-viewer,
@@ -2228,7 +2280,7 @@
         // match reasoning. Show both when both exist.
         var noteLines = noteLinesFrom(r.reviewNote, r.matchNote);
         var note = noteLines.join('\n'); // multi-line title tooltip + presence check
-        html += '<tr>' +
+        html += '<tr class="row-' + r.statusClass + '">' +
           '<td class="select-cell">' + (r.rowId
             ? '<input type="checkbox" data-select-id="' + escapeHtml(r.rowId) + '"' + (SELECTED_ROWIDS[r.rowId] ? ' checked' : '') + '>'
             : '') + '</td>' +
