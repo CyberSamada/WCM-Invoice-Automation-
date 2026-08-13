@@ -71,7 +71,7 @@ function buildDashboardData_() {
         subprojectName: r[idx['Subproject Name']] || '',
         amount: amount,
         currency: currency,
-        status: status,
+        status: displayStatus_(status),
         statusClass: statusToClass_(status),
         confidenceFormatted: formatConfidenceForDashboard_(r[idx['Confidence']]),
         driveLink: r[idx['Drive Link']] || '',
@@ -387,7 +387,9 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
 
   // 'Past Due' is intentionally NOT settable anymore — the Past Due lane was dropped in favor of
   // filing everything by month, and the legacy Past Due rows were already migrated to Filed/Needs Review.
-  const ALLOWED_STATUSES = ['Filed', 'Captured', 'Paid', 'Canceled', 'Needs Review', 'Not an Invoice', 'Duplicate'];
+  // 'Captured' is the LEGACY name for 'Processed' and stays accepted so a row that predates the
+  // rename can still be saved untouched. Nothing offers it in the UI any more.
+  const ALLOWED_STATUSES = ['Filed', 'Processed', 'Captured', 'Paid', 'Canceled', 'Needs Review', 'Not an Invoice', 'Duplicate'];
   if (updates.status != null && ALLOWED_STATUSES.indexOf(newStatus) === -1) {
     throw new Error(`Status must be one of: ${ALLOWED_STATUSES.join(', ')}.`);
   }
@@ -558,19 +560,19 @@ function updateInvoiceRows(rowIds, updates) {
 }
 
 /**
- * Marks the given rows Captured — used by the batch download's "Mark as Captured" option, since
+ * Marks the given rows Processed — used by the batch download's "Mark as Processed" option, since
  * downloading a batch is normally the act of capturing it into Procore/SmartBuild.
  *
  * Eligibility is decided HERE, not by the caller: only rows currently `Filed` or `Needs Review` move.
  * A `Duplicate` row is skipped (its file belongs to the canon invoice and it isn't a capturable bill),
- * `Not an Invoice` is skipped, and anything already Captured/Paid/Canceled is left alone so a download
+ * `Not an Invoice` is skipped, and anything already Processed/Paid/Canceled is left alone so a download
  * can never walk a lifecycle status BACKWARDS. Deciding on the server means a stale dashboard can't
  * mark something it merely believes is Filed.
  *
  * @param {string[]} rowIds
  * @return {{updated: Object[], skipped: number, errors: {rowId: string, message: string}[]}}
  */
-function markInvoicesCaptured(rowIds) {
+function markInvoicesProcessed(rowIds) {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to edit invoice records.');
   }
@@ -598,7 +600,7 @@ function markInvoicesCaptured(rowIds) {
   rowIds.forEach(rowId => {
     if (!CAPTURABLE[statusByRowId[String(rowId)]]) { skipped++; return; }
     try {
-      updated.push(updateInvoiceRow(rowId, { status: 'Captured' }, referenceRows));
+      updated.push(updateInvoiceRow(rowId, { status: 'Processed' }, referenceRows));
     } catch (err) {
       errors.push({ rowId: rowId, message: err.message });
     }
@@ -1110,9 +1112,19 @@ function compareNumberKeys_(a, b) {
   return 0;
 }
 
+/**
+ * Normalises a stored status for DISPLAY. 'Captured' was renamed to 'Processed'; rows written before
+ * the rename still hold the old word until migrateCapturedStatus() (Setup.gs) is run - which is
+ * optional, because this makes the dashboard show, filter and colour them identically either way.
+ * Keep this the ONLY place the legacy spelling is translated for the UI.
+ */
+function displayStatus_(status) {
+  return status === 'Captured' ? 'Processed' : status;
+}
+
 function statusToClass_(status) {
   if (status === 'Filed') return 'filed';
-  if (status === 'Captured') return 'captured';
+  if (status === 'Processed' || status === 'Captured') return 'processed'; // 'Captured' = legacy name
   if (status === 'Paid') return 'paid';
   if (status === 'Canceled') return 'canceled';
   if (status === 'Needs Review') return 'review';

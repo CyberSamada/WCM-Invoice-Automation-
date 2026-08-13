@@ -164,12 +164,36 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   `LAST_RENDERED`) so a bulk edit can never quietly reach rows nobody has seen. Note `DOWNLOAD_MAX_FILES`
   is 100, so select-all on one page is exactly at the cap and selecting across two pages gets a clear
   server-side refusal.
+- **`Captured` was renamed to `Processed`** (chip reads "Processed"; the hover and the legend say
+  "Downloaded and put through SmartBuild / Procore for approval"). The old word is a STORED value in
+  the sheet, so the rename ships with a legacy fallback rather than a flag day:
+  - `displayStatus_` (DashboardServer.gs) is the ONE place that translates for the UI — a row still
+    stored as `Captured` reaches the dashboard as `Processed`, so chips, filters, the legend and the
+    tooltip all behave identically whether or not the sheet has been migrated.
+  - The server paths that read the sheet directly still accept BOTH spellings: `ALLOWED_STATUSES`,
+    `statusToClass_`, the Drive month-root bucket (DriveService.gs), the refile bucket (Refile.gs),
+    and `NEXUS_ELIGIBLE_STATUSES_` / `nexusTargetRank_` (NexusSync.gs). Don't drop the legacy arm
+    from any of them until the sheet is definitely migrated.
+  - `migrateCapturedStatus()` (Setup.gs) is a MANUAL, optional one-off that rewrites the Status
+    column in the Invoice Log + Archive. Header-name lookup, only cells equal to `Captured`, one
+    `setValues` per tab, idempotent. Nothing calls it automatically.
+  - `markInvoicesCaptured` is now `markInvoicesProcessed`; internal identifiers that still say
+    "captured" (`downloadMarkCaptured`, `markDownloadedCaptured`, `res.toCaptured`) are deliberately
+    left alone — renaming them buys nothing and only risks a missed reference.
 - Adding a status touches all of: `ALLOWED_STATUSES` + `statusToClass_` (DashboardServer.gs), badge
   CSS + three status dropdowns + filter checkboxes (Dashboard.html), the resolver's bucket logic
   (DriveService.gs), and the refile bucket (Refile.gs). **Plus two colour hooks in the identity
   block**: `--chip-glow` on `.badge-<class>` (the chip's own tinted drop shadow) and
   `--row-accent` on `#invoiceTable tbody tr.row-<class>` (the 3px left edge). A status with
   neither still renders, it just loses the glow and the row edge.
+- **Card text is centred with `line-height: 1`, not by default leading.** Every text box carries
+  half-leading above and below its glyphs, and how much differs per font — so CSS that looks centred
+  on one machine sits visibly low on another, because `system-ui` resolves to a different face on
+  Windows, macOS and Linux. Setting `line-height: 1` on `.card-value` / `.card-label` makes each box
+  hug its own glyphs, so flex centring centres the TEXT rather than the font's padding. The label
+  also carries `text-indent` equal to its `letter-spacing`, because letter-spacing adds a trailing
+  gap after the last character that shifts centred text a hair left. Same class of bug as the status
+  chip: the box measures even while the ink is not.
 - **The status legend at the top and the chip hover text share one wording.** The legend is static
   markup (so it paints on the first frame) under the stat strips; `STATUS_HELP` in the script supplies
   the identical string as each chip's `title`. A test asserts the two match exactly — if you reword

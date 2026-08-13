@@ -107,3 +107,45 @@ function createReconcileTrigger() {
 
   Logger.log('Reconcile trigger created: reconcileDriveLocations() runs daily, ~3am.');
 }
+
+/**
+ * ONE-TIME, MANUAL: rewrites the old status word "Captured" to "Processed" in the Invoice Log and
+ * the Invoice Log Archive.
+ *
+ * Running this is OPTIONAL. Everything that reads a status already accepts both spellings, and the
+ * dashboard normalises the old one for display, so an unmigrated sheet behaves identically - the
+ * only difference is what the Status column literally reads if you open the spreadsheet. This just
+ * makes the sheet say the same thing the dashboard does.
+ *
+ * Safe by construction: it only touches the Status column, only cells whose value is EXACTLY
+ * "Captured", finds the column by header name (never by position), and writes each tab in one
+ * setValues call. Idempotent - a second run reports 0 changes.
+ */
+function migrateCapturedStatus() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const tabs = [CONFIG.SHEET_LOG_TAB, CONFIG.SHEET_LOG_ARCHIVE_TAB];
+  let total = 0;
+
+  tabs.forEach(tabName => {
+    const sheet = ss.getSheetByName(tabName);
+    if (!sheet) { Logger.log(`${tabName}: not present, skipped.`); return; }
+    if (sheet.getLastRow() < 2) { Logger.log(`${tabName}: no data rows.`); return; }
+
+    const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
+    const col = header.indexOf('Status') + 1; // header-name lookup, never a hardcoded index
+    if (col === 0) { Logger.log(`${tabName}: no "Status" column, skipped.`); return; }
+
+    const range = sheet.getRange(2, col, sheet.getLastRow() - 1, 1);
+    const values = range.getValues();
+    let changed = 0;
+    for (let i = 0; i < values.length; i++) {
+      if (values[i][0] === 'Captured') { values[i][0] = 'Processed'; changed++; }
+    }
+    if (changed) range.setValues(values); // one write per tab, not per row
+    total += changed;
+    Logger.log(`${tabName}: ${changed} row(s) updated.`);
+  });
+
+  Logger.log(`Done. ${total} row(s) changed from "Captured" to "Processed".`);
+  return total;
+}

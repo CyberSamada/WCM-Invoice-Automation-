@@ -117,7 +117,8 @@ function resolveInvoiceDestinationFolderId_(matchedRef, status, monthDate) {
   // got rejected outright and will never be paid. Both stay a real invoice at the month root (no
   // separate folder); they mark closure and are a future hint for the month-close/archive job (the
   // archive trigger itself is still TBD).
-  if (status === 'Filed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') return monthFolderId;
+  // 'Captured' is the legacy name for 'Processed' - both file at the month root.
+  if (status === 'Filed' || status === 'Processed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') return monthFolderId;
   if (status === 'Not an Invoice') return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.STATEMENTS_SUBFOLDER_NAME).getId();
   return getOrCreateNamedSubfolder_(monthFolderId, CONFIG.NEEDS_REVIEW_SUBFOLDER_NAME).getId();
 }

@@ -25,7 +25,9 @@
 
 /** Rows whose current status a Nexus upload may overwrite. Duplicate / Not an Invoice are excluded:
  *  a Duplicate row's file belongs to the canon invoice, and a non-invoice has no payment lifecycle. */
-var NEXUS_ELIGIBLE_STATUSES_ = { 'Filed': 1, 'Captured': 1, 'Paid': 1, 'Canceled': 1, 'Needs Review': 1 };
+// 'Captured' is the legacy name for 'Processed'; both are eligible so an unmigrated row is not
+// silently skipped by a sync.
+var NEXUS_ELIGIBLE_STATUSES_ = { 'Filed': 1, 'Processed': 1, 'Captured': 1, 'Paid': 1, 'Canceled': 1, 'Needs Review': 1 };
 
 /** Sentinel stored in the invoice crosswalk's Row ID when a human said "this matches nothing of ours",
  *  so a rejected suggestion stops coming back every upload. */
@@ -117,7 +119,7 @@ function mapNexusStatus_(rawStatus) {
   const s = String(rawStatus == null ? '' : rawStatus).trim().toUpperCase();
   if (s === 'PAID') return 'Paid';
   if (s === 'REJECTED' || s === 'VOID') return 'Canceled';
-  if (s === 'POSTED' || s === 'PENDING APPROVAL' || s === 'IN PROGRESS' || s === 'HOLD') return 'Captured';
+  if (s === 'POSTED' || s === 'PENDING APPROVAL' || s === 'IN PROGRESS' || s === 'HOLD') return 'Processed';
   return null;
 }
 
@@ -125,7 +127,7 @@ function mapNexusStatus_(rawStatus) {
 function nexusTargetRank_(status) {
   if (status === 'Paid') return 3;
   if (status === 'Canceled') return 2;
-  if (status === 'Captured') return 1;
+  if (status === 'Processed' || status === 'Captured') return 1; // 'Captured' = legacy name
   return 0;
 }
 
@@ -637,7 +639,7 @@ function previewNexusStatusUpdate(csvText) {
     if (s.entry.target === s.our.status) { alreadyCorrect++; return; }
     willChange++;
     if (s.entry.target === 'Paid') toPaid++;
-    else if (s.entry.target === 'Captured') toCaptured++;
+    else if (s.entry.target === 'Processed') toCaptured++;
     else if (s.entry.target === 'Canceled') toCanceled++;
     planned.push(nexusMatchToClient_(s));
   });
@@ -726,7 +728,7 @@ function confirmNexusMatch(match) {
   if (!canControlAutomation_()) throw new Error('You are not allowed to update invoice statuses.');
   if (!match || !match.rowId || !match.nexusNumber) throw new Error('Missing match details.');
   const target = String(match.target || '').trim();
-  if (['Paid', 'Captured', 'Canceled'].indexOf(target) === -1) {
+  if (['Paid', 'Processed', 'Canceled'].indexOf(target) === -1) {
     throw new Error('Unexpected status to apply: ' + target);
   }
   const result = updateInvoiceRow(match.rowId, { status: target });
