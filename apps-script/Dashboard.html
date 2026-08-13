@@ -1072,6 +1072,23 @@
     #invoiceTable tbody tr.row-duplicate { --row-accent: #65377b; }
     #invoiceTable tbody tr.row-notinvoice { --row-accent: #9aa1ab; }
     #invoiceTable tbody tr.row-pastdue { --row-accent: #782d26; }
+
+    /* Status legend (top of the page). Compact enough to leave visible rather than hiding it behind
+       a disclosure -- a legend nobody opens explains nothing. Auto-fit columns so it is one row of
+       four on a wide screen and stacks down on a narrow one. */
+    .legend {
+      background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+      padding: 12px 16px 13px; margin-bottom: 12px; box-shadow: var(--shadow-1);
+      background-image: linear-gradient(180deg, rgba(29, 93, 166, 0.04), rgba(255, 255, 255, 0) 46%);
+    }
+    .legend-title {
+      font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.07em;
+      color: var(--text-muted); margin-bottom: 10px;
+    }
+    .legend-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(252px, 1fr)); gap: 9px 20px; }
+    .legend-item { display: flex; align-items: flex-start; gap: 9px; min-width: 0; }
+    .legend-item .badge { flex: 0 0 auto; }
+    .legend-text { font-size: 11.5px; line-height: 1.45; color: var(--text-muted); min-width: 0; }
   </style>
   <script>
     // Apply the saved theme before the body paints, so there's no light-mode flash. Per-viewer,
@@ -1170,6 +1187,23 @@
     <div class="stat-strip">
       <div>Total Filed: <strong id="totalFiledAmount"><?= data.totalFiledAmountFormatted ?></strong></div>
       <div>Total Needs Review: <strong id="totalReviewAmount"><?= data.totalNeedsReviewAmountFormatted ?></strong></div>
+    </div>
+
+    <!-- Status legend. Static markup, not built by JS, so it paints with the first frame. Listed in
+         lifecycle order (what an invoice passes through) rather than alphabetically, so reading it
+         top to bottom explains the workflow. The same wording is reused as the hover tooltip on
+         every chip in the table below, via STATUS_HELP. -->
+    <div class="legend">
+      <div class="legend-title">What the statuses mean</div>
+      <div class="legend-grid">
+        <div class="legend-item"><span class="badge badge-review">Needs Review</span><span class="legend-text">The AI wasn't sure which project it belongs to. Open it and correct it.</span></div>
+        <div class="legend-item"><span class="badge badge-filed">Filed</span><span class="legend-text">Matched to a project and filed in Drive. Still worth a look before you capture it.</span></div>
+        <div class="legend-item"><span class="badge badge-captured">Captured</span><span class="legend-text">Downloaded and put through SmartBuild / Procore for approval.</span></div>
+        <div class="legend-item"><span class="badge badge-paid">Paid</span><span class="legend-text">Confirmed paid in Nexus. One of the two ways an invoice ends.</span></div>
+        <div class="legend-item"><span class="badge badge-canceled">Canceled</span><span class="legend-text">Rejected outright and will never be paid. The other way it ends.</span></div>
+        <div class="legend-item"><span class="badge badge-duplicate">Duplicate</span><span class="legend-text">The same invoice as another row. It shares that row's PDF, so never move its file.</span></div>
+        <div class="legend-item"><span class="badge badge-notinvoice">Not an Invoice</span><span class="legend-text">A statement, quote or other document that arrived at the billing inbox.</span></div>
+      </div>
     </div>
 
     <div class="section">
@@ -1845,6 +1879,18 @@
       return 0;
     }
 
+    // Hover text for a status chip. Same wording as the legend at the top of the page, so the two can
+    // never drift: change it here and the legend markup, and nowhere else.
+    var STATUS_HELP = {
+      'Needs Review': "The AI wasn't sure which project it belongs to. Open it and correct it.",
+      'Filed': 'Matched to a project and filed in Drive. Still worth a look before you capture it.',
+      'Captured': 'Downloaded and put through SmartBuild / Procore for approval.',
+      'Paid': 'Confirmed paid in Nexus. One of the two ways an invoice ends.',
+      'Canceled': 'Rejected outright and will never be paid. The other way it ends.',
+      'Duplicate': "The same invoice as another row. It shares that row's PDF, so never move its file.",
+      'Not an Invoice': 'A statement, quote or other document that arrived at the billing inbox.'
+    };
+
     // ---- Row cell renderers -------------------------------------------------------------------
     // These exist purely so a row stays a predictable two lines tall. Before them, "Jul 31, 2026
     // 1:39 PM" wrapped to three lines and a project name to three or four, so every row was a
@@ -2285,7 +2331,9 @@
 
       var html = '';
       pageRows.forEach(function (r) {
-        var statusBadge = '<span class="badge badge-' + r.statusClass + '">' + escapeHtml(r.status) + '</span>';
+        var statusBadge = '<span class="badge badge-' + r.statusClass + '"' +
+          (STATUS_HELP[r.status] ? ' title="' + escapeHtml(STATUS_HELP[r.status]) + '"' : '') +
+          '>' + escapeHtml(r.status) + '</span>';
         // Prefer the short "why it's flagged" review note in the tooltip; fall back to Gemini's
         // match reasoning. Show both when both exist.
         var noteLines = noteLinesFrom(r.reviewNote, r.matchNote);

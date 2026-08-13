@@ -170,6 +170,11 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   block**: `--chip-glow` on `.badge-<class>` (the chip's own tinted drop shadow) and
   `--row-accent` on `#invoiceTable tbody tr.row-<class>` (the 3px left edge). A status with
   neither still renders, it just loses the glow and the row edge.
+- **The status legend at the top and the chip hover text share one wording.** The legend is static
+  markup (so it paints on the first frame) under the stat strips; `STATUS_HELP` in the script supplies
+  the identical string as each chip's `title`. A test asserts the two match exactly — if you reword
+  one, reword the other or it fails. Adding a status means adding a legend item AND a `STATUS_HELP`
+  entry.
 - **Status chips are solid with white text on purpose** — that was an explicit request; the fill
   IS the identifying cue while scanning, so don't "modernise" them into tinted-background /
   coloured-text badges. Style is added through depth instead: a gradient over the base colour, a
