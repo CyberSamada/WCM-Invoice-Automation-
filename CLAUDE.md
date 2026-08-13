@@ -186,6 +186,14 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   block**: `--chip-glow` on `.badge-<class>` (the chip's own tinted drop shadow) and
   `--row-accent` on `#invoiceTable tbody tr.row-<class>` (the 3px left edge). A status with
   neither still renders, it just loses the glow and the row edge.
+- **Card text is centred with `line-height: 1`, not by default leading.** Every text box carries
+  half-leading above and below its glyphs, and how much differs per font — so CSS that looks centred
+  on one machine sits visibly low on another, because `system-ui` resolves to a different face on
+  Windows, macOS and Linux. Setting `line-height: 1` on `.card-value` / `.card-label` makes each box
+  hug its own glyphs, so flex centring centres the TEXT rather than the font's padding. The label
+  also carries `text-indent` equal to its `letter-spacing`, because letter-spacing adds a trailing
+  gap after the last character that shifts centred text a hair left. Same class of bug as the status
+  chip: the box measures even while the ink is not.
 - **The status legend at the top and the chip hover text share one wording.** The legend is static
   markup (so it paints on the first frame) under the stat strips; `STATUS_HELP` in the script supplies
   the identical string as each chip's `title`. A test asserts the two match exactly — if you reword
