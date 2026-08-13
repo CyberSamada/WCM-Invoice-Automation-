@@ -315,11 +315,11 @@
     .status-cell { white-space: nowrap; width: 1%; }
     /* Solid colour chips with white text — the fill is the identifying cue, so a status is readable
        at a glance while scanning. Hues are deliberately spread apart: Filed (green), Paid (teal) and
-       Captured (blue) are the three common ones and must not read as the same colour. Every fill is
+       Processed (blue) are the three common ones and must not read as the same colour. Every fill is
        dark enough for white text to stay legible in both themes. */
     .badge-filed { background: #2b6e4d; color: #ffffff; }
     .badge-paid { background: #296a70; color: #ffffff; }
-    .badge-captured { background: #2a4a79; color: #ffffff; }
+    .badge-processed { background: #2a4a79; color: #ffffff; }
     .badge-review { background: #7f4a24; color: #ffffff; }
     .badge-canceled { background: #792a3a; color: #ffffff; }
     .badge-duplicate { background: #65377b; color: #ffffff; }
@@ -1044,7 +1044,7 @@
     }
     .badge-filed { --chip-glow: rgba(43, 110, 77, 0.42); }
     .badge-paid { --chip-glow: rgba(41, 106, 112, 0.42); }
-    .badge-captured { --chip-glow: rgba(42, 74, 121, 0.42); }
+    .badge-processed { --chip-glow: rgba(42, 74, 121, 0.42); }
     .badge-review { --chip-glow: rgba(127, 74, 36, 0.42); }
     .badge-canceled { --chip-glow: rgba(121, 42, 58, 0.42); }
     .badge-duplicate { --chip-glow: rgba(101, 55, 123, 0.42); }
@@ -1066,7 +1066,7 @@
     #invoiceTable tbody tr td.select-cell { box-shadow: inset 3px 0 0 var(--row-accent, transparent); }
     #invoiceTable tbody tr.row-filed { --row-accent: #2b6e4d; }
     #invoiceTable tbody tr.row-paid { --row-accent: #296a70; }
-    #invoiceTable tbody tr.row-captured { --row-accent: #2a4a79; }
+    #invoiceTable tbody tr.row-processed { --row-accent: #2a4a79; }
     #invoiceTable tbody tr.row-review { --row-accent: #c98a3c; }
     #invoiceTable tbody tr.row-canceled { --row-accent: #792a3a; }
     #invoiceTable tbody tr.row-duplicate { --row-accent: #65377b; }
@@ -1120,7 +1120,7 @@
         <span class="auto-pill" id="autoPill">…</span>
         <button class="auto-btn" id="autoToggleBtn" type="button" style="display:none"></button>
         <button class="auto-btn auto-btn-secondary" id="manageHintsBtn" type="button" style="display:none" title="Add or remove the name/address hints that help match invoices to projects">Manage hints</button>
-        <button class="auto-btn auto-btn-secondary" id="nexusSyncBtn" type="button" style="display:none" title="Upload the latest Nexus export to update invoice statuses (Paid / Captured / Canceled)">Update from Nexus</button>
+        <button class="auto-btn auto-btn-secondary" id="nexusSyncBtn" type="button" style="display:none" title="Upload the latest Nexus export to update invoice statuses (Paid / Processed / Canceled)">Update from Nexus</button>
         <div class="settings-menu">
           <button class="auto-btn auto-btn-secondary settings-btn" id="settingsBtn" type="button" title="Settings" aria-label="Settings" aria-haspopup="true">&#9881;</button>
           <div class="settings-panel" id="settingsPanel">
@@ -1198,7 +1198,7 @@
       <div class="legend-grid">
         <div class="legend-item"><span class="badge badge-review">Needs Review</span><span class="legend-text">The AI wasn't sure which project it belongs to. Open it and correct it.</span></div>
         <div class="legend-item"><span class="badge badge-filed">Filed</span><span class="legend-text">Matched to a project and filed in Drive. Still worth a look before you capture it.</span></div>
-        <div class="legend-item"><span class="badge badge-captured">Captured</span><span class="legend-text">Downloaded and put through SmartBuild / Procore for approval.</span></div>
+        <div class="legend-item"><span class="badge badge-processed">Processed</span><span class="legend-text">Downloaded and put through SmartBuild / Procore for approval.</span></div>
         <div class="legend-item"><span class="badge badge-paid">Paid</span><span class="legend-text">Confirmed paid in Nexus. One of the two ways an invoice ends.</span></div>
         <div class="legend-item"><span class="badge badge-canceled">Canceled</span><span class="legend-text">Rejected outright and will never be paid. The other way it ends.</span></div>
         <div class="legend-item"><span class="badge badge-duplicate">Duplicate</span><span class="legend-text">The same invoice as another row. It shares that row's PDF, so never move its file.</span></div>
@@ -1220,7 +1220,7 @@
             <div class="proj-dropdown-panel" id="statusDropdownPanel">
               <div class="status-filter" id="filterStatus" title="Tick one or more; none ticked shows all">
                 <label class="status-chk"><input type="checkbox" value="Filed"> Filed</label>
-                <label class="status-chk"><input type="checkbox" value="Captured"> Captured</label>
+                <label class="status-chk"><input type="checkbox" value="Processed"> Processed</label>
                 <label class="status-chk"><input type="checkbox" value="Paid"> Paid</label>
                 <label class="status-chk"><input type="checkbox" value="Canceled"> Canceled</label>
                 <label class="status-chk"><input type="checkbox" value="Needs Review"> Needs Review</label>
@@ -1400,7 +1400,7 @@
         <label for="editStatus">Status</label>
         <select id="editStatus">
           <option value="Filed">Filed</option>
-          <option value="Captured">Captured</option>
+          <option value="Processed">Processed</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
           <option value="Needs Review">Needs Review</option>
@@ -1474,7 +1474,7 @@
               <label for="previewStatus" class="preview-edit-label2">Status</label>
               <select id="previewStatus">
                 <option value="Filed">Filed</option>
-          <option value="Captured">Captured</option>
+          <option value="Processed">Processed</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
                 <option value="Needs Review">Needs Review</option>
@@ -1570,7 +1570,7 @@
   <div class="modal-overlay" id="nexusModalOverlay" style="display:none">
     <div class="modal-box nexus-box">
       <h3>Update statuses from Nexus</h3>
-      <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Captured, <strong>REJECTED / VOID</strong> → Canceled.</p>
+      <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Processed, <strong>REJECTED / VOID</strong> → Canceled.</p>
       <p class="modal-subtitle">Clear matches are applied automatically. Anything uncertain is listed for you to confirm, and remembered for next time.</p>
       <div class="modal-field" id="nexusFileField">
         <label for="nexusFile">Nexus export (.csv)</label>
@@ -1640,7 +1640,7 @@
         <select id="bulkStatus">
           <option value="">(don't change)</option>
           <option value="Filed">Filed</option>
-          <option value="Captured">Captured</option>
+          <option value="Processed">Processed</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
           <option value="Needs Review">Needs Review</option>
@@ -1673,8 +1673,8 @@
            set the status in the same step instead of a separate bulk edit afterwards. -->
       <label class="download-capture" for="downloadMarkCaptured">
         <input type="checkbox" id="downloadMarkCaptured">
-        <span>Mark these invoices as <strong>Captured</strong> once downloaded
-          <span class="download-capture-note">Only invoices that are Filed or Needs Review change. Duplicate, Not an Invoice, and anything already Captured / Paid / Canceled are left alone.</span>
+        <span>Mark these invoices as <strong>Processed</strong> once downloaded
+          <span class="download-capture-note">Only invoices that are Filed or Needs Review change. Duplicate, Not an Invoice, and anything already Processed / Paid / Canceled are left alone.</span>
         </span>
       </label>
       <p class="modal-error" id="downloadModalError"></p>
@@ -1884,7 +1884,8 @@
     var STATUS_HELP = {
       'Needs Review': "The AI wasn't sure which project it belongs to. Open it and correct it.",
       'Filed': 'Matched to a project and filed in Drive. Still worth a look before you capture it.',
-      'Captured': 'Downloaded and put through SmartBuild / Procore for approval.',
+      'Processed': 'Downloaded and put through SmartBuild / Procore for approval.',
+      'Captured': 'Downloaded and put through SmartBuild / Procore for approval.', // legacy name
       'Paid': 'Confirmed paid in Nexus. One of the two ways an invoice ends.',
       'Canceled': 'Rejected outright and will never be paid. The other way it ends.',
       'Duplicate': "The same invoice as another row. It shares that row's PDF, so never move its file.",
@@ -3175,7 +3176,7 @@
     }
 
     // --- Update from Nexus (status sync) --------------------------------------------------------
-    // Upload the latest Nexus export, preview the status changes (Paid/Captured/Canceled), then apply
+    // Upload the latest Nexus export, preview the status changes (Paid/Processed/Canceled), then apply
     // them. The CSV is read in the browser and sent to previewNexusStatusUpdate / applyNexusStatusUpdate
     // (DashboardServer.gs). Apply is resumable — the server returns nextRow until done — so a large log
     // finishes across a few calls without hitting Apps Script's time limit.
@@ -3256,7 +3257,7 @@
       if (res.changed) {
         h += '<ul>';
         h += '<li>&rarr; Paid: <strong>' + res.toPaid + '</strong></li>';
-        h += '<li>&rarr; Captured: <strong>' + res.toCaptured + '</strong></li>';
+        h += '<li>&rarr; Processed: <strong>' + res.toCaptured + '</strong></li>';
         h += '<li>&rarr; Canceled: <strong>' + res.toCanceled + '</strong></li>';
         h += '</ul>';
       }
@@ -3953,15 +3954,15 @@
 
     function closeDownloadModal() { document.getElementById('downloadModalOverlay').style.display = 'none'; }
 
-    // Sets the downloaded invoices to Captured. The server decides which are eligible (Filed / Needs
+    // Sets the downloaded invoices to Processed. The server decides which are eligible (Filed / Needs
     // Review only), so the reported counts reflect what actually changed rather than what was asked.
     function markDownloadedCaptured(ids, statusEl) {
       var base = statusEl.textContent;
-      statusEl.textContent = base + ' · marking as Captured…';
+      statusEl.textContent = base + ' · marking as Processed…';
       google.script.run
         .withSuccessHandler(function (res) {
           var n = (res.updated || []).length;
-          var parts = [n + ' marked Captured'];
+          var parts = [n + ' marked Processed'];
           if (res.skipped) parts.push(res.skipped + ' left as-is');
           if (res.errors && res.errors.length) parts.push(res.errors.length + ' failed');
           statusEl.textContent = base + ' · ' + parts.join(', ');
@@ -3974,10 +3975,10 @@
         })
         .withFailureHandler(function (err) {
           statusEl.style.color = '';
-          statusEl.textContent = base + ' · could not mark as Captured: ' +
+          statusEl.textContent = base + ' · could not mark as Processed: ' +
             (err && err.message ? err.message : 'try a bulk edit instead.');
         })
-        .markInvoicesCaptured(ids);
+        .markInvoicesProcessed(ids);
     }
 
     function doDownloadZip() {

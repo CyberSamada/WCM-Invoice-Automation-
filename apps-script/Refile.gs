@@ -77,7 +77,7 @@ function refileToCorrectFoldersInner_() {
         const matchedRef = matchCache[matchKey];
 
         // Statuses collapse to three folder buckets, all nested under the processed-month folder.
-        const bucket = (status === 'Filed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') ? 'Filed'
+        const bucket = (status === 'Filed' || status === 'Processed' || status === 'Captured' || status === 'Paid' || status === 'Canceled') ? 'Filed'
           : (status === 'Not an Invoice' ? 'Not an Invoice' : 'Needs Review');
         const destKey = matchKey + '|' + bucket + '|' + monthFolderKey_(row[idx['Date Processed']]);
         if (!(destKey in destCache)) {
