@@ -109,19 +109,19 @@ function createReconcileTrigger() {
 }
 
 /**
- * ONE-TIME, MANUAL: rewrites the old status word "Captured" to "Processed" in the Invoice Log and
- * the Invoice Log Archive.
+ * ONE-TIME, MANUAL: makes the Status column consistent again.
  *
- * Running this is OPTIONAL. Everything that reads a status already accepts both spellings, and the
- * dashboard normalises the old one for display, so an unmigrated sheet behaves identically - the
- * only difference is what the Status column literally reads if you open the spreadsheet. This just
- * makes the sheet say the same thing the dashboard does.
+ * A short-lived earlier version wrote "Processed" into the Status column for rows that were edited
+ * or Nexus-synced while it was live. The stored word is "Captured" everywhere else, and every code
+ * path accepts both, so a mixed sheet behaves correctly - this just makes it READ consistently.
  *
- * Safe by construction: it only touches the Status column, only cells whose value is EXACTLY
- * "Captured", finds the column by header name (never by position), and writes each tab in one
- * setValues call. Idempotent - a second run reports 0 changes.
+ * Rewrites Status "Processed" -> "Captured" in the Invoice Log and the Invoice Log Archive.
+ *
+ * Safe by construction: only the Status column, only cells whose value is EXACTLY "Processed", the
+ * column found by header NAME (never by position), one setValues per tab. Idempotent - run it twice
+ * and the second run reports 0.
  */
-function migrateCapturedStatus() {
+function normalizeInvoiceStatuses() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
   const tabs = [CONFIG.SHEET_LOG_TAB, CONFIG.SHEET_LOG_ARCHIVE_TAB];
   let total = 0;
@@ -132,20 +132,20 @@ function migrateCapturedStatus() {
     if (sheet.getLastRow() < 2) { Logger.log(`${tabName}: no data rows.`); return; }
 
     const header = sheet.getRange(1, 1, 1, sheet.getLastColumn()).getValues()[0];
-    const col = header.indexOf('Status') + 1; // header-name lookup, never a hardcoded index
+    const col = header.indexOf('Status') + 1;
     if (col === 0) { Logger.log(`${tabName}: no "Status" column, skipped.`); return; }
 
     const range = sheet.getRange(2, col, sheet.getLastRow() - 1, 1);
     const values = range.getValues();
     let changed = 0;
     for (let i = 0; i < values.length; i++) {
-      if (values[i][0] === 'Captured') { values[i][0] = 'Processed'; changed++; }
+      if (values[i][0] === 'Processed') { values[i][0] = 'Captured'; changed++; }
     }
-    if (changed) range.setValues(values); // one write per tab, not per row
+    if (changed) range.setValues(values);
     total += changed;
-    Logger.log(`${tabName}: ${changed} row(s) updated.`);
+    Logger.log(`${tabName}: ${changed} row(s) set back to "Captured".`);
   });
 
-  Logger.log(`Done. ${total} row(s) changed from "Captured" to "Processed".`);
+  Logger.log(`Done. ${total} row(s) normalized. The Status column now reads one word.`);
   return total;
 }

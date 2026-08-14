@@ -1133,7 +1133,7 @@
         <span class="auto-pill" id="autoPill">…</span>
         <button class="auto-btn" id="autoToggleBtn" type="button" style="display:none"></button>
         <button class="auto-btn auto-btn-secondary" id="manageHintsBtn" type="button" style="display:none" title="Add or remove the name/address hints that help match invoices to projects">Manage hints</button>
-        <button class="auto-btn auto-btn-secondary" id="nexusSyncBtn" type="button" style="display:none" title="Upload the latest Nexus export to update invoice statuses (Paid / Processed / Canceled)">Update from Nexus</button>
+        <button class="auto-btn auto-btn-secondary" id="nexusSyncBtn" type="button" style="display:none" title="Upload the latest Nexus export to update invoice statuses (Paid / In Procore / Canceled)">Update from Nexus</button>
         <div class="settings-menu">
           <button class="auto-btn auto-btn-secondary settings-btn" id="settingsBtn" type="button" title="Settings" aria-label="Settings" aria-haspopup="true">&#9881;</button>
           <div class="settings-panel" id="settingsPanel">
@@ -1211,7 +1211,7 @@
       <div class="legend-grid">
         <div class="legend-item"><span class="badge badge-review">Needs Review</span><span class="legend-text">The AI wasn't sure which project it belongs to. Open it and correct it.</span></div>
         <div class="legend-item"><span class="badge badge-filed">Filed</span><span class="legend-text">Matched to a project and filed in Drive. Still worth a look before you capture it.</span></div>
-        <div class="legend-item"><span class="badge badge-processed">Processed</span><span class="legend-text">Downloaded and put through SmartBuild / Procore for approval.</span></div>
+        <div class="legend-item"><span class="badge badge-processed">In Procore</span><span class="legend-text">Downloaded and put through SmartBuild / Procore for approval.</span></div>
         <div class="legend-item"><span class="badge badge-paid">Paid</span><span class="legend-text">Confirmed paid in Nexus. One of the two ways an invoice ends.</span></div>
         <div class="legend-item"><span class="badge badge-canceled">Canceled</span><span class="legend-text">Rejected outright and will never be paid. The other way it ends.</span></div>
         <div class="legend-item"><span class="badge badge-duplicate">Duplicate</span><span class="legend-text">The same invoice as another row. It shares that row's PDF, so never move its file.</span></div>
@@ -1233,7 +1233,7 @@
             <div class="proj-dropdown-panel" id="statusDropdownPanel">
               <div class="status-filter" id="filterStatus" title="Tick one or more; none ticked shows all">
                 <label class="status-chk"><input type="checkbox" value="Filed"> Filed</label>
-                <label class="status-chk"><input type="checkbox" value="Processed"> Processed</label>
+                <label class="status-chk"><input type="checkbox" value="In Procore"> In Procore</label>
                 <label class="status-chk"><input type="checkbox" value="Paid"> Paid</label>
                 <label class="status-chk"><input type="checkbox" value="Canceled"> Canceled</label>
                 <label class="status-chk"><input type="checkbox" value="Needs Review"> Needs Review</label>
@@ -1413,7 +1413,7 @@
         <label for="editStatus">Status</label>
         <select id="editStatus">
           <option value="Filed">Filed</option>
-          <option value="Processed">Processed</option>
+          <option value="Captured">In Procore</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
           <option value="Needs Review">Needs Review</option>
@@ -1487,7 +1487,7 @@
               <label for="previewStatus" class="preview-edit-label2">Status</label>
               <select id="previewStatus">
                 <option value="Filed">Filed</option>
-          <option value="Processed">Processed</option>
+          <option value="Captured">In Procore</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
                 <option value="Needs Review">Needs Review</option>
@@ -1583,7 +1583,7 @@
   <div class="modal-overlay" id="nexusModalOverlay" style="display:none">
     <div class="modal-box nexus-box">
       <h3>Update statuses from Nexus</h3>
-      <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → Processed, <strong>REJECTED / VOID</strong> → Canceled.</p>
+      <p class="modal-subtitle">Upload the latest Nexus export (.csv). <strong>PAID</strong> → Paid, <strong>POSTED / Pending / In Progress / Hold</strong> → In Procore, <strong>REJECTED / VOID</strong> → Canceled.</p>
       <p class="modal-subtitle">Clear matches are applied automatically. Anything uncertain is listed for you to confirm, and remembered for next time.</p>
       <div class="modal-field" id="nexusFileField">
         <label for="nexusFile">Nexus export (.csv)</label>
@@ -1653,7 +1653,7 @@
         <select id="bulkStatus">
           <option value="">(don't change)</option>
           <option value="Filed">Filed</option>
-          <option value="Processed">Processed</option>
+          <option value="Captured">In Procore</option>
           <option value="Paid">Paid</option>
           <option value="Canceled">Canceled</option>
           <option value="Needs Review">Needs Review</option>
@@ -1686,8 +1686,8 @@
            set the status in the same step instead of a separate bulk edit afterwards. -->
       <label class="download-capture" for="downloadMarkCaptured">
         <input type="checkbox" id="downloadMarkCaptured">
-        <span>Mark these invoices as <strong>Processed</strong> once downloaded
-          <span class="download-capture-note">Only invoices that are Filed or Needs Review change. Duplicate, Not an Invoice, and anything already Processed / Paid / Canceled are left alone.</span>
+        <span>Mark these invoices as <strong>In Procore</strong> once downloaded
+          <span class="download-capture-note">Only invoices that are Filed or Needs Review change. Duplicate, Not an Invoice, and anything already In Procore / Paid / Canceled are left alone.</span>
         </span>
       </label>
       <p class="modal-error" id="downloadModalError"></p>
@@ -1897,8 +1897,7 @@
     var STATUS_HELP = {
       'Needs Review': "The AI wasn't sure which project it belongs to. Open it and correct it.",
       'Filed': 'Matched to a project and filed in Drive. Still worth a look before you capture it.',
-      'Processed': 'Downloaded and put through SmartBuild / Procore for approval.',
-      'Captured': 'Downloaded and put through SmartBuild / Procore for approval.', // legacy name
+      'In Procore': 'Downloaded and put through SmartBuild / Procore for approval.',
       'Paid': 'Confirmed paid in Nexus. One of the two ways an invoice ends.',
       'Canceled': 'Rejected outright and will never be paid. The other way it ends.',
       'Duplicate': "The same invoice as another row. It shares that row's PDF, so never move its file.",
@@ -3270,7 +3269,7 @@
       if (res.changed) {
         h += '<ul>';
         h += '<li>&rarr; Paid: <strong>' + res.toPaid + '</strong></li>';
-        h += '<li>&rarr; Processed: <strong>' + res.toCaptured + '</strong></li>';
+        h += '<li>&rarr; In Procore: <strong>' + res.toCaptured + '</strong></li>';
         h += '<li>&rarr; Canceled: <strong>' + res.toCanceled + '</strong></li>';
         h += '</ul>';
       }
