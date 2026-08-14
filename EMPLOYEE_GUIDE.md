@@ -24,7 +24,7 @@ At the top you'll see summary cards, with a **time-frame selector** (top right) 
 
 | Card | Meaning |
 |---|---|
-| **Total Processed** | All invoice emails handled |
+| **Total In Procore** | All invoice emails handled |
 | **Filed** | Auto-filed with high confidence — no action needed |
 | **Needs Review** | The system wasn't sure, or it's a statement/non-invoice — take a look |
 | **Not an Invoice** | Recognized as something other than an invoice (statement, Purchase Order, notice, etc.) |
@@ -42,9 +42,9 @@ Each row shows the invoice's processed date, received date, invoice date, vendor
 - **Filed** — done, no action needed. Filed into the project's folder, organized by month.
 - **Needs Review** — the system filed a copy (into the **Needs Review** folder) but wants a human to confirm: it wasn't sure about the project, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period). Check it and correct it if needed (see below).
 - **Duplicate** — the same invoice arrived again (a vendor re-send). It was **not** filed twice; the row's file link points at the original copy. Nothing to do unless the re-send was actually a *revised* invoice — then edit the row.
-- **Processed** — the coordinator has captured this invoice and uploaded it to Procore/SmartBuild. Set it from the edit panel when that's done.
+- **In Procore** — the coordinator has captured this invoice and uploaded it to Procore/SmartBuild. Set it from the edit panel when that's done.
 - **Paid** — confirmed paid (in Nexus). The file stays in its month folder either way.
-- **Canceled** — the invoice was rejected outright and will never be paid. Set this so it's closed out rather than sitting as "Processed" forever. Like Paid, it's a terminal state and the file stays in its month folder.
+- **Canceled** — the invoice was rejected outright and will never be paid. Set this so it's closed out rather than sitting as "In Procore" forever. Like Paid, it's a terminal state and the file stays in its month folder.
 - **Not an Invoice** — the AI reader determined this isn't actually a bill (could be a Purchase Order / Agreement, a statement, a receipt, a "your account info changed" email, etc.). It's filed under **Statements & Others**. Worth a quick glance to confirm it agrees with you.
 - **Errors** — something prevented processing (most often: the email matched the billing label but didn't actually have a PDF attached). Open the Gmail link to see the original email and handle it manually.
 
@@ -88,7 +88,7 @@ Need the actual PDFs — say, every invoice for a project this month — as file
    - **One invoice selected?** It downloads straight away as its own PDF — no zip, no naming.
    - **Several selected?** You'll be asked to **name the zip** (it suggests a dated name like `WCM-Invoices-2026-07`); click **Download zip** and your browser saves them all in one file.
 
-In the zip window there's a **Mark these invoices as Processed** tick-box. Since downloading a batch is usually how you capture it into Procore/SmartBuild, ticking it saves doing a separate bulk edit — the statuses are set only *after* the file actually downloads. Only invoices that are **Filed** or **Needs Review** change; Duplicate, Not an Invoice, and anything already Processed / Paid / Canceled are left alone, so it can't undo work. It's off by default and resets every time.
+In the zip window there's a **Mark these invoices as In Procore** tick-box. Since downloading a batch is usually how you capture it into Procore/SmartBuild, ticking it saves doing a separate bulk edit — the statuses are set only *after* the file actually downloads. Only invoices that are **Filed** or **Needs Review** change; Duplicate, Not an Invoice, and anything already In Procore / Paid / Canceled are left alone, so it can't undo work. It's off by default and resets every time.
 
 No Google Drive access needed. Very large selections (roughly 30 MB of PDFs, or 100+ invoices at once) are split-worthy: if it's too big, it'll ask you to select fewer and try again. Duplicate rows share the original's file, so nothing is downloaded twice.
 
@@ -98,7 +98,7 @@ Rather than marking invoices Paid or Canceled by hand, you can upload the latest
 
 1. Export the invoice list from Nexus as a **.csv** (it needs at least a **Number** and a **Status** column — the standard export has them).
 2. Click **Update from Nexus**, choose the file, and click **Analyze file**.
-3. You'll get a summary *before* anything changes: how many invoices will become Paid, Processed, or Canceled, how many already match, and how many of your logged invoices weren't in the export.
+3. You'll get a summary *before* anything changes: how many invoices will become Paid, In Procore, or Canceled, how many already match, and how many of your logged invoices weren't in the export.
 4. If it looks right, click **Apply updates**. A progress bar runs through them, then the page reloads.
 
 Nexus statuses map like this:
@@ -106,7 +106,7 @@ Nexus statuses map like this:
 | Nexus says | Becomes |
 |---|---|
 | PAID | **Paid** |
-| POSTED, Pending Approval, In Progress, HOLD | **Processed** |
+| POSTED, Pending Approval, In Progress, HOLD | **In Procore** |
 | REJECTED, VOID | **Canceled** |
 
 Anything else in the Status column is ignored. **Duplicate** and **Not an Invoice** rows are never changed. Each update is recorded on the invoice's note (same as a manual edit), and files move to the right folder automatically. Re-uploading the same file is safe — invoices already at the right status are skipped.
@@ -158,7 +158,7 @@ Invoice Archive
 └── <Project Number> - <Project Name>
     ├── <Subproject Number> - <Subproject Name>   (when the invoice is tied to a subproject)
     │   └── <Year-Month>                          (e.g. 2026-07 — the month processed)
-    │       ├── (real invoices — Filed/Processed/Paid — sit right here)
+    │       ├── (real invoices — Filed/In Procore/Paid — sit right here)
     │       ├── Needs Review                      (invoices awaiting a person)
     │       └── Statements & Others               (non-invoices: statements, POs, notices)
     └── No Subprojects                            (invoices with no subproject assigned — same months inside)

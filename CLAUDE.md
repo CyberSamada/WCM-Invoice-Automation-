@@ -164,22 +164,27 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   `LAST_RENDERED`) so a bulk edit can never quietly reach rows nobody has seen. Note `DOWNLOAD_MAX_FILES`
   is 100, so select-all on one page is exactly at the cap and selecting across two pages gets a clear
   server-side refusal.
-- **`Captured` was renamed to `Processed`** (chip reads "Processed"; the hover and the legend say
-  "Downloaded and put through SmartBuild / Procore for approval"). The old word is a STORED value in
-  the sheet, so the rename ships with a legacy fallback rather than a flag day:
-  - `displayStatus_` (DashboardServer.gs) is the ONE place that translates for the UI — a row still
-    stored as `Captured` reaches the dashboard as `Processed`, so chips, filters, the legend and the
-    tooltip all behave identically whether or not the sheet has been migrated.
-  - The server paths that read the sheet directly still accept BOTH spellings: `ALLOWED_STATUSES`,
-    `statusToClass_`, the Drive month-root bucket (DriveService.gs), the refile bucket (Refile.gs),
-    and `NEXUS_ELIGIBLE_STATUSES_` / `nexusTargetRank_` (NexusSync.gs). Don't drop the legacy arm
-    from any of them until the sheet is definitely migrated.
-  - `migrateCapturedStatus()` (Setup.gs) is a MANUAL, optional one-off that rewrites the Status
-    column in the Invoice Log + Archive. Header-name lookup, only cells equal to `Captured`, one
-    `setValues` per tab, idempotent. Nothing calls it automatically.
-  - `markInvoicesCaptured` is now `markInvoicesProcessed`; internal identifiers that still say
-    "captured" (`downloadMarkCaptured`, `markDownloadedCaptured`, `res.toCaptured`) are deliberately
-    left alone — renaming them buys nothing and only risks a missed reference.
+- **The "gone to Procore" status: stored word vs displayed label.** The Status column stores
+  **`Captured`** and always has — `STORED_PROCESSED_STATUS` (DashboardServer.gs) is the constant every
+  write path uses, so there is nothing to migrate, ever. What it is CALLED on screen is
+  `PROCESSED_DISPLAY_LABEL` (currently **"In Procore"**), and `displayStatus_` is the ONLY place the
+  translation happens. Changing the label is that one line plus the matching text in Dashboard.html;
+  a test asserts the two are identical, so they cannot drift.
+  - **The two namespaces are not interchangeable and mixing them is the bug to watch for.** The edit/
+    bulk/preview dropdowns carry the STORED value (`<option value="Captured">In Procore</option>`)
+    because their value is saved. The status filter checkbox carries the DISPLAYED value, because it
+    compares against `r.status`, which the server already translated. `updateInvoiceRow` returns
+    `displayStatus_(newStatus)` for the same reason — without it a just-saved row shows the raw
+    stored word while every other row shows the label.
+  - **`Processed` is accepted on read but never written.** A short-lived version wrote that word into
+    the sheet, so `ALLOWED_STATUSES`, `statusToClass_`, `displayStatus_`, the Drive month-root bucket,
+    the refile bucket and `NEXUS_ELIGIBLE_STATUSES_` / `nexusTargetRank_` all still take both. Don't
+    remove those arms while any row could still hold it.
+  - `normalizeInvoiceStatuses()` (Setup.gs) is a MANUAL one-off that rewrites Status `Processed` back
+    to `Captured` in the log and archive. Header-name lookup, one `setValues` per tab, idempotent.
+    **Lesson: a label change must never reach a write path.** Renaming the stored value split the
+    Status column across two words for a day; the displayed label is free to change, the stored one
+    is not.
 - Adding a status touches all of: `ALLOWED_STATUSES` + `statusToClass_` (DashboardServer.gs), badge
   CSS + three status dropdowns + filter checkboxes (Dashboard.html), the resolver's bucket logic
   (DriveService.gs), and the refile bucket (Refile.gs). **Plus two colour hooks in the identity

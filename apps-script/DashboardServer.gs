@@ -514,7 +514,7 @@ function updateInvoiceRow(rowId, updates, cachedReferenceRows) {
     projectName: matchedRef ? matchedRef.projectName : '',
     subprojectNumber: matchedRef ? matchedRef.subprojectNumber : '',
     subprojectName: matchedRef ? matchedRef.subprojectName : '',
-    status: newStatus,
+    status: displayStatus_(newStatus),
     statusClass: statusToClass_(newStatus),
     invoiceNumber: newInvoiceNumber,
     amount: newAmount,
@@ -600,7 +600,7 @@ function markInvoicesProcessed(rowIds) {
   rowIds.forEach(rowId => {
     if (!CAPTURABLE[statusByRowId[String(rowId)]]) { skipped++; return; }
     try {
-      updated.push(updateInvoiceRow(rowId, { status: 'Processed' }, referenceRows));
+      updated.push(updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS }, referenceRows));
     } catch (err) {
       errors.push({ rowId: rowId, message: err.message });
     }
@@ -1113,13 +1113,29 @@ function compareNumberKeys_(a, b) {
 }
 
 /**
- * Normalises a stored status for DISPLAY. 'Captured' was renamed to 'Processed'; rows written before
- * the rename still hold the old word until migrateCapturedStatus() (Setup.gs) is run - which is
- * optional, because this makes the dashboard show, filter and colour them identically either way.
- * Keep this the ONLY place the legacy spelling is translated for the UI.
+ * The status value STORED in the sheet for "gone through SmartBuild / Procore". It stays 'Captured'
+ * - the word that has always been in the Status column - so nothing ever has to be migrated. Every
+ * write path uses this constant; the dashboard never shows it raw.
+ */
+const STORED_PROCESSED_STATUS = 'Captured';
+
+/**
+ * What that status is CALLED on screen. Changing this one line changes the chip, the edit dropdowns,
+ * the legend and the filter - it is the single source of truth for the label. The matching text in
+ * Dashboard.html must be kept identical; a test asserts that.
+ */
+const PROCESSED_DISPLAY_LABEL = 'In Procore';
+
+/**
+ * Translates a stored status for DISPLAY, and it is the ONLY place that happens.
+ *
+ * 'Processed' is accepted as well as 'Captured' because a short-lived earlier version wrote that
+ * word into the sheet; both mean the same thing and both render as PROCESSED_DISPLAY_LABEL, so a
+ * sheet holding a mix of the two looks and behaves identically. normalizeInvoiceStatuses()
+ * (Setup.gs) tidies the mix away when you want it to.
  */
 function displayStatus_(status) {
-  return status === 'Captured' ? 'Processed' : status;
+  return (status === 'Captured' || status === 'Processed') ? PROCESSED_DISPLAY_LABEL : status;
 }
 
 function statusToClass_(status) {
