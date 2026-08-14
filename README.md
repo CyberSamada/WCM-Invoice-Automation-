@@ -57,7 +57,7 @@ Everything lands in the **Invoice Archive**. Each file has exactly one correct h
 │   │
 │   ├── 📁 6.4 - Forest Edge Commons (CRU3)          ← one folder per subproject
 │   │   └── 📁 2026-07                               ← everything for a month lives inside it
-│   │       ├── 📄 260722 - 1163 - Outer Construction.pdf   (Filed / Processed / Paid invoices)
+│   │       ├── 📄 260722 - 1163 - Outer Construction.pdf   (Filed / In Procore / Paid invoices)
 │   │       ├── 📁 Needs Review                      ← invoices waiting on a person
 │   │       └── 📁 Statements & Others               ← non-invoices ONLY (POs, statements, notices)
 │   │
@@ -116,7 +116,7 @@ flowchart TD
 **Flagging what needs a human**
 - **Needs Review** — the system wasn't confident about the match, the amount is unusually large, or the due date lands too soon after arrival (crams the pay period).
 - **Duplicate** — the same invoice arrived again.
-- **Processed** / **Paid** — set by your team as an invoice moves through the workflow: *Processed* = uploaded to Procore/SmartBuild by the coordinator; *Paid* = confirmed paid.
+- **In Procore** / **Paid** — set by your team as an invoice moves through the workflow: *In Procore* = uploaded to Procore/SmartBuild by the coordinator; *Paid* = confirmed paid.
 - Every flag comes with a short plain-language note explaining *why*.
 
 **The dashboard**

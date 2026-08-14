@@ -119,7 +119,7 @@ function mapNexusStatus_(rawStatus) {
   const s = String(rawStatus == null ? '' : rawStatus).trim().toUpperCase();
   if (s === 'PAID') return 'Paid';
   if (s === 'REJECTED' || s === 'VOID') return 'Canceled';
-  if (s === 'POSTED' || s === 'PENDING APPROVAL' || s === 'IN PROGRESS' || s === 'HOLD') return 'Processed';
+  if (s === 'POSTED' || s === 'PENDING APPROVAL' || s === 'IN PROGRESS' || s === 'HOLD') return STORED_PROCESSED_STATUS;
   return null;
 }
 
@@ -639,7 +639,7 @@ function previewNexusStatusUpdate(csvText) {
     if (s.entry.target === s.our.status) { alreadyCorrect++; return; }
     willChange++;
     if (s.entry.target === 'Paid') toPaid++;
-    else if (s.entry.target === 'Processed') toCaptured++;
+    else if (s.entry.target === 'Captured' || s.entry.target === 'Processed') toCaptured++;
     else if (s.entry.target === 'Canceled') toCanceled++;
     planned.push(nexusMatchToClient_(s));
   });
@@ -728,7 +728,7 @@ function confirmNexusMatch(match) {
   if (!canControlAutomation_()) throw new Error('You are not allowed to update invoice statuses.');
   if (!match || !match.rowId || !match.nexusNumber) throw new Error('Missing match details.');
   const target = String(match.target || '').trim();
-  if (['Paid', 'Processed', 'Canceled'].indexOf(target) === -1) {
+  if (['Paid', 'Captured', 'Processed', 'Canceled'].indexOf(target) === -1) {
     throw new Error('Unexpected status to apply: ' + target);
   }
   const result = updateInvoiceRow(match.rowId, { status: target });
