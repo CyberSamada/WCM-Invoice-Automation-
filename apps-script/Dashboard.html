@@ -2045,6 +2045,28 @@
       applyFilters();
     }
 
+    // --- Dates are read in the LOCAL calendar, never UTC -----------------------------------------
+    // An <input type="date"> hands back "YYYY-MM-DD", and `new Date("2026-08-14")` parses that as
+    // UTC MIDNIGHT. In Eastern time (America/Toronto, which is what the script and the office both
+    // run on) that is 8pm on 2026-08-13 — so a custom range "from Aug 14" quietly pulled in the
+    // previous evening, and "to Aug 14" cut off everything after 8pm on the day you asked for.
+    // Four hours wrong at each end in summer, five in winter. Read the parts and build a LOCAL
+    // date instead. This is the browser-side twin of parseInvoiceDateLocal_ in DashboardServer.gs,
+    // which already does exactly this for the same reason.
+    function parseDateInputLocal(value) {
+      var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value == null ? '' : value).trim());
+      return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+    }
+
+    // Today as YYYY-MM-DD in the viewer's own calendar. toISOString() would give the UTC date, which
+    // after 8pm Eastern is already tomorrow — a report downloaded this evening would be stamped with
+    // tomorrow's date.
+    function todayStampLocal() {
+      var d = new Date();
+      var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+      return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
     function getTimeframeStart(value) {
       var now = new Date();
       var startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
@@ -2123,8 +2145,10 @@
 
       var tfStart = null, tfEnd = null;
       if (timeframe === 'custom') {
-        tfStart = customStart ? new Date(customStart).getTime() : null;
-        tfEnd = customEnd ? (new Date(customEnd).getTime() + 24 * 60 * 60 * 1000 - 1) : null;
+        var cs = parseDateInputLocal(customStart);
+        var ce = parseDateInputLocal(customEnd);
+        tfStart = cs ? cs.getTime() : null;
+        tfEnd = ce ? (ce.getTime() + 24 * 60 * 60 * 1000 - 1) : null;
       } else {
         tfStart = getTimeframeStart(timeframe);
       }
@@ -3523,7 +3547,7 @@
                     s.nexusNumber, s.nexusStatus, s.nexusVendor, s.nexusAmount,
                     (s.reasons || []).join('; ')].map(q).join(','));
       });
-      var name = 'nexus-update-report-' + new Date().toISOString().slice(0, 10) + '.csv';
+      var name = 'nexus-update-report-' + todayStampLocal() + '.csv';
       // ﻿ so Excel opens the UTF-8 correctly rather than mangling accented vendor names.
       triggerDownload(new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' }), name);
     }

@@ -225,6 +225,17 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
 - Long jobs (refile, archive, reconcile) follow one pattern: `LockService.getScriptLock()`, a
   time budget under the ~6-min kill, idempotent re-runs that skip already-done work, and a final
   `Logger.log` that says "Done." or "re-run to continue".
+- **Time is Eastern (London, Ontario), and every date must be read in the LOCAL calendar.**
+  `appsscript.json` declares `"timeZone": "America/Toronto"`, which is what `Session.getScriptTimeZone()`
+  returns; every server-side `Utilities.formatDate` passes it explicitly (via `CONFIG_TIMEZONE_()` or
+  the `timezone` argument) — a test asserts none is left bare, because a bare one would silently use
+  UTC and push evening invoices into the next day's month folder and filename.
+  **The trap is `new Date("YYYY-MM-DD")`, which parses as UTC MIDNIGHT** = 8pm the previous day in
+  EDT, 7pm in EST. That is exactly what an `<input type="date">` hands you. It shipped in the custom
+  date-range filter: "from Aug 14" pulled in Aug 13 evening and "to Aug 14" cut off everything after
+  8pm. Use `parseDateInputLocal()` (Dashboard.html), the browser twin of `parseInvoiceDateLocal_`
+  (DashboardServer.gs). Likewise `toISOString().slice(0,10)` gives the UTC day — use
+  `todayStampLocal()` for anything a person will read as "today".
 - Gemini free tier: 5 req/min (`GEMINI_PACING_MS` paces this) and 500/day. `PROCESS_FROM_DATE` is
   enforced **per message** (GmailService.gs), not just in the Gmail search — a reply to an old
   thread must never resurrect an old invoice.
