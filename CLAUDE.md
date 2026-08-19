@@ -243,7 +243,9 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
 ## Testing & checking (no Apps Script runtime here)
 
 - Syntax check: copy `X.gs` → scratch `X.js`, `node --check`. For `Dashboard.html`, extract the
-  `<script>` block, strip `<?!= ... ?>` scriptlets (replace with `null`), then `node --check`.
+  `<script>` block, strip `<?!= ... ?>` scriptlets (replace with `null`), then `node --check`. There are
+  **two** indented `<script>` blocks now (the pre-paint theme script at ~1106 and the real one) — take the
+  **largest**, or you syntax-check nine lines and call it a pass.
 - Unit tests use the harness at `/root/tools/gas-test-kit` (`extractFunction` pulls one function
   from a `.gs` file by brace counting; `eval()` it into the test's scope). **Never put
   `'use strict'` in a test file** — strict-mode eval doesn't leak declarations. If the toolkit is
@@ -255,6 +257,16 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   try/catch in the function-under-test will swallow that ReferenceError and make every assertion fail
   at once; if a whole test file "does nothing," temporarily replace the catch body with a log to see
   the real error.
+- **`node --check` cannot see an undeclared variable, and neither can reading the code.**
+  `stepNexusApply` passed `startRow` (the parameter is `startIndex`) to `applyNexusStatusUpdate` from
+  the day Nexus sync shipped (#65): the `ReferenceError` throws while evaluating the ARGUMENT, so
+  `google.script.run` is never reached and **`withFailureHandler` never fires** — the button just hangs
+  with the progress bar stuck, which reads as a slow server, not a bug. Nexus preview worked the
+  whole time; apply never did.
+  Two checks catch it: a unit test that mocks `google.script.run` and asserts the argument ARRIVES
+  (`CALLS[0].startIndex === 0`), and a sweep of every `google.script.run` call site for argument
+  identifiers that are declared nowhere in the script block. Run the sweep after touching any call
+  site — 22 sites, and it found exactly one problem.
 - Mock `SpreadsheetApp`/`DriveApp`/`Utilities`/`CONFIG` per test; make fake folder IDs be their
   own "parent/name" paths so assertions read like expected paths.
 - `Dashboard.html` contains em-dashes/arrows that defeat exact-match string edits — for edits there,
