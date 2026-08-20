@@ -161,6 +161,20 @@ Line references are to that repo and will drift if it changes.
 
 ### Unresolved — decide before any production send
 
+**Partial good news, still not proof.** [SPEC/inference, from the integration repo's session,
+2026-08-20]: their search of Procore's indexed API surface found no `/invites` or `/invitations`
+resource anywhere near `requisitions`, `commitments`, or `vendors` — the only invite-shaped endpoint in
+scope is the unrelated "invite this person to log into Procore" flow. The `invite_id` param on
+`POST /requisitions` is documented only as "the invite to associate with the requisition," and a
+neighbouring parameter (`view=header_only`) is described as being for Procore's own **Subcontractor
+Invoicing UI**. Reading those together: `invite_id` may be downstream of a separate, human-triggered
+"invite subcontractor to bill" action inside Procore's UI, not something either REST client
+constructs — meaning our plain `POST /requisitions` with no `invite_id` set may not be what triggers a
+notification at all. **This is inference from adjacent parameter text, not an observation, and their
+own spec subset is filtered so it can't rule out a standalone invites resource existing elsewhere.**
+Do not relax the plan on the strength of it — the `email_communications` test below is still required
+before any production send.
+
 **It is not known whether creating a requisition notifies the subcontractor.**
 `tools/contracts.py:589-591` flags this explicitly and leaves it unmeasured. This matters far more for
 a bulk dashboard action than for an interactive tool: ticking twelve invoices could email twelve
@@ -258,8 +272,16 @@ All four are company-admin work, not code.
    Company Admin → App Management → the app → Permissions. Until a project is on that list, *every*
    project-level call 403s including reads. This is per project, so it is ongoing admin, not one-time
    setup — a new WCM project means a new entry here or its invoices silently stop sending.
-3. **Company-level `Directory: Admin`** for anything company-scoped, and reconcile the installed
-   permission template by hand after any app update (manifest permissions do not transfer).
+3. **Company-level `Directory: Admin`, granted on the service account's permission template — not
+   the app manifest.** [OBSERVED, from the integration repo's session, 2026-08-20]: their `POST
+   /vendors` 403 was fixed by editing the service-account user's permission template in Procore's
+   Directory admin screen (Company Admin → Directory → Permission Templates → the app's service-account
+   user → Company-level Tools → Directory → Admin → Save) and cleared on retry with no new token. This
+   is a **different lever** from the app's own manifest scopes (keep those minimal — "Never Admin" in
+   the manifest is still right); it's a separate, direct edit to the account's permission template.
+   Neither side has the exact click sequence confirmed first-hand — treat the steps above as the best
+   available inference, not a tested runbook, and expect to reconcile it by hand again after any app
+   update (manifest permissions don't transfer to the installed template).
 4. **The notification question** (§3, unresolved) — or permission to settle it in sandbox.
 5. **Whether the billing-period blocker is worth building**, once finding 3 is verified. Current
    guidance: **keep it**; the schema says optional but the OAS required-lists have already been shown
