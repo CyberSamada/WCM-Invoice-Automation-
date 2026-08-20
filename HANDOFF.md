@@ -431,10 +431,27 @@ decision):**
 | OUTER CONSTRUCTION | 3739390 | 3739394 | 618653 | SC-1234-003 |
 
 All three subcontracts created as `status: "Draft"` (confirmed in the API response, not just the
-create call's own claim) — matches the plan; Ahmed still needs to approve them by hand in Procore's UI
-if this data is ever used past matcher testing. `create_commitment_draft` refused the **company-directory**
-vendor ID with `422 {'vendor_id': ['has not been added to this project']}` even immediately after
-`add_company_to_project` reported success — see the new finding below, this is expected, not a bug.
+create call's own claim) — matches the plan; Ahmed is now approving them by hand in Procore's UI.
+`create_commitment_draft` refused the **company-directory** vendor ID with `422 {'vendor_id': ['has
+not been added to this project']}` even immediately after `add_company_to_project` reported success —
+see the new finding below, this is expected, not a bug.
+
+**A fourth commitment, deliberately, to test the ambiguous-vendor path for real.** Ahmed asked for a
+second commitment on one of the three vendors specifically so the "more than one commitment for this
+vendor" case — already unit-tested with mocked data — has a real fixture behind it too. Created
+commitment `618665` ("DGM Services Limited — second matcher test subcontract", `SC-1234-004`, Draft)
+against vendor `3739392` — the same project-scoped vendor ID as `618651`. Re-queried
+`GET work_order_contracts?project_id=362778` afterward and confirmed live: DGM Services Limited now
+has **two** rows (`618651` SC-1234-001, `618665` SC-1234-004), both status Draft, both
+`vendor.id: 3739392`. Calling `procoreFindCommitmentForInvoice_(362778, 'DGM Services Limited')` today
+correctly hits the ambiguous branch and refuses to pick, listing both.
+
+**What "ambiguous" does today vs. what's still open:** the matcher's current behavior is to refuse
+with a reason (`{matched: false, reason: "...Ambiguous..."}`) — there is no dashboard UI yet that shows
+the two candidates and lets a human pick one. Ahmed described that UI ("if multiple commitments, let
+the user pick; if only one, assign directly") but the request was interrupted/disregarded before
+scoping it — it's real PR 2/3 work, not done. The fixture above exists so whoever builds that picker
+has a real ambiguous case to develop against, not just a mock.
 
 **New finding, not in §3 because it wasn't hit until this session: Procore's project directory mints
 its OWN vendor ID, separate from the company-directory ID.** `create_company` (company-wide) returned
