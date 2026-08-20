@@ -186,6 +186,88 @@ function setupProcore() {
 }
 
 /**
+ * ONE-OFF SMOKE TEST — proves ProcoreClient.gs actually works end to end (auth, create, attach)
+ * against a real Procore sandbox, before any of the mapping UI (PR 2) or send workflow (PR 3) exist.
+ * Takes the Procore project/vendor as plain arguments instead of reading a crosswalk tab — there is
+ * no crosswalk tab yet, and populating one against sandbox data would be thrown away once real
+ * production project/vendor pairs exist. Run manually from the Apps Script editor:
+ *
+ *   testProcoreSendDirectCost('<a Row ID from the Invoice Log>', 362778, 3739183)
+ *
+ * Reads the row's real invoice number and PDF from the Invoice Log — READ ONLY, never writes back
+ * to the sheet or changes the row's status. All writing happens on the Procore side only, and only
+ * in whatever company PROCORE_COMPANY_ID / PROCORE_ENV currently point at (sandbox by default).
+ *
+ * Creates a Direct Cost, not a Subcontractor Invoice — no commitment or billing period needed, and
+ * it sidesteps the still-unresolved "does creating a requisition notify the subcontractor" question
+ * entirely (see HANDOFF.md), since a Direct Cost has no subcontractor attached to it at all.
+ *
+ * Attachment mechanism confirmed directly against Procore's own OAS schema while writing this (the
+ * Procore integration repo's create_direct_cost_draft never actually attaches a file, so it wasn't a
+ * usable reference here): direct_costs takes attachments as a separate multipart PATCH after create
+ * — an `attachments[]` file field, NOT the two-step signed-upload UUID reference that requisitions
+ * likely uses. Two different resources, two different attachment mechanisms — do not assume they
+ * match without checking each one's schema. Split into create-then-attach (not one combined
+ * multipart POST) on purpose: a failed attach still leaves a valid, findable draft record.
+ */
+function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const idIdx = header.indexOf('Row ID');
+  const invIdx = header.indexOf('Invoice Number');
+  const fileIdx = header.indexOf('Drive File ID');
+  const linkIdx = header.indexOf('Drive Link');
+  if (idIdx === -1) throw new Error('No "Row ID" column in the Invoice Log.');
+
+  let row = null;
+  for (let r = 1; r < values.length; r++) {
+    if (String(values[r][idIdx]) === String(rowId)) { row = values[r]; break; }
+  }
+  if (!row) throw new Error(`No row with Row ID "${rowId}" in the Invoice Log.`);
+
+  const invoiceNumber = invIdx > -1 ? String(row[invIdx] || '').trim() : '';
+  if (!invoiceNumber) throw new Error(`Row ${rowId} has no Invoice Number — Procore requires one.`);
+
+  let fileId = fileIdx > -1 ? String(row[fileIdx] || '').trim() : '';
+  if (!fileId && linkIdx > -1) fileId = driveFileIdFromUrl_(row[linkIdx]);
+  if (!fileId) throw new Error(`Row ${rowId} has no Drive file to attach.`);
+
+  Logger.log(`Creating a Direct Cost draft on Procore project ${procoreProjectId} for invoice "${invoiceNumber}" (vendor ${procoreVendorId})...`);
+
+  const createResponse = procoreFetch_('post', 'direct_costs', `projects/${procoreProjectId}/direct_costs`, {
+    payload: JSON.stringify({
+      item: {
+        invoice_number: invoiceNumber,
+        vendor_id: procoreVendorId,
+        direct_cost_type: 'invoice',
+        status: 'draft'
+      }
+    }),
+    contentType: 'application/json'
+  });
+  const created = JSON.parse(createResponse.getContentText());
+  const directCostId = created.id;
+  if (!directCostId) throw new Error(`Procore returned 20x with no id: ${createResponse.getContentText().slice(0, 300)}`);
+  Logger.log(`Created — Procore direct cost id ${directCostId}, status "${created.status}". Not yet attached.`);
+
+  const blob = DriveApp.getFileById(fileId).getBlob();
+  try {
+    procoreFetch_('patch', 'direct_costs', `projects/${procoreProjectId}/direct_costs/${directCostId}`, {
+      payload: { 'attachments[]': blob } // no contentType set — this is what makes UrlFetchApp encode multipart
+    });
+    Logger.log(`Attached "${blob.getName()}" to direct cost ${directCostId}.`);
+  } catch (e) {
+    Logger.log(`Direct cost ${directCostId} WAS created, but the attach failed: ${e.message}`);
+    Logger.log('The record still exists in Procore — this is the recoverable half of the split, not a failed test.');
+    return;
+  }
+
+  Logger.log(`Done. Check Procore project ${procoreProjectId} > Direct Costs for id ${directCostId} — draft, with the PDF attached. Nothing in the Invoice Log was changed by this test.`);
+}
+
+/**
  * Run manually after setupProcore(). Makes exactly one real, read-only call to Procore
  * (GET the configured company) to prove the credentials authenticate AND have access — the two are
  * separate failure modes (see ProcoreClient.gs), so this reports which one, if either, is wrong.

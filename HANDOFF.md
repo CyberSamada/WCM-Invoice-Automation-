@@ -106,6 +106,18 @@ Line references are to that repo and will drift if it changes.
    - Reference the returned `upload_uuid` on the record.
    - Their cap is 100 MB (`client.py:420`), well above our 20 MB working cap.
 
+   **[OBSERVED] This is NOT uniform across resources — checked directly against Procore's own OAS
+   schema while building the sandbox smoke test, since the integration repo's `create_direct_cost_draft`
+   never actually attaches anything (untested there, same caveat as always).** `direct_costs` does NOT
+   take an upload UUID reference at all — its schema states attachments must be sent as raw
+   `multipart/form-data`, an `attachments[]` file field, on `POST` **or** `PATCH`
+   (`/rest/v1.{0,1}/projects/{id}/direct_costs[/{id}]`). Implemented in `ProcoreClient.gs` as
+   `procoreUploadFile_` (the two-step version, for whichever resource turns out to need it) plus a
+   direct multipart `PATCH …/direct_costs/{id}` with `payload: {'attachments[]': blob}` and no
+   `contentType` set (`testProcoreSendDirectCost` in `Setup.gs`). **Whether `requisitions` uses the
+   two-step UUID reference or also wants raw multipart is still unconfirmed — check its schema before
+   reusing either assumption in PR 3.**
+
 5. **[OBSERVED] 401 and 403 both occur and mean DIFFERENT things. Handle them separately.**
    **This entry previously said a permissions gap shows as 401 "not 403". That was wrong and is
    corrected here** — the earlier reading came from a code comment; the following came from real
