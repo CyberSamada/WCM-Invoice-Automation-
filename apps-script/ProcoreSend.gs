@@ -319,6 +319,44 @@ function confirmProcoreCommitmentPick(rowId, candidate, projectId, projectName) 
 // --- The actual send ---------------------------------------------------------------------------
 
 /**
+ * Looks for a prior Procore Send Log entry for this Row ID in the CURRENT environment
+ * (procoreEnv_()) — scoped to environment so a sandbox test send never blocks a later real
+ * production send of the same row, or vice versa. Returns the most recent matching row (last one
+ * wins, same "later row overwrites" reading procoreLoadCommitmentMap_ already uses) or null.
+ *
+ * This is the guard that makes sendInvoiceToProcore safe to call twice on the same row — a double
+ * click, or the same row appearing in two overlapping bulk selections — without creating a second
+ * Subcontractor Invoice for one WCM invoice. Nothing enforced this before sendInvoicesToProcoreBulk
+ * existed; a single accidental re-click was a real but low-probability risk, a bulk button pressed
+ * twice on the same selection was not.
+ * @return {{requisitionId:(number|string), timestamp:string, attached:boolean}|null}
+ */
+function procoreFindExistingSend_(rowId) {
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_PROCORE_SEND_LOG_TAB);
+  if (!sheet) return null;
+  const values = sheet.getDataRange().getValues();
+  if (values.length < 2) return null;
+  const header = values[0];
+  const idx = {};
+  ['Row ID', 'Requisition ID', 'Timestamp', 'Attached', 'Environment'].forEach(c => { idx[c] = header.indexOf(c); });
+  if (idx['Row ID'] === -1) return null;
+
+  const env = procoreEnv_();
+  let found = null;
+  for (let r = 1; r < values.length; r++) {
+    const row = values[r];
+    if (String(row[idx['Row ID']] || '').trim() !== String(rowId)) continue;
+    if (idx['Environment'] > -1 && String(row[idx['Environment']] || '').trim() !== env) continue;
+    found = {
+      requisitionId: idx['Requisition ID'] > -1 ? row[idx['Requisition ID']] : '',
+      timestamp: idx['Timestamp'] > -1 ? String(row[idx['Timestamp']] || '') : '',
+      attached: idx['Attached'] > -1 && String(row[idx['Attached']] || '').trim() === 'Yes'
+    };
+  }
+  return found;
+}
+
+/**
  * Appends one row to the Procore Send Log — the audit trail for what was actually sent (see file
  * header). Returns the sheet row number it wrote to, so sendInvoiceToProcore can flip just the
  * 'Attached' cell in place afterward instead of appending a second, near-duplicate row.
@@ -379,8 +417,11 @@ function procoreMarkSendRowAttached_(sheetRow) {
  * is the recoverable failure mode; a created-but-unlogged requisition is not.
  *
  * @param {string} rowId
- * @return {{ok: true, requisitionId: number, attached: boolean, message: string}
+ * @return {{ok: true, requisitionId: number, attached: boolean, message: string,
+ *           row: (Object|undefined), alreadySent: (boolean|undefined)}
  *          | {ok: false, message: string}}
+ *   `row` is updateInvoiceRow's own return value (display-translated Status included) — present on
+ *   every real send, absent on the alreadySent short-circuit (nothing was updated that time).
  */
 function sendInvoiceToProcore(rowId) {
   if (!canControlAutomation_()) {
@@ -400,9 +441,20 @@ function sendInvoiceToProcore(rowId) {
     throw new Error(`Row ${rowId} is marked "Not an Invoice" — nothing to send.`);
   }
 
+  const existing = procoreFindExistingSend_(rowId);
+  if (existing) {
+    return {
+      ok: true,
+      alreadySent: true,
+      requisitionId: existing.requisitionId,
+      attached: existing.attached,
+      message: `Already sent — Subcontractor Invoice ${existing.requisitionId} was created ${existing.timestamp} (${procoreEnv_()}). Not creating a second one.`
+    };
+  }
+
   const match = procoreLoadCommitmentMap_()[procoreCommitmentMapKey_(invoice.vendor, invoice.projectNumber)];
   if (!match) {
-    throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${invoice.projectNumber} yet — match it first ("Match to Procore commitment…").`);
+    throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${invoice.projectNumber} yet — match it first ("Send to Procore…").`);
   }
 
   const billingDate = invoice.invoiceDate
@@ -446,13 +498,18 @@ function sendInvoiceToProcore(rowId) {
     try { procoreMarkSendRowAttached_(logRow); } catch (e) { /* logged, not fatal */ }
   }
 
-  updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS });
+  // Capture and return the updated row (not just flip it) — updateInvoiceRow already returns the
+  // display-translated Status (displayStatus_) as CLAUDE.md requires; a caller patching its own local
+  // record cache (the dashboard's bulk send results) should use THIS, never retype 'In Procore' by
+  // hand — that's exactly the stored-vs-displayed mixup CLAUDE.md calls out as the bug to watch for.
+  const updatedRow = updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS });
 
   if (!attached) {
     return {
       ok: true,
       requisitionId: created.requisitionId,
       attached: false,
+      row: updatedRow,
       message: `Created Subcontractor Invoice ${created.requisitionId} in Procore project ${match.projectId} against commitment ${match.commitmentNumber}, but the PDF didn't attach: ${attachError || 'no Drive file found on this row'}. Status updated anyway — the record exists in Procore, attach it by hand.`
     };
   }
@@ -461,6 +518,129 @@ function sendInvoiceToProcore(rowId) {
     ok: true,
     requisitionId: created.requisitionId,
     attached: true,
+    row: updatedRow,
     message: `Sent — Subcontractor Invoice ${created.requisitionId} created in Procore project ${match.projectId} against commitment ${match.commitmentNumber}, PDF attached, status updated.`
   };
+}
+
+// --- Bulk send (multi-select bar) -------------------------------------------------------------
+
+// Real network calls per row (match/list, create, upload, attach) unlike downloadInvoicesZip's cheap
+// per-file base64 reads — capped well under DOWNLOAD_MAX_FILES (100) so one call comfortably fits the
+// ~6-minute execution limit even with a couple of retries per row. No resumable/multi-call design yet
+// (see PROCORE_SEND_BULK_TIME_BUDGET_MS_ below for the same reasoning applied as a time cutoff too) —
+// a future need to send more than this at once should build that rather than raise this number blind.
+const PROCORE_SEND_BULK_MAX_ = 25;
+// Stops starting new rows once elapsed time passes this, leaving the rest in `remaining` rather than
+// risking Apps Script's own kill cutting a send off mid-create. Apps Script gives ~6 minutes; this
+// stops with real margin for the last row's own retries to finish inside the limit.
+const PROCORE_SEND_BULK_TIME_BUDGET_MS_ = 4.5 * 60 * 1000;
+
+/**
+ * Bulk "Send to Procore" for the dashboard's multi-select bar. For each Row ID: skip the same
+ * statuses sendInvoiceToProcore itself refuses (Duplicate, Not an Invoice); otherwise resolve a
+ * commitment via matchInvoiceToProcoreCommitment (cached instantly if this vendor+project pair was
+ * ever confirmed before, live otherwise) and only actually send when that resolves WITHOUT asking a
+ * human — an ambiguous vendor (more than one commitment) is never auto-picked here, same "let user
+ * pick" rule as the single-invoice flow, it just means picking it happens later from that invoice's
+ * own preview panel instead of blocking the whole batch. sendInvoiceToProcore's own idempotency guard
+ * (procoreFindExistingSend_) makes re-selecting an already-sent row a safe no-op, not a duplicate.
+ *
+ * NO SILENT CAPS: exceeding PROCORE_SEND_BULK_MAX_ refuses the whole call up front (same shape as
+ * DOWNLOAD_MAX_FILES) rather than silently sending only the first N; running out of time budget mid-
+ * batch reports exactly which Row IDs were never attempted in `remaining`, not just how many.
+ *
+ * @param {Array<string>} rowIds
+ * @return {{ok: true, sent: Array, alreadySent: Array, needsMatch: Array, skipped: Array,
+ *           errors: Array, remaining: Array<string>}
+ *          | {ok: false, message: string}}
+ */
+function sendInvoicesToProcoreBulk(rowIds) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to send invoices to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
+  }
+  if (!procoreConfigured_()) {
+    throw new Error('Procore is not configured — set the Script Properties and run setupProcore() first.');
+  }
+  if (!rowIds || !rowIds.length) {
+    return { ok: true, sent: [], alreadySent: [], needsMatch: [], skipped: [], errors: [], remaining: [] };
+  }
+  if (rowIds.length > PROCORE_SEND_BULK_MAX_) {
+    return {
+      ok: false,
+      message: `${rowIds.length} invoices selected — Send to Procore is capped at ${PROCORE_SEND_BULK_MAX_} per batch (each one is a real Procore API call, not a cheap file copy). Select fewer, or send in two batches.`
+    };
+  }
+
+  const startedAt = Date.now();
+  const sent = [];
+  const alreadySent = [];
+  const needsMatch = [];
+  const skipped = [];
+  const errors = [];
+  const remaining = [];
+
+  for (let i = 0; i < rowIds.length; i++) {
+    const rowId = rowIds[i];
+    if (Date.now() - startedAt > PROCORE_SEND_BULK_TIME_BUDGET_MS_) {
+      remaining.push(rowId);
+      continue;
+    }
+
+    let invoice;
+    try {
+      invoice = procoreLoadInvoiceRowForMatch_(rowId);
+    } catch (e) {
+      errors.push({ rowId: rowId, message: e.message });
+      continue;
+    }
+    if (!invoice.vendor) {
+      errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, message: 'No Vendor on this row.' });
+      continue;
+    }
+
+    let matchResult;
+    try {
+      matchResult = matchInvoiceToProcoreCommitment(rowId);
+    } catch (e) {
+      errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
+      continue;
+    }
+    if (!matchResult.ok) {
+      needsMatch.push({
+        rowId: rowId,
+        invoiceNumber: invoice.invoiceNumber,
+        vendor: invoice.vendor,
+        ambiguous: !!matchResult.ambiguous,
+        reason: matchResult.reason
+      });
+      continue;
+    }
+
+    try {
+      const sendResult = sendInvoiceToProcore(rowId);
+      const record = {
+        rowId: rowId,
+        invoiceNumber: invoice.invoiceNumber,
+        vendor: invoice.vendor,
+        requisitionId: sendResult.requisitionId,
+        attached: sendResult.attached,
+        message: sendResult.message,
+        row: sendResult.row || null // the dashboard patches its local cache from this — never guesses a status string
+      };
+      if (sendResult.alreadySent) alreadySent.push(record);
+      else sent.push(record);
+    } catch (e) {
+      // The status guards inside sendInvoiceToProcore (Duplicate / Not an Invoice) throw — read them
+      // back out as skips rather than errors, since they're expected outcomes of a filtered selection
+      // containing rows that were never eligible, not failures.
+      if (invoice && (/Duplicate/.test(e.message) || /Not an Invoice/.test(e.message))) {
+        skipped.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, reason: e.message });
+      } else {
+        errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
+      }
+    }
+  }
+
+  return { ok: true, sent: sent, alreadySent: alreadySent, needsMatch: needsMatch, skipped: skipped, errors: errors, remaining: remaining };
 }
