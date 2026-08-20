@@ -194,9 +194,10 @@ function setupProcore() {
  *
  * The vendor is NOT a parameter — it's read from the row's own Vendor column and matched by name
  * against Procore's real vendor directory for that project (procoreFindVendorByName_,
- * ProcoreClient.gs), so nobody has to already know or type a Procore vendor ID. Still asks for a
- * project ID, since there is no project crosswalk yet (PR 2) and sandbox has exactly one project to
- * test against anyway; per-WCM-project auto-matching is real future work, not something to fake here.
+ * ProcoreClient.gs), so nobody has to already know or type a Procore vendor ID. Still takes a project
+ * ID as a parameter, unlike the real send (sendInvoiceToProcore, ProcoreSend.gs) which now derives the
+ * Procore project from the row's own WCM Project Number automatically — this function predates that
+ * and was never updated, since it only ever needed to prove the auth/create/attach plumbing once.
  *
  * Reads the row's real invoice number, vendor and PDF from the Invoice Log — READ ONLY, never writes
  * back to the sheet or changes the row's status. All writing happens on the Procore side only, and
@@ -214,9 +215,12 @@ function setupProcore() {
  * match without checking each one's schema. Split into create-then-attach (not one combined
  * multipart POST) on purpose: a failed attach still leaves a valid, findable draft record.
  *
- * Also callable from the dashboard (Dashboard.html's preview modal, gated on canControl +
- * procoreConfigured, same as Start/Pause and Manage hints) — hence the canControlAutomation_ gate
- * and the structured return value below; Logger.log calls stay too, for running this from the editor.
+ * No longer wired to the dashboard — its "Send test to Procore…" button was removed from
+ * Dashboard.html once the real matcher + send flow (procoreMatchBlock, ProcoreSend.gs) existed and
+ * made this manual-project-ID smoke test redundant for a coordinator's actual workflow. Still runnable
+ * from the Apps Script editor for diagnostics: `testProcoreSendDirectCost('<rowId>', <projectId>)`.
+ * canControlAutomation_ is still checked (defense in depth, cheap to keep) even though nothing outside
+ * the editor calls this anymore.
  *
  * @return {{ok: boolean, directCostId: (number|null), attached: boolean, message: string}}
  */

@@ -375,3 +375,306 @@ function procoreUploadFile_(projectId, blob) {
 
   return uuid;
 }
+
+/**
+ * Raw list of one commitment resource on a project — GET {resource}?project_id=..., walked with
+ * page/per_page like procoreListProjectVendors_. `resource` is 'work_order_contracts' (subcontracts)
+ * or 'purchase_order_contracts' (purchase orders) — Procore keeps these as two separate resources
+ * with no merged endpoint (see HANDOFF.md finding 1). Each record's `vendor.id` is the PROJECT-scoped
+ * vendor id (the same id procoreListProjectVendors_/procoreFindVendorByName_ use), not the
+ * company-directory id create_company-equivalent calls return — confirmed 2026-08-20 against the
+ * sandbox: adding a company to a project mints a new id distinct from its company-directory id, and
+ * `work_order_contracts[].vendor.id` comes back as that project-scoped one.
+ * @return {Array<{id:number, title:string, number:string, status:string, kind:string, vendorId:number, vendorName:string}>}
+ */
+function procoreListCommitmentResource_(projectId, resource, kindLabel) {
+  const out = [];
+  const perPage = 100;
+  for (let page = 1; out.length < 500; page++) {
+    const response = procoreFetch_('get', resource, `${resource}?project_id=${projectId}&page=${page}&per_page=${perPage}`);
+    const batch = JSON.parse(response.getContentText());
+    if (!Array.isArray(batch) || !batch.length) break;
+    batch.forEach(c => out.push({
+      id: c.id,
+      title: c.title,
+      number: c.number,
+      status: c.status,
+      kind: kindLabel,
+      vendorId: c.vendor ? c.vendor.id : null,
+      vendorName: c.vendor ? c.vendor.company : ''
+    }));
+    if (batch.length < perPage) break; // short page — that was the last one
+  }
+  return out;
+}
+
+/**
+ * All commitments on a project, subcontracts and/or purchase orders, flattened into one shape.
+ * @param {number} projectId
+ * @param {string} [kind] - 'all' (default), 'subcontracts', or 'purchase_orders'.
+ * @return {Array<{id:number, title:string, number:string, status:string, kind:string, vendorId:number, vendorName:string}>}
+ */
+function procoreListProjectCommitments_(projectId, kind) {
+  kind = kind || 'all';
+  let out = [];
+  if (kind === 'all' || kind === 'subcontracts') {
+    out = out.concat(procoreListCommitmentResource_(projectId, 'work_order_contracts', 'subcontract'));
+  }
+  if (kind === 'all' || kind === 'purchase_orders') {
+    out = out.concat(procoreListCommitmentResource_(projectId, 'purchase_order_contracts', 'purchase_order'));
+  }
+  return out;
+}
+
+/**
+ * Finds the ONE commitment on a Procore project whose vendor matches `vendorName`, for filing an
+ * invoice against (see HANDOFF.md §8/§9 — this is the matcher that work built towards). Same
+ * normalized-key matching as procoreFindVendorByName_ (vendorNormalizedKey_, SheetService.gs), and
+ * the same "never guess" discipline it and NexusSync.gs both apply: no commitment, or more than one
+ * commitment whose vendor normalizes to the same key, is reported back as unresolved rather than
+ * picked silently — an invoice billed against the wrong commitment is a real-money mistake.
+ *
+ * Deliberately does NOT filter by commitment status. Draft is the only status reachable through the
+ * API (see create_commitment_draft's own note) and is a legitimate match; whether a draft commitment
+ * can actually accept a requisition is Procore's own business rule to enforce on the write, not
+ * this function's to pre-judge.
+ *
+ * @param {number} projectId
+ * @param {string} vendorName
+ * @param {string} [kind] - 'all' (default), 'subcontracts', or 'purchase_orders'. Only subcontracts
+ *   have been exercised against real sandbox data as of 2026-08-20 (§8: DGM Services Limited, Copp's
+ *   Buildall, OUTER CONSTRUCTION, project 362778) — purchase orders are implemented per finding 1 but
+ *   unproven against a live purchase_order_contracts record.
+ * @return {{matched: true, commitmentId: number, commitmentTitle: string, commitmentNumber: string,
+ *           commitmentKind: string, vendorName: string}
+ *          | {matched: false, reason: string}}
+ */
+function procoreFindCommitmentForInvoice_(projectId, vendorName, kind) {
+  const wantKey = vendorNormalizedKey_(vendorName);
+  if (!wantKey) {
+    return { matched: false, reason: 'This invoice has no vendor name to match against Procore.' };
+  }
+
+  const commitments = procoreListProjectCommitments_(projectId, kind || 'all');
+  const hits = commitments.filter(c => vendorNormalizedKey_(c.vendorName) === wantKey);
+
+  if (hits.length === 0) {
+    return {
+      matched: false,
+      reason: `No commitment for "${vendorName}" on Procore project ${projectId}. Create a subcontract or purchase order with this vendor first, or check the spelling matches.`
+    };
+  }
+  if (hits.length > 1) {
+    const list = hits.map(h => `${h.title} (${h.kind} ${h.number}, id ${h.id})`).join(', ');
+    return {
+      matched: false,
+      reason: `${hits.length} commitments on Procore project ${projectId} match vendor "${vendorName}": ${list}. Ambiguous — resolve which commitment this invoice bills against before sending.`,
+      // Structured, not just the message above — so a caller with a UI (the dashboard's commitment
+      // picker) can render one option per candidate instead of parsing the sentence back apart.
+      candidates: hits.map(h => ({
+        commitmentId: h.id,
+        commitmentTitle: h.title,
+        commitmentNumber: h.number,
+        commitmentKind: h.kind,
+        vendorName: h.vendorName
+      }))
+    };
+  }
+  return {
+    matched: true,
+    commitmentId: hits[0].id,
+    commitmentTitle: hits[0].title,
+    commitmentNumber: hits[0].number,
+    commitmentKind: hits[0].kind,
+    vendorName: hits[0].vendorName
+  };
+}
+
+/**
+ * All projects in the configured Procore company — GET projects?company_id=..., walked with
+ * page/per_page like procoreListProjectVendors_. `company_id` is a required query param on this
+ * endpoint (separate from the Procore-Company-Id header procoreFetch_ already sends on every call —
+ * confirmed against the real API 2026-08-20, the header alone is not enough here).
+ * @return {Array<{id: number, name: string, projectNumber: string|null}>}
+ */
+function procoreListCompanyProjects_() {
+  const companyId = procoreCredentials_().companyId;
+  const out = [];
+  const perPage = 100;
+  for (let page = 1; out.length < 1000; page++) {
+    const response = procoreFetch_('get', 'projects', `projects?company_id=${companyId}&page=${page}&per_page=${perPage}`);
+    const batch = JSON.parse(response.getContentText());
+    if (!Array.isArray(batch) || !batch.length) break;
+    batch.forEach(p => out.push({ id: p.id, name: p.name, projectNumber: p.project_number }));
+    if (batch.length < perPage) break; // short page — that was the last one
+  }
+  return out;
+}
+
+/**
+ * Finds the ONE Procore project whose project_number matches a WCM Project Number — "the project is
+ * derived from the project number that is already assigned" (Ahmed, 2026-08-20), not a manual pick
+ * or a crosswalk table. Compares through normalizeNumberKey_ (DashboardServer.gs) rather than a
+ * strict string match, for the same reason CLAUDE.md already documents for every other project-number
+ * comparison in this repo: Sheets coerces "06" to 6, and Procore's own project_number field can carry
+ * leading zeros WCM's doesn't (or vice versa) — e.g. WCM "31.1" vs Procore "031.1". normalizeNumberKey_
+ * strips only a leading run of zeros before the first digit, so "031.1" and "31.1" both key to "31.1"
+ * while genuinely different numbers ("31.1" vs "31.10") stay apart.
+ *
+ * Same "never guess" discipline as procoreFindVendorByName_/procoreFindCommitmentForInvoice_: no
+ * Procore project with that number, or more than one sharing it once normalized, is reported back
+ * rather than picked silently — filing into the wrong project's commitment is a real-money mistake.
+ *
+ * @param {string|number} wcmProjectNumber - the Invoice Log's "Project Number" for this row.
+ * @return {{matched: true, projectId: number, projectName: string, projectNumber: string}
+ *          | {matched: false, reason: string}}
+ */
+function procoreFindProjectByNumber_(wcmProjectNumber) {
+  const wantKey = normalizeNumberKey_(wcmProjectNumber);
+  if (!wantKey) {
+    return { matched: false, reason: 'This invoice has no project number to match against Procore.' };
+  }
+
+  const projects = procoreListCompanyProjects_();
+  const hits = projects.filter(p => p.projectNumber && normalizeNumberKey_(p.projectNumber) === wantKey);
+
+  if (hits.length === 0) {
+    return {
+      matched: false,
+      reason: `No Procore project with project number "${wcmProjectNumber}" (checked ${projects.length} project(s) in the company). Add/correct the project number in Procore first, or check the digits actually match once leading zeros are stripped.`
+    };
+  }
+  if (hits.length > 1) {
+    const list = hits.map(h => `${h.name} (id ${h.id}, #${h.projectNumber})`).join(', ');
+    return {
+      matched: false,
+      reason: `${hits.length} Procore projects share project number "${wcmProjectNumber}" once normalized: ${list}. Ambiguous — fix the duplicate numbering in Procore first, then try again.`
+    };
+  }
+  return { matched: true, projectId: hits[0].id, projectName: hits[0].name, projectNumber: hits[0].projectNumber };
+}
+
+/**
+ * The full chain for one invoice, end to end: WCM Project Number -> Procore project -> vendor ->
+ * commitment. This is the function a "send to Procore" flow actually calls — everything above it is
+ * a building block. Fails at whichever stage first has no answer, and says which stage that was
+ * (`stage: 'project'` or `'commitment'`) so a caller (dashboard preview, a queue like Nexus's) can
+ * show the right fix ("this project isn't in Procore yet" reads very differently from "this vendor
+ * has no commitment on a project Procore does know about").
+ *
+ * @param {{vendor: string, projectNumber: (string|number)}} invoice - shape matches what
+ *   listInvoicesByStatus (Setup.gs) already returns per row (vendor, projectNumber, ...).
+ * @param {string} [kind] - forwarded to procoreFindCommitmentForInvoice_; 'all' (default),
+ *   'subcontracts', or 'purchase_orders'.
+ * @return {{matched: true, projectId: number, projectName: string, commitmentId: number,
+ *           commitmentTitle: string, commitmentNumber: string, commitmentKind: string, vendorName: string}
+ *          | {matched: false, stage: 'project'|'commitment', reason: string, candidates: (Array|undefined),
+ *             projectId: (number|undefined), projectName: (string|undefined)}}
+ *   `candidates` is only present when stage is 'commitment' and the vendor matched more than one —
+ *   see procoreFindCommitmentForInvoice_. Absent (not an empty array) on every other failure, so a
+ *   caller can tell "ambiguous, here's the list" apart from "no match at all" with one truthy check.
+ *   `projectId`/`projectName` are present whenever the project stage succeeded (i.e. always, on a
+ *   `stage: 'commitment'` failure) — so a caller resolving an ambiguous pick doesn't have to re-run
+ *   the project lookup just to confirm which project the chosen commitment is on.
+ */
+function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
+  const projectResult = procoreFindProjectByNumber_(invoice.projectNumber);
+  if (!projectResult.matched) {
+    return { matched: false, stage: 'project', reason: projectResult.reason };
+  }
+
+  const commitmentResult = procoreFindCommitmentForInvoice_(projectResult.projectId, invoice.vendor, kind);
+  if (!commitmentResult.matched) {
+    const failure = {
+      matched: false,
+      stage: 'commitment',
+      reason: commitmentResult.reason,
+      projectId: projectResult.projectId,
+      projectName: projectResult.projectName
+    };
+    if (commitmentResult.candidates) failure.candidates = commitmentResult.candidates;
+    return failure;
+  }
+
+  return {
+    matched: true,
+    projectId: projectResult.projectId,
+    projectName: projectResult.projectName,
+    commitmentId: commitmentResult.commitmentId,
+    commitmentTitle: commitmentResult.commitmentTitle,
+    commitmentNumber: commitmentResult.commitmentNumber,
+    commitmentKind: commitmentResult.commitmentKind,
+    vendorName: commitmentResult.vendorName
+  };
+}
+
+/**
+ * Creates a Subcontractor Invoice (Procore's `requisitions` resource — see HANDOFF.md finding 2) as a
+ * DRAFT, billed against a specific commitment. This is the real send, not the Direct Cost smoke test
+ * (testProcoreSendDirectCost, Setup.gs) — a requisition is what actually bills a commitment, which is
+ * the entire reason the commitment matcher above exists.
+ *
+ * Body shape per finding 2: `{project_id, commitment_id, requisition: {status: 'draft',
+ * invoice_number, billing_date}}`. Deliberately omits `period_id` — finding 3 found it optional in
+ * the schema and flagged the schema's required-lists as unreliable in general, but nothing has run
+ * this call live yet to confirm draft creation actually succeeds without one (see HANDOFF.md §8/§9 for
+ * why: the live test call itself is blocked in this session, pending explicit permission). If a real
+ * create ever fails citing a missing period, that's the fallback finding 3 already anticipated: fetch
+ * the project's billing periods and pass the current one's id.
+ *
+ * Also deliberately does NOT set `invite_id` — finding 3 flags it as a hazard word ("invite") for a
+ * system that must never notify a subcontractor by accident, and nothing in this codebase or in
+ * Procore's own OAS ties it to notification, but it's simplest to just never touch it.
+ *
+ * @param {number} projectId
+ * @param {number} commitmentId
+ * @param {string} invoiceNumber
+ * @param {string} billingDate - 'YYYY-MM-DD'
+ * @return {{requisitionId: number, status: string}}
+ */
+function procoreCreateSubcontractorInvoice_(projectId, commitmentId, invoiceNumber, billingDate) {
+  // project_id goes both in the query string (requisitions is a top-level resource, same as the GET
+  // list endpoint requires) AND in the body (finding 2's documented shape) — belt and suspenders,
+  // since the live create call to confirm which one Procore actually reads is the thing currently
+  // blocked (see the function doc comment). Redundant, not conflicting, either way.
+  const response = procoreFetch_('post', 'requisitions', `requisitions?project_id=${projectId}`, {
+    payload: JSON.stringify({
+      project_id: projectId,
+      commitment_id: commitmentId,
+      requisition: {
+        status: 'draft',
+        invoice_number: invoiceNumber,
+        billing_date: billingDate
+      }
+    }),
+    contentType: 'application/json'
+  });
+  const created = JSON.parse(response.getContentText());
+  if (!created.id) {
+    throw new Error(`Procore returned 20x with no requisition id: ${response.getContentText().slice(0, 300)}`);
+  }
+  return { requisitionId: created.id, status: created.status || 'draft' };
+}
+
+/**
+ * Attaches an already-uploaded file (see procoreUploadFile_) to a requisition, by UUID reference —
+ * the two-step signed-upload pattern finding 4 confirmed for `direct_costs`' create path, extended
+ * here to `requisitions` on the strength of procoreUploadFile_'s own original doc comment
+ * ("e.g. `{ prostore_file_ids: [uuid] }` on a direct cost or requisition"). **Genuinely unconfirmed
+ * against a live requisition** — finding 4 explicitly says this resource's attachment shape was never
+ * checked, unlike direct_costs (which turned out to want raw multipart instead, the opposite
+ * mechanism). If this 4xxs citing the field name or shape, that is the thing to check first, not a
+ * retry.
+ *
+ * @param {number} projectId
+ * @param {number} requisitionId
+ * @param {string} fileUuid - from procoreUploadFile_
+ */
+function procoreAttachFileToRequisition_(projectId, requisitionId, fileUuid) {
+  procoreFetch_('patch', 'requisitions', `requisitions/${requisitionId}?project_id=${projectId}`, {
+    payload: JSON.stringify({
+      requisition: { prostore_file_ids: [fileUuid] }
+    }),
+    contentType: 'application/json'
+  });
+}
