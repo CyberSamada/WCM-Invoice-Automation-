@@ -531,7 +531,7 @@
     .preview-edit { display: flex; flex-direction: column; gap: 12px; margin-top: 0; }
     .preview-edit-col { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
     .preview-edit-col label { font-size: 10.5px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
-    .preview-edit-col select, .preview-edit-col input[type="text"] { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
+    .preview-edit-col select, .preview-edit-col input[type="text"], .preview-edit-col input[type="number"] { font-size: 12px; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--surface); }
     .preview-edit-label2 { margin-top: 8px; }
     .preview-actions { justify-content: space-between; }
     .preview-nav { display: flex; align-items: center; gap: 8px; }
@@ -1517,11 +1517,11 @@
           <div id="procoreTestBlock" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
             <button type="button" class="btn-secondary" id="procoreTestBtn">Send test to Procore&hellip;</button>
             <div id="procoreTestForm" style="display:none; margin-top:8px">
-              <p class="preview-edit-label2" style="margin:0 0 6px">Creates a real DRAFT Direct Cost in whichever Procore company is currently configured (sandbox, unless PROCORE_ENV says otherwise). No mapping table yet — enter the target by hand.</p>
-              <label for="procoreTestProjectId" class="preview-edit-label2">Procore project ID</label>
-              <input type="number" id="procoreTestProjectId" placeholder="e.g. 362778">
-              <label for="procoreTestVendorId" class="preview-edit-label2">Procore vendor ID</label>
-              <input type="number" id="procoreTestVendorId" placeholder="e.g. 3739183">
+              <p class="preview-edit-label2" style="margin:0 0 6px">Creates a real DRAFT Direct Cost in whichever Procore company is currently configured (sandbox, unless PROCORE_ENV says otherwise). The vendor is matched automatically by name against this project's Procore directory — no ID to look up. If it's not found, or the name matches more than one company there, you'll see exactly why instead of a guess.</p>
+              <div class="preview-edit-col">
+                <label for="procoreTestProjectId">Procore project ID</label>
+                <input type="number" id="procoreTestProjectId" placeholder="e.g. 362778">
+              </div>
               <div style="display:flex; gap:8px; margin-top:8px">
                 <button type="button" class="btn-secondary" id="procoreTestCancelBtn">Cancel</button>
                 <button type="button" class="btn-primary" id="procoreTestSendBtn">Send</button>
@@ -3140,7 +3140,6 @@
       document.getElementById('procoreTestSuccess').style.display = 'none';
       document.getElementById('procoreTestSuccess').textContent = '';
       document.getElementById('procoreTestProjectId').value = localStorage.getItem('wcm_procore_test_project') || '';
-      document.getElementById('procoreTestVendorId').value = localStorage.getItem('wcm_procore_test_vendor') || '';
       document.getElementById('procoreTestForm').style.display = '';
       document.getElementById('procoreTestBtn').style.display = 'none';
     }
@@ -3153,15 +3152,13 @@
     function sendProcoreTest() {
       if (!previewRowId) return;
       var projectId = document.getElementById('procoreTestProjectId').value.trim();
-      var vendorId = document.getElementById('procoreTestVendorId').value.trim();
       var errorEl = document.getElementById('procoreTestError');
       var successEl = document.getElementById('procoreTestSuccess');
       errorEl.textContent = '';
       successEl.style.display = 'none';
-      if (!projectId || !vendorId) { errorEl.textContent = 'Enter both a Procore project ID and vendor ID.'; return; }
+      if (!projectId) { errorEl.textContent = 'Enter a Procore project ID.'; return; }
 
       localStorage.setItem('wcm_procore_test_project', projectId);
-      localStorage.setItem('wcm_procore_test_vendor', vendorId);
 
       var btn = document.getElementById('procoreTestSendBtn');
       btn.disabled = true;
@@ -3183,7 +3180,7 @@
           btn.textContent = 'Send';
           errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
         })
-        .testProcoreSendDirectCost(previewRowId, Number(projectId), Number(vendorId));
+        .testProcoreSendDirectCost(previewRowId, Number(projectId));
     }
 
     // --- Duplicate merge ------------------------------------------------------------------------

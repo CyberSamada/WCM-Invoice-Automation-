@@ -186,17 +186,21 @@ function setupProcore() {
 }
 
 /**
- * ONE-OFF SMOKE TEST — proves ProcoreClient.gs actually works end to end (auth, create, attach)
- * against a real Procore sandbox, before any of the mapping UI (PR 2) or send workflow (PR 3) exist.
- * Takes the Procore project/vendor as plain arguments instead of reading a crosswalk tab — there is
- * no crosswalk tab yet, and populating one against sandbox data would be thrown away once real
- * production project/vendor pairs exist. Run manually from the Apps Script editor:
+ * ONE-OFF SMOKE TEST — proves ProcoreClient.gs actually works end to end (auth, vendor match,
+ * create, attach) against a real Procore sandbox, before any of the mapping UI (PR 2) or send
+ * workflow (PR 3) exist. Run manually from the Apps Script editor:
  *
- *   testProcoreSendDirectCost('<a Row ID from the Invoice Log>', 362778, 3739183)
+ *   testProcoreSendDirectCost('<a Row ID from the Invoice Log>', 362778)
  *
- * Reads the row's real invoice number and PDF from the Invoice Log — READ ONLY, never writes back
- * to the sheet or changes the row's status. All writing happens on the Procore side only, and only
- * in whatever company PROCORE_COMPANY_ID / PROCORE_ENV currently point at (sandbox by default).
+ * The vendor is NOT a parameter — it's read from the row's own Vendor column and matched by name
+ * against Procore's real vendor directory for that project (procoreFindVendorByName_,
+ * ProcoreClient.gs), so nobody has to already know or type a Procore vendor ID. Still asks for a
+ * project ID, since there is no project crosswalk yet (PR 2) and sandbox has exactly one project to
+ * test against anyway; per-WCM-project auto-matching is real future work, not something to fake here.
+ *
+ * Reads the row's real invoice number, vendor and PDF from the Invoice Log — READ ONLY, never writes
+ * back to the sheet or changes the row's status. All writing happens on the Procore side only, and
+ * only in whatever company PROCORE_COMPANY_ID / PROCORE_ENV currently point at (sandbox by default).
  *
  * Creates a Direct Cost, not a Subcontractor Invoice — no commitment or billing period needed, and
  * it sidesteps the still-unresolved "does creating a requisition notify the subcontractor" question
@@ -212,13 +216,11 @@ function setupProcore() {
  *
  * Also callable from the dashboard (Dashboard.html's preview modal, gated on canControl +
  * procoreConfigured, same as Start/Pause and Manage hints) — hence the canControlAutomation_ gate
- * and the structured return value below; Logger.log calls stay too, for running this from the
- * editor. This is still the smoke test, not the real send feature: the dashboard button asks for a
- * Procore project/vendor ID by hand because no crosswalk table exists yet.
+ * and the structured return value below; Logger.log calls stay too, for running this from the editor.
  *
  * @return {{ok: boolean, directCostId: (number|null), attached: boolean, message: string}}
  */
-function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
+function testProcoreSendDirectCost(rowId, procoreProjectId) {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to send test records to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
   }
@@ -228,6 +230,7 @@ function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
   const header = values[0] || [];
   const idIdx = header.indexOf('Row ID');
   const invIdx = header.indexOf('Invoice Number');
+  const vendorIdx = header.indexOf('Vendor');
   const fileIdx = header.indexOf('Drive File ID');
   const linkIdx = header.indexOf('Drive Link');
   if (idIdx === -1) throw new Error('No "Row ID" column in the Invoice Log.');
@@ -241,17 +244,28 @@ function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
   const invoiceNumber = invIdx > -1 ? String(row[invIdx] || '').trim() : '';
   if (!invoiceNumber) throw new Error(`Row ${rowId} has no Invoice Number — Procore requires one.`);
 
+  const vendorName = vendorIdx > -1 ? String(row[vendorIdx] || '').trim() : '';
+  if (!vendorName) throw new Error(`Row ${rowId} has no Vendor — nothing to match against Procore's directory.`);
+
   let fileId = fileIdx > -1 ? String(row[fileIdx] || '').trim() : '';
   if (!fileId && linkIdx > -1) fileId = driveFileIdFromUrl_(row[linkIdx]);
   if (!fileId) throw new Error(`Row ${rowId} has no Drive file to attach.`);
 
-  Logger.log(`Creating a Direct Cost draft on Procore project ${procoreProjectId} for invoice "${invoiceNumber}" (vendor ${procoreVendorId})...`);
+  Logger.log(`Matching vendor "${vendorName}" against Procore project ${procoreProjectId}'s directory...`);
+  const match = procoreFindVendorByName_(procoreProjectId, vendorName);
+  if (!match.matched) {
+    Logger.log(match.reason);
+    return { ok: false, directCostId: null, attached: false, message: match.reason };
+  }
+  Logger.log(`Matched "${vendorName}" -> Procore company "${match.vendorName}" (id ${match.vendorId}).`);
+
+  Logger.log(`Creating a Direct Cost draft on Procore project ${procoreProjectId} for invoice "${invoiceNumber}"...`);
 
   const createResponse = procoreFetch_('post', 'direct_costs', `projects/${procoreProjectId}/direct_costs`, {
     payload: JSON.stringify({
       item: {
         invoice_number: invoiceNumber,
-        vendor_id: procoreVendorId,
+        vendor_id: match.vendorId,
         direct_cost_type: 'invoice',
         status: 'draft'
       }
@@ -285,7 +299,7 @@ function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
     ok: true,
     directCostId: directCostId,
     attached: true,
-    message: `Created direct cost ${directCostId} in Procore project ${procoreProjectId}, PDF attached.`
+    message: `Created direct cost ${directCostId} in Procore project ${procoreProjectId} for "${match.vendorName}" (id ${match.vendorId}), PDF attached.`
   };
 }
 
@@ -309,4 +323,48 @@ function testProcoreConnection() {
 
   const body = JSON.parse(response.getContentText());
   Logger.log(`OK — authenticated and permitted. Company: "${body.name || '(no name returned)'}" (id ${companyId}), environment: ${env}.`);
+}
+
+/**
+ * ONE-OFF DIAGNOSTIC: lists Invoice Log rows by Status, for picking real test cases without pulling
+ * the whole sheet through a generic document reader. The sheet has 700+ rows; a tool that dumps the
+ * whole file as text truncates well before the end and can silently miss most matches. This reads
+ * the sheet directly and filters server-side, so the result is exactly right and stays small.
+ *
+ * Run manually from the Apps Script editor: listInvoicesByStatus('Paid') — status is matched
+ * case-insensitively. Logs Vendor, Project/Subproject, Amount, Invoice #, and Row ID for each match
+ * (capped at `limit`, default 20) and returns the same as an array.
+ */
+function listInvoicesByStatus(status, limit) {
+  limit = limit || 20;
+  const wanted = String(status || '').trim().toLowerCase();
+  if (!wanted) throw new Error('Pass a status to filter on, e.g. listInvoicesByStatus("Paid").');
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  ['Row ID', 'Vendor', 'Project Number', 'Project Name', 'Subproject Number', 'Amount', 'Currency', 'Status', 'Invoice Number']
+    .forEach(name => { idx[name] = header.indexOf(name); });
+
+  const out = [];
+  for (let r = 1; r < values.length && out.length < limit; r++) {
+    const row = values[r];
+    if (String(row[idx['Status']] || '').trim().toLowerCase() !== wanted) continue;
+    out.push({
+      rowId: row[idx['Row ID']],
+      vendor: row[idx['Vendor']],
+      projectNumber: row[idx['Project Number']],
+      projectName: row[idx['Project Name']],
+      subprojectNumber: row[idx['Subproject Number']],
+      amount: row[idx['Amount']],
+      currency: row[idx['Currency']],
+      invoiceNumber: row[idx['Invoice Number']]
+    });
+  }
+
+  Logger.log(`${out.length} row(s) with Status "${status}" (of ${values.length - 1} total, capped at ${limit}):`);
+  out.forEach(o => Logger.log(`  ${o.vendor} | Project ${o.projectNumber} ${o.projectName || ''}${o.subprojectNumber ? ' / ' + o.subprojectNumber : ''} | ${o.amount} ${o.currency} | Inv# ${o.invoiceNumber} | Row ${o.rowId}`));
+  return out;
 }
