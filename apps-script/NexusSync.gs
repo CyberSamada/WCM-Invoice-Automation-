@@ -3,7 +3,7 @@
  * Mirrors invoice payment/lifecycle status from a Nexus export onto our Invoice Log, so nobody
  * hand-maintains AP status. Entry points are called from Dashboard.html via google.script.run:
  *   previewNexusStatusUpdate(csv)                  — what WOULD change; changes nothing
- *   applyNexusStatusUpdate(csv, startRow)          — applies the CERTAIN matches, resumably
+ *   applyNexusStatusUpdate(csv, startIndex)        — applies the CERTAIN matches, resumably
  *   confirmNexusMatch(...) / rejectNexusMatch(...) — the human decides one uncertain match
  *
  * WHY THIS IS A SCORED MATCHER AND NOT A LOOKUP
