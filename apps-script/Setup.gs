@@ -324,3 +324,47 @@ function testProcoreConnection() {
   const body = JSON.parse(response.getContentText());
   Logger.log(`OK — authenticated and permitted. Company: "${body.name || '(no name returned)'}" (id ${companyId}), environment: ${env}.`);
 }
+
+/**
+ * ONE-OFF DIAGNOSTIC: lists Invoice Log rows by Status, for picking real test cases without pulling
+ * the whole sheet through a generic document reader. The sheet has 700+ rows; a tool that dumps the
+ * whole file as text truncates well before the end and can silently miss most matches. This reads
+ * the sheet directly and filters server-side, so the result is exactly right and stays small.
+ *
+ * Run manually from the Apps Script editor: listInvoicesByStatus('Paid') — status is matched
+ * case-insensitively. Logs Vendor, Project/Subproject, Amount, Invoice #, and Row ID for each match
+ * (capped at `limit`, default 20) and returns the same as an array.
+ */
+function listInvoicesByStatus(status, limit) {
+  limit = limit || 20;
+  const wanted = String(status || '').trim().toLowerCase();
+  if (!wanted) throw new Error('Pass a status to filter on, e.g. listInvoicesByStatus("Paid").');
+
+  const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
+  if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
+  const values = sheet.getDataRange().getValues();
+  const header = values[0] || [];
+  const idx = {};
+  ['Row ID', 'Vendor', 'Project Number', 'Project Name', 'Subproject Number', 'Amount', 'Currency', 'Status', 'Invoice Number']
+    .forEach(name => { idx[name] = header.indexOf(name); });
+
+  const out = [];
+  for (let r = 1; r < values.length && out.length < limit; r++) {
+    const row = values[r];
+    if (String(row[idx['Status']] || '').trim().toLowerCase() !== wanted) continue;
+    out.push({
+      rowId: row[idx['Row ID']],
+      vendor: row[idx['Vendor']],
+      projectNumber: row[idx['Project Number']],
+      projectName: row[idx['Project Name']],
+      subprojectNumber: row[idx['Subproject Number']],
+      amount: row[idx['Amount']],
+      currency: row[idx['Currency']],
+      invoiceNumber: row[idx['Invoice Number']]
+    });
+  }
+
+  Logger.log(`${out.length} row(s) with Status "${status}" (of ${values.length - 1} total, capped at ${limit}):`);
+  out.forEach(o => Logger.log(`  ${o.vendor} | Project ${o.projectNumber} ${o.projectName || ''}${o.subprojectNumber ? ' / ' + o.subprojectNumber : ''} | ${o.amount} ${o.currency} | Inv# ${o.invoiceNumber} | Row ${o.rowId}`));
+  return out;
+}
