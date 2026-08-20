@@ -797,15 +797,35 @@ every unattempted row in `remaining` rather than dropping them silently. All exi
 (72 assertions total in the extended file) still pass unchanged — this was additive, not a rewrite of
 the matching logic itself.
 
-**Ahmed's fourth point, cut off mid-message, is still open and needs him to finish the thought:** he
-noted the invoice's own PDF shows "CUSTOMER P.O. Nº: 6.1-4" and said *"which is correct because the
-project is 952 6.1. Maybe we need to rename the project number for it to match correctly? Since this
-is..."* — unclear whether he means (a) WCM's own Project Number / Subproject fields on this row are
-wrong (the dashboard showed Project 6 with **no subproject set**, but the invoice's own PO number
-pattern suggests subproject 1 — an extraction/assignment gap unrelated to Procore), (b) Procore's
-sandbox project number should be changed to "6" or "6.1" specifically so this one invoice can resolve
-end-to-end as a live proof (directly answers §9 item 3, but note there is still no create/update-project
-tool on the MCP surface — this would need Ahmed to do it by hand in Procore's UI), or something else
-entirely. **Ask him before acting on either reading** — they're different fixes in different systems
-(WCM's own sheet data vs. Procore's project configuration) and guessing wrong wastes a real edit in one
-or the other.
+**Ahmed's fourth point, resolved — §9 item 3 is DONE, a real WCM project number now exists in the
+sandbox.** His cut-off message turned out to mean: DGM Services Limited, Copp's Buildall, and OUTER
+CONSTRUCTION's test invoices (the same three from §8) all genuinely belong to WCM project **"6.4"**, not
+the mix of "43 Hyland Centre"/"6 Forest Edge Cmns" this file recorded in §8 — that earlier record was
+wrong; trust this correction over it. There is still no create/update-project tool on the Procore MCP
+surface (checked again this session — the 44 available tools cover companies, contacts, commitments,
+direct costs, RFIs and uploads, but nothing for projects), so Ahmed made the change by hand in Procore's
+UI: project `362778`'s `project_number` is now **`"06.4"`** (his own leading-zero convention, matching
+the commitment-number scheme below), confirmed live via `list_projects` immediately after.
+
+**One real gotcha surfaced and got resolved in the same exchange, worth remembering:**
+`normalizeNumberKey_` only strips a LEADING run of zeros — it does not merge `"6"` and `"6.4"` into one
+key. The first live test (§10 above) had actually hit `project number "6"` in its error, meaning WCM's
+own Project Number column read bare `"6"` at that moment — renaming Procore to `"06.4"` alone would
+still have left `"6"` ≠ `"6.4"` and failed the SAME way. Ahmed confirmed the WCM side now genuinely
+reads `"6.4"` too (whether it was corrected in the same session or misread the first time isn't fully
+resolved, but isn't worth chasing — what matters is both sides now normalize to the identical key
+`"6.4"`, confirmed by hand: `normalizeNumberKey_('6.4') === normalizeNumberKey_('06.4')` → `true`).
+**Lesson for whoever debugs a "still doesn't match" report on this pairing in the future: check the
+LIVE error message's exact quoted project number against the sheet, don't assume it says what the UI
+dropdown implies** — a Project dropdown showing "06 - Forest Edge Cmns" and a blank Subproject dropdown
+is consistent with the underlying Project Number cell holding "6", "6.4", or something else entirely;
+the matcher only ever sees the raw cell value, quoted verbatim in its error.
+
+**Still open:** the commitment RENUMBERING half of Ahmed's original ask (`SC-1234-00#` → `SC-06.4-00#`
+for all four: 618651, 618652, 618653, 618665) was never confirmed done — only the project number update
+was. Same tool gap applies (no edit-commitment tool); it's a manual Procore UI edit, cosmetic only (the
+matcher never reads a commitment's `number` field, only `vendor`/`id`/`title`/`kind` — see
+`procoreListCommitmentResource_`, `ProcoreClient.gs`), so it doesn't block testing `sendInvoiceToProcore`
+for real, just tidiness. **Next real step: actually click "Send to Procore…" on one of these three now
+that the project resolves** — this is the live create-requisition test §9 item 1 has been waiting on
+all along.
