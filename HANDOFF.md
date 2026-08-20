@@ -50,19 +50,29 @@ Decisions already taken with Ahmed, do not relitigate:
 
 ---
 
-## 3. Endpoint findings — verified against working code
+## 3. Endpoint findings — and what their epistemic status actually is
 
-These were read out of `procore_claude_intergration`, which has run against a real Procore company.
-**Six of the plan's assumptions were wrong.** Line references are to that repo and will drift if it
-changes.
+Read out of `procore_claude_intergration`. **Correction, 2026-08-20:** that repo's own session has
+since told us it had **never run against a real Procore company** until the night of 2026-08-19 — it
+was verified against the OpenAPI document and a test suite. So most of what follows is *spec-derived,
+carrying the same uncertainty as our own plan*, not field observation. Treat each finding by the tag
+on it:
+
+- **[OBSERVED]** — seen against sandbox company 4288787 / project 362778 on 2026-08-19.
+- **[SPEC]** — read off the OpenAPI document or their code. Not executed. May be wrong.
+
+`create_subcontractor_invoice_draft` in particular **has never been executed.** Do not treat their
+requisition code as field-tested.
+
+Line references are to that repo and will drift if it changes.
 
 ### Corrections
 
-1. **Commitments are two resources, not one.** No single `commitments` endpoint. Query both
+1. **[SPEC] Commitments are two resources, not one.** No single `commitments` endpoint. Query both
    `work_order_contracts` (subcontracts) and `purchase_order_contracts` (POs) and merge.
    `tools/contracts.py:127-128`. Doubles the per-project fetch in the preview step.
 
-2. **A subcontractor invoice is a `requisition`.** Not `subcontractor_invoices`.
+2. **[SPEC] A subcontractor invoice is a `requisition`.** Not `subcontractor_invoices`.
    `tools/contracts.py:662-670`. Body shape:
    ```
    POST requisitions
@@ -70,13 +80,23 @@ changes.
     "requisition": {"status": "draft", "invoice_number": <str>, "billing_date": "YYYY-MM-DD"}}
    ```
 
-3. **No `period_id` is sent.** The plan treated the billing period as a hard requirement and budgeted
-   a per-project period fetch plus a per-row blocker ("no open period covering this date"). The
-   working implementation sends `billing_date` only and Procore accepts it
-   (`tools/contracts.py:654-660`). **Verify before building the blocker** — if `billing_date` suffices,
-   that whole piece of UI and its fetch disappear.
+3. **[SPEC] `period_id` is optional per the schema — but do NOT drop the period fetch.**
+   **This entry previously claimed their code "sends `billing_date` only and Procore accepts it".
+   That was wrong and is retracted** — nothing had been executed, so there was no observation behind
+   it. What is actually known: `POST /rest/v1.1/requisitions` requires `["project_id",
+   "commitment_id"]`, and inside the `requisition` object `required: []` — both `period_id` and
+   `billing_date` are optional. Same on v1.0.
 
-4. **Attachments use a two-step signed upload**, not direct multipart. `client.py:422-500`:
+   **Weak counter-signal, and it matters:** on 2026-08-19 Procore rejected `rfi_manager_id` with a 400
+   naming the field, and that field appears in no required list anywhere in the OAS. So the OAS
+   required-lists are not trustworthy as a completeness guarantee. **Keep the per-project billing-period
+   fetch as a fallback** rather than deleting it on the strength of the schema.
+
+   Also flagged: `POST /rest/v1.1/requisitions` accepts a query parameter `invite_id`. Semantics
+   unknown — and "invite" is a hazard word for a system that must not notify anyone. Do not set it,
+   and find out what it does before going near production.
+
+4. **[SPEC] Attachments use a two-step signed upload**, not direct multipart. `client.py:422-500`:
    - `POST projects/{id}/uploads` with `{response_filename, response_content_type, size}` →
      `{uuid, url, fields}`
    - POST the file to that `url` with `fields` + the file, **carrying no `Authorization` and no
@@ -86,14 +106,32 @@ changes.
    - Reference the returned `upload_uuid` on the record.
    - Their cap is 100 MB (`client.py:420`), well above our 20 MB working cap.
 
-5. **A permissions gap shows as 401, not 403.** The plan had this backwards and it is the finding most
-   likely to cost a day. `client.py:272-284`: Procore issues a valid token and *then* 401s when the
-   service account has no access — "usually the app has no Data Connector component, or its version is
-   not installed on the company." A naive handler drops the cached token, retries, then blames the
-   credentials, sending you off to rotate a secret that was never wrong. **The 401 message must name
-   the app installation as the likely cause.**
+5. **[OBSERVED] 401 and 403 both occur and mean DIFFERENT things. Handle them separately.**
+   **This entry previously said a permissions gap shows as 401 "not 403". That was wrong and is
+   corrected here** — the earlier reading came from a code comment; the following came from real
+   requests on 2026-08-19.
 
-6. **API version is per resource.** Paths are `/rest/v{version}/{path}`; a single global pin is wrong.
+   - **401 = the app is not installed / has no Data Connector component.** `client.py:272-284`.
+     Dropping the cached token and retrying once is the right response.
+   - **403 = authenticated fine, but no access to that tool or that project.**
+     **NEVER drop the token on a 403** — the token is valid and re-minting it changes nothing.
+
+   Observed on sandbox company 4288787, project 362778: `GET /projects` 200 and
+   `GET companies/{id}/users` 200, while `GET projects/{id}/rfis`, `manpower_logs`,
+   `permission_templates`, `POST notes_logs` and `POST /vendors` all returned **403**.
+
+   **The cause you will hit first is the permitted-projects list.** A service account operates only in
+   projects explicitly added to it (Company Admin → App Management → the app → Permissions). Until a
+   project is on that list, *every* project-level call 403s **including reads**, and nothing in the
+   error names a project list. Adding the project flipped all project reads to 200 immediately **on
+   the same cached token** — permissions are evaluated per request, not baked in at issuance, so there
+   is no token to invalidate and no cache to clear.
+
+   Writes stayed 403 after that until the permission template was dealt with separately. Second cause,
+   from Procore's own documentation: **manifest permissions do not transfer to the installed permission
+   template when an app is updated** — reconcile by hand after any app update.
+
+6. **[SPEC] API version is per resource.** Paths are `/rest/v{version}/{path}`; a single global pin is wrong.
    Default 1.0, `budget_line_items` is 2.0. `client.py:213-223`, `config.py:44-58`. Needs a
    per-resource override map, not a hardcoded prefix.
 
@@ -113,7 +151,13 @@ changes.
 - Records created with draft status.
 - Duplicate pre-check: list existing, match on commitment + invoice number
   (`tools/contracts.py:637-652`).
-- Retry shape: 429 with backoff, 5xx with backoff, 401 retried exactly once.
+- Retry shape: 429 with backoff, 5xx with backoff, 401 retried exactly once — but see finding 5:
+  403 needs its own arm and must not drop the token.
+- Findings 1, 2, 4 and 6 were confirmed as correctly read by that repo's own session.
+- **Copy their upload test, not just the upload behaviour.** The no-credentials rule on the storage
+  POST is enforced by a test that parses the function's AST and fails if `Authorization` or
+  `Procore-Company-Id` appears anywhere in it. A behavioural test would not catch a later edit
+  re-adding a header.
 
 ### Unresolved — decide before any production send
 
@@ -123,6 +167,14 @@ a bulk dashboard action than for an interactive tool: ticking twelve invoices co
 vendors about draft records with no line items. Settle it in sandbox against a commitment whose vendor
 contact is internal, **before** production. Ahmed has been told; he has not answered.
 
+**There is a test that needs no inbox access,** proposed by that repo's session: `email_communications`
+is keyed by `topic_type` / `topic_id`. Create the draft, then query it for that topic. A hit is proof
+that mail was generated. A miss is weaker evidence, but meaningful alongside two facts — there is no
+`notify` or `send` parameter anywhere in the requisition POST body, and `submitted_at` is a distinct
+field from creation. (Sandbox vendors use `implementation+sub@procore.com`, Procore's own inbox, so
+reading the mailbox is not an option either way.) They will run it once a commitment exists on
+sandbox; **whoever gets credentials first should run it and save the other the trip.**
+
 ### Also learned
 
 `tools/contracts.py:585-592` — they deliberately refuse to write line items, because the lines bill
@@ -130,7 +182,8 @@ against the commitment's schedule of values and getting them wrong produces an i
 numbers. This vindicates header-only Phase 1 and raises the bar on the line-item phase: the target is
 not "parse the invoice", it is "map each line onto that commitment's schedule of values".
 
-`config.py:106-140` — their write gate is `off` / `create`, with deliberately **no** value meaning
+`config.py:106-140` — their write gate is `off` / `create` (`draft` is a retained alias for `create`),
+with deliberately **no** value meaning
 send/submit/approve, failing closed on anything unrecognised. Worth adopting: our plan already fails
 safe on sandbox-vs-production; extending the same shape to what the integration may *do* costs nothing.
 
@@ -193,13 +246,25 @@ Asked directly by Ahmed. Reuse `currentViewerEmail_()` (`NexusSync.gs:773`); do 
 
 Nothing else gates the work.
 
-1. **Procore app + service account.** Someone with Procore company-admin rights registers a
-   company-owned app with a Data Connector component, **installs its version on the company** (per
-   finding 5, skipping this produces silent 401s), and creates the service account. Output: a client ID
-   and client secret. Until these exist there is nothing to write code against.
-2. **The notification question** (§3, unresolved) — or permission to settle it in sandbox.
-3. **Whether the billing-period blocker is worth building**, once finding 3 is verified.
-4. **Test the Nexus Apply button** — first execution of a path that has never run.
+**Registering the app and creating the service account gets you authenticated, not operational.**
+There are three more admin steps behind it, each of which fails as a 403 that names nothing useful.
+All four are company-admin work, not code.
+
+1. **Register the app + create the service account.** A company-owned app with a Data Connector
+   component, **its version installed on the company** (per finding 5, skipping this is what produces
+   401s), and a service account. Output: a client ID and client secret. Until these exist there is
+   nothing to write code against.
+2. **Add every project we will file into to the app's permitted-projects list.**
+   Company Admin → App Management → the app → Permissions. Until a project is on that list, *every*
+   project-level call 403s including reads. This is per project, so it is ongoing admin, not one-time
+   setup — a new WCM project means a new entry here or its invoices silently stop sending.
+3. **Company-level `Directory: Admin`** for anything company-scoped, and reconcile the installed
+   permission template by hand after any app update (manifest permissions do not transfer).
+4. **The notification question** (§3, unresolved) — or permission to settle it in sandbox.
+5. **Whether the billing-period blocker is worth building**, once finding 3 is verified. Current
+   guidance: **keep it**; the schema says optional but the OAS required-lists have already been shown
+   unreliable.
+6. **Test the Nexus Apply button** — first execution of a path that has never run.
 
 ---
 
