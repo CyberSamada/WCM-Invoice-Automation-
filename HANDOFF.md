@@ -657,6 +657,21 @@ no create-project or update-project tool, and `search_procore_api` for "create p
 endpoint either. Whoever needs this proven against a real number will need either a Procore admin to
 number an existing sandbox project by hand, or a widened tool surface.
 
+**Update, same session, right after — Ahmed hit the OLD "Send test to Procore" panel live** (it's on
+`main`, this PR wasn't merged yet) and flagged three things: it still asks for a manual Procore project
+ID, the Send button needs scrolling to reach, and there's too much explanatory text in the way. All
+three are inherent to that panel's own design (a deliberate manual-entry smoke test, see its own PR 1.5
+doc comment) and are now moot rather than fixed in place: **the old panel is removed.**
+`testProcoreSendDirectCost` (Setup.gs) still exists and still runs from the editor for diagnostics —
+its doc comment now says so explicitly — but its dashboard button, form, and JS wiring are gone from
+`Dashboard.html`. The real matcher+send panel (`procoreMatchBlock`) is now the ONLY Procore UI in the
+preview modal, and was trimmed at the same time: the descriptive paragraphs above the Matching state
+and above the Send button both moved into HTML comments (developer-only context) instead of
+user-visible text, so there's meaningfully less to scroll past to reach the Send button. **This still
+does not put the new panel in front of a coordinator** — none of it is on `main` yet, only in this PR's
+branch. Ahmed was testing against the deployed (old) dashboard because that's the only thing actually
+live; merging this PR and letting the deploy workflow run is what makes any of this visible at all.
+
 ---
 
 ## 9. Immediate next steps for whoever picks this up
