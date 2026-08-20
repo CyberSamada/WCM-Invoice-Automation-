@@ -1339,6 +1339,9 @@
         <span><span class="bulk-count" id="bulkCount">0</span> selected <span class="bulk-offpage" id="bulkOffPage" style="display:none"></span></span>
         <button type="button" class="btn-primary" id="bulkEditBtn">Edit selected</button>
         <button type="button" class="btn-secondary" id="bulkDownloadBtn">Download</button>
+        <!-- Same gate as procoreMatchBlock (canControl && procoreConfigured) — toggled in
+             renderAutomationStatus. Capped server-side at PROCORE_SEND_BULK_MAX_ (ProcoreSend.gs). -->
+        <button type="button" class="btn-secondary" id="bulkProcoreSendBtn" style="display:none">Send to Procore</button>
         <button type="button" class="btn-secondary" id="bulkClearBtn">Clear selection</button>
       </div>
 
@@ -1519,7 +1522,7 @@
                (see renderAutomationStatus). Kept deliberately terse — every line here is one more
                line between opening this panel and the Send button. -->
           <div id="procoreMatchBlock" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
-            <button type="button" class="btn-secondary" id="procoreMatchBtn">Match to Procore commitment&hellip;</button>
+            <button type="button" class="btn-secondary" id="procoreMatchBtn">Send to Procore&hellip;</button>
             <div id="procoreMatchForm" style="display:none; margin-top:8px">
               <p id="procoreMatchLoading" style="font-size:13px; color:var(--text-muted)">Matching&hellip;</p>
               <p id="procoreMatchAuto" style="display:none"></p>
@@ -1729,6 +1732,24 @@
     </div>
   </div>
 
+  <!-- Bulk "Send to Procore": each selected invoice is matched (cached instantly if this vendor+
+       project pair was confirmed before) then sent — see sendInvoicesToProcoreBulk (ProcoreSend.gs).
+       An invoice whose vendor has more than one commitment is never auto-picked here; it's reported
+       under "needs a manual pick" instead of blocking the rest of the batch. -->
+  <div class="modal-overlay" id="procoreBulkModalOverlay" style="display:none">
+    <div class="modal-box">
+      <h3>Send to Procore</h3>
+      <p class="modal-subtitle" id="procoreBulkModalSubtitle"></p>
+      <p class="modal-error" id="procoreBulkModalError"></p>
+      <p class="bulk-progress-text" id="procoreBulkStatus" style="min-height:16px"></p>
+      <div id="procoreBulkResults" style="display:none; max-height:260px; overflow-y:auto; margin-top:8px; font-size:13px"></div>
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="procoreBulkCloseBtn">Close</button>
+        <button type="button" class="btn-primary" id="procoreBulkConfirmBtn">Send to Procore</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Feedback -->
   <div class="feedback-fab">
     <button type="button" class="feedback-btn" id="feedbackOpenBtn">Send feedback</button>
@@ -1761,6 +1782,10 @@
     // Multi-select state: rowId -> true. Survives re-renders/filter changes, so a selection built
     // across several filter views stays intact until cleared or applied.
     var SELECTED_ROWIDS = {};
+    // Set by renderAutomationStatus (canControl && procoreConfigured) — gates the bulk-bar Send to
+    // Procore button the same way procoreMatchBlock is gated in the preview panel.
+    var PROCORE_BULK_ENABLED = false;
+    var PROCORE_ENV_LABEL = '';
     var LAST_RENDERED = []; // the records currently shown in the table (post-filter), for select-all
     var lastSelectedIdx = -1; // index (into the current render's checkboxes) of the last one clicked, for shift-range select
     var AUTOMATION = <?!= data.automationJson ?>;
@@ -1869,6 +1894,9 @@
       document.getElementById('nexusSyncBtn').style.display = state.canControl ? '' : 'none';
       // Procore matcher/send: same control privilege, AND the four Script Properties have to be set.
       document.getElementById('procoreMatchBlock').style.display = (state.canControl && state.procoreConfigured) ? '' : 'none';
+      PROCORE_BULK_ENABLED = !!(state.canControl && state.procoreConfigured);
+      PROCORE_ENV_LABEL = state.procoreEnv || '';
+      updateBulkBar(); // re-apply the bulk-send button's visibility against the current selection
     }
 
     function toggleAutomation() {
@@ -3285,6 +3313,107 @@
         .sendInvoiceToProcore(previewRowId);
     }
 
+    // --- Bulk send to Procore (multi-select bar) --------------------------------------------------
+    // Matches + sends every selected invoice in one call (sendInvoicesToProcoreBulk, ProcoreSend.gs).
+    // Ambiguous vendors are reported, not auto-picked — resolve those individually from their own
+    // preview panel's "Send to Procore…" button, then re-run the bulk send to pick up the rest.
+
+    function openProcoreBulkModal() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      document.getElementById('procoreBulkModalSubtitle').textContent =
+        ids.length + ' invoice' + (ids.length === 1 ? '' : 's') + ' selected' +
+        (PROCORE_ENV_LABEL ? ' — sending to Procore (' + PROCORE_ENV_LABEL + ').' : '.');
+      document.getElementById('procoreBulkModalError').textContent = '';
+      document.getElementById('procoreBulkStatus').textContent = '';
+      var resultsEl = document.getElementById('procoreBulkResults');
+      resultsEl.style.display = 'none';
+      resultsEl.innerHTML = '';
+      var btn = document.getElementById('procoreBulkConfirmBtn');
+      btn.disabled = false;
+      btn.style.display = '';
+      btn.textContent = 'Send to Procore';
+      document.getElementById('procoreBulkModalOverlay').style.display = 'flex';
+    }
+
+    function closeProcoreBulkModal() {
+      document.getElementById('procoreBulkModalOverlay').style.display = 'none';
+      // A send may have flipped some rows' Status — refresh so the table reflects it without a
+      // full reload, same pattern markDownloadedCaptured already uses.
+      applyFilters({ keepPage: true });
+    }
+
+    function procoreBulkResultLine(label, color, entries, describe) {
+      if (!entries || !entries.length) return '';
+      var rows = entries.map(function (e) {
+        return '<div style="padding:2px 0">' + escapeHtml(describe(e)) + '</div>';
+      }).join('');
+      return '<div style="margin-top:8px"><strong style="color:' + color + '">' + label + ' (' + entries.length + ')</strong>' + rows + '</div>';
+    }
+
+    function doProcoreBulkSend() {
+      var ids = selectedIds();
+      if (!ids.length) return;
+      var btn = document.getElementById('procoreBulkConfirmBtn');
+      var errorEl = document.getElementById('procoreBulkModalError');
+      var statusEl = document.getElementById('procoreBulkStatus');
+      errorEl.textContent = '';
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+      statusEl.textContent = 'Matching and sending ' + ids.length + ' invoice' + (ids.length === 1 ? '' : 's') + '… this can take a while — one real Procore call per invoice.';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          statusEl.textContent = '';
+          if (!res || !res.ok) {
+            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
+            btn.disabled = false;
+            btn.textContent = 'Send to Procore';
+            return;
+          }
+          btn.style.display = 'none'; // done — Close is the only way out now
+          var html = '';
+          html += procoreBulkResultLine('Sent', '#059669', res.sent, function (e) {
+            return '✓ ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' → requisition ' + e.requisitionId + (e.attached ? '' : ' (PDF not attached — attach by hand)');
+          });
+          html += procoreBulkResultLine('Already sent', '#6b7280', res.alreadySent, function (e) {
+            return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — requisition ' + e.requisitionId + ' already exists, skipped.';
+          });
+          html += procoreBulkResultLine('Needs a manual pick', '#b45309', res.needsMatch, function (e) {
+            return (e.ambiguous ? '⚠ ' : '✗ ') + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
+          });
+          html += procoreBulkResultLine('Skipped (not eligible)', '#6b7280', res.skipped, function (e) {
+            return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
+          });
+          html += procoreBulkResultLine('Failed', '#b91c1c', res.errors, function (e) {
+            return '✗ ' + (e.vendor || 'Row ' + e.rowId) + (e.invoiceNumber ? ' — Inv# ' + e.invoiceNumber : '') + ' — ' + e.message;
+          });
+          if (res.remaining && res.remaining.length) {
+            html += '<div style="margin-top:8px"><strong style="color:#b45309">Not attempted (' + res.remaining.length + ')</strong>' +
+              '<div style="padding:2px 0">Ran out of time this batch — re-select and send again to pick these up.</div></div>';
+          }
+          var resultsEl = document.getElementById('procoreBulkResults');
+          resultsEl.innerHTML = html || '<div>Nothing to report.</div>';
+          resultsEl.style.display = '';
+          // Patch local records from the server's own updateInvoiceRow return value — same pattern
+          // markDownloadedCaptured uses — never guess a display-status string client-side (CLAUDE.md's
+          // stored-vs-displayed trap). alreadySent rows have no `row` (nothing was re-updated) and are
+          // left as-is; their Status was already correct from whichever send actually flipped it.
+          res.sent.forEach(function (e) {
+            if (!e.row) return;
+            var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === e.row.rowId; });
+            if (idx > -1) Object.assign(ALL_RECORDS[idx], e.row);
+          });
+        })
+        .withFailureHandler(function (err) {
+          statusEl.textContent = '';
+          btn.disabled = false;
+          btn.textContent = 'Send to Procore';
+          errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
+        })
+        .sendInvoicesToProcoreBulk(ids);
+    }
+
     // --- Duplicate merge ------------------------------------------------------------------------
     // The previewed row is the EXTRA copy; the user picks the canon to keep. See
     // DashboardServer.gs/mergeInvoiceAsDuplicate for what happens server-side.
@@ -4077,6 +4206,7 @@
       var n = selectedIds().length;
       document.getElementById('bulkCount').textContent = n;
       document.getElementById('bulkBar').className = n > 0 ? 'bulk-bar active' : 'bulk-bar';
+      document.getElementById('bulkProcoreSendBtn').style.display = PROCORE_BULK_ENABLED ? '' : 'none';
       // With a page size set, a selection can include rows on other pages. Say so, so the count is
       // never a surprise when Edit selected / Download acts on more than what's on screen.
       var offPage = n - LAST_RENDERED.filter(function (r) { return r.rowId && SELECTED_ROWIDS[r.rowId]; }).length;
@@ -4537,11 +4667,15 @@
       document.getElementById('pagerNext').addEventListener('click', function () { goToPage(PAGE_INDEX + 1); });
       document.getElementById('bulkEditBtn').addEventListener('click', openBulkModal);
       document.getElementById('bulkDownloadBtn').addEventListener('click', handleBulkDownload);
+      document.getElementById('bulkProcoreSendBtn').addEventListener('click', openProcoreBulkModal);
       document.getElementById('bulkClearBtn').addEventListener('click', clearSelection);
       document.getElementById('downloadCancelBtn').addEventListener('click', closeDownloadModal);
       document.getElementById('downloadConfirmBtn').addEventListener('click', doDownloadZip);
       document.getElementById('downloadZipName').addEventListener('keydown', function (e) { if (e.key === 'Enter') { e.preventDefault(); doDownloadZip(); } });
       document.getElementById('downloadModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeDownloadModal(); });
+      document.getElementById('procoreBulkCloseBtn').addEventListener('click', closeProcoreBulkModal);
+      document.getElementById('procoreBulkConfirmBtn').addEventListener('click', doProcoreBulkSend);
+      document.getElementById('procoreBulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeProcoreBulkModal(); });
       document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
       document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });

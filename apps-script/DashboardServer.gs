@@ -302,9 +302,12 @@ function getAutomationStatus() {
     paused: isAutomationPaused_(),
     hasTrigger: hasTrigger,
     canControl: canControlAutomation_(),
-    // Script Properties present — not proof the credentials work, just that testProcoreSendDirectCost
-    // (Setup.gs) has something to try. See ProcoreClient.gs/procoreConfigured_.
-    procoreConfigured: procoreConfigured_()
+    // Script Properties present — not proof the credentials work, just that there's something for
+    // the Procore matcher/send flow (ProcoreSend.gs) to try. See ProcoreClient.gs/procoreConfigured_.
+    procoreConfigured: procoreConfigured_(),
+    // Shown in the bulk-send confirm so nobody sends a batch without knowing whether it's landing in
+    // sandbox or the real company. Cheap — no network call, just reads the Script Property.
+    procoreEnv: procoreConfigured_() ? procoreEnv_() : null
   };
 }
 

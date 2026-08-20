@@ -719,3 +719,113 @@ vendor-ID-split finding, and how the matcher was tested. What's left:
    Procore, cheap to check.
 7. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
    acted on. Resurfaces if he brings it up; not urgent otherwise.
+
+---
+
+## 10. Follow-up, same day, after PR #98 merged — UX cleanup, idempotency, and bulk send
+
+PR #98 merged and deployed. Ahmed then actually used the live dashboard against a real Paid invoice
+(OUTER CONSTRUCTION, invoice 1163 REV, WCM project "06 - FOREST EDGE CMNS. - 952 SOUTHDALE", no
+subproject set) — **this is the first real evidence the matcher runs live, end to end, from the
+dashboard, not just from a script.** It correctly reached `procoreFindProjectByNumber_` and reported
+*"No Procore project with project number "6" (checked 2 project(s) in the company)"* — exactly the gap
+§9 item 3 already documented (sandbox only has two generic projects, neither numbered like a real WCM
+project). Good news wrapped in an expected failure: the plumbing works: the button, the server call,
+the project lookup, the error surfaced back to the UI, all real. **§9 item 3 is now confirmed, not just
+theorized — get a real WCM project number into the sandbox to actually finish proving the chain.**
+
+He also asked for three concrete changes, done in this follow-up (same PR-restart, since #98 was
+already merged — see the note at the top of this file about restarting from `origin/main` after a
+merge):
+
+1. **Renamed the entry-point button** from "Match to Procore commitment…" to **"Send to Procore…"**
+   (`Dashboard.html`, `#procoreMatchBtn`) — Ahmed read "Match" as a separate, confusing step from
+   "Send". No behavior change: it still runs `matchInvoiceToProcoreCommitment` first and only shows the
+   Send button once a commitment is confirmed (auto or picked) — matching is a real prerequisite, not
+   busywork, so it stays a two-click flow (open the panel, then Send), just under one label that says
+   what it's actually for.
+
+2. **Idempotency guard, because bulk send made a latent gap into a real risk.**
+   `sendInvoiceToProcore` had no check for "was this row already sent" — nothing stopped a double-click,
+   or the same row appearing in two bulk selections, from creating a SECOND Subcontractor Invoice in
+   Procore for one WCM invoice. Low-probability for a single-invoice button, much less so once bulk
+   send existed. `procoreFindExistingSend_` (`ProcoreSend.gs`) checks the Procore Send Log for a prior
+   entry for this Row ID **in the current environment** (`procoreEnv_()` — scoped so a sandbox test send
+   never blocks a later real production send of the same row, or vice versa) and, if found, returns
+   `{ok: true, alreadySent: true, requisitionId: <the original one>, ...}` instead of creating a
+   duplicate. `sendInvoiceToProcore`'s own return now includes `row` (the direct return value of
+   `updateInvoiceRow`) so a caller can patch its local state from real data — see point 3's note on the
+   stored-vs-displayed trap.
+
+3. **Bulk "Send to Procore"**, in the multi-select bulk bar (`#bulkProcoreSendBtn`, next to Download) —
+   Ahmed: *"add the function in multi select. So i can select from a filtered list and send all to
+   procore."* `sendInvoicesToProcoreBulk(rowIds)` (`ProcoreSend.gs`):
+   - Per row: skip the same statuses `sendInvoiceToProcore` itself refuses (Duplicate, Not an Invoice)
+     — reported as `skipped`, not an error, since a filtered multi-select naturally contains ineligible
+     rows sometimes. Otherwise run `matchInvoiceToProcoreCommitment` (cached instantly for a
+     vendor+project pair confirmed before); an ambiguous or unmatched vendor is reported under
+     `needsMatch` and **never auto-picked** — same "let user pick" rule as the single-invoice flow, it
+     just means resolving it happens from that invoice's own preview panel afterward, not that the
+     whole batch blocks on it. Everything else actually sends, landing in `sent` (or `alreadySent` via
+     the guard above).
+   - **Capped at `PROCORE_SEND_BULK_MAX_` = 25**, refused outright (not silently truncated) above that —
+     each row is a handful of real Procore HTTP calls (list/create/upload/attach), not a cheap file
+     copy like `downloadInvoicesZip`'s per-file base64 read, so the cap is much lower than
+     `DOWNLOAD_MAX_FILES` (100) on purpose. **Not load-tested against real Procore latency** — the
+     number is a reasoned guess (25 rows × ~4 calls ≈ 100 calls should fit Apps Script's ~6-minute
+     execution limit with normal retry behavior), not a measurement. If it turns out too high in
+     practice, lower it; if consistently too low, that's when a resumable multi-call design (like the
+     Nexus apply loop) actually earns its complexity — don't build that ahead of evidence it's needed.
+   - **Time-budgeted** (`PROCORE_SEND_BULK_TIME_BUDGET_MS_` = 4.5 min): stops starting new rows once
+     elapsed time passes the budget and reports the untried ones in `remaining`, rather than risking
+     Apps Script's own kill cutting a send off mid-create. No silent drops — `remaining` names exactly
+     which Row IDs weren't attempted, same "no silent caps" principle as `downloadInvoicesZip`'s skip
+     count.
+   - Dashboard renders per-bucket results (Sent / Already sent / Needs a manual pick / Skipped / Failed
+     / Not attempted) in a scrollable list, `#procoreBulkModalOverlay`. **Patches `ALL_RECORDS` from
+     each sent row's real `row` object** (from `sendInvoiceToProcore`'s return, itself
+     `updateInvoiceRow`'s return), the same pattern `markDownloadedCaptured` already uses — deliberately
+     NOT a hardcoded `'In Procore'` string, because that's exactly the stored-vs-displayed mixup
+     CLAUDE.md already calls out as the bug to watch for with this status.
+
+Unit-tested (test harness extended, not rewritten — same extract-and-eval pattern, mocked
+`procoreFetch_`/`SpreadsheetApp`): the idempotency guard (send twice, exactly one requisition POST and
+one send-log row across both calls), bulk routing (mixed eligible/ambiguous/Duplicate/unmatched
+selection lands in the right buckets), re-running a bulk batch reports `alreadySent` instead of
+re-sending, the batch-size cap refuses outright with nothing attempted, and the time budget reports
+every unattempted row in `remaining` rather than dropping them silently. All existing matcher/send tests
+(72 assertions total in the extended file) still pass unchanged — this was additive, not a rewrite of
+the matching logic itself.
+
+**Ahmed's fourth point, resolved — §9 item 3 is DONE, a real WCM project number now exists in the
+sandbox.** His cut-off message turned out to mean: DGM Services Limited, Copp's Buildall, and OUTER
+CONSTRUCTION's test invoices (the same three from §8) all genuinely belong to WCM project **"6.4"**, not
+the mix of "43 Hyland Centre"/"6 Forest Edge Cmns" this file recorded in §8 — that earlier record was
+wrong; trust this correction over it. There is still no create/update-project tool on the Procore MCP
+surface (checked again this session — the 44 available tools cover companies, contacts, commitments,
+direct costs, RFIs and uploads, but nothing for projects), so Ahmed made the change by hand in Procore's
+UI: project `362778`'s `project_number` is now **`"06.4"`** (his own leading-zero convention, matching
+the commitment-number scheme below), confirmed live via `list_projects` immediately after.
+
+**One real gotcha surfaced and got resolved in the same exchange, worth remembering:**
+`normalizeNumberKey_` only strips a LEADING run of zeros — it does not merge `"6"` and `"6.4"` into one
+key. The first live test (§10 above) had actually hit `project number "6"` in its error, meaning WCM's
+own Project Number column read bare `"6"` at that moment — renaming Procore to `"06.4"` alone would
+still have left `"6"` ≠ `"6.4"` and failed the SAME way. Ahmed confirmed the WCM side now genuinely
+reads `"6.4"` too (whether it was corrected in the same session or misread the first time isn't fully
+resolved, but isn't worth chasing — what matters is both sides now normalize to the identical key
+`"6.4"`, confirmed by hand: `normalizeNumberKey_('6.4') === normalizeNumberKey_('06.4')` → `true`).
+**Lesson for whoever debugs a "still doesn't match" report on this pairing in the future: check the
+LIVE error message's exact quoted project number against the sheet, don't assume it says what the UI
+dropdown implies** — a Project dropdown showing "06 - Forest Edge Cmns" and a blank Subproject dropdown
+is consistent with the underlying Project Number cell holding "6", "6.4", or something else entirely;
+the matcher only ever sees the raw cell value, quoted verbatim in its error.
+
+**Still open:** the commitment RENUMBERING half of Ahmed's original ask (`SC-1234-00#` → `SC-06.4-00#`
+for all four: 618651, 618652, 618653, 618665) was never confirmed done — only the project number update
+was. Same tool gap applies (no edit-commitment tool); it's a manual Procore UI edit, cosmetic only (the
+matcher never reads a commitment's `number` field, only `vendor`/`id`/`title`/`kind` — see
+`procoreListCommitmentResource_`, `ProcoreClient.gs`), so it doesn't block testing `sendInvoiceToProcore`
+for real, just tidiness. **Next real step: actually click "Send to Procore…" on one of these three now
+that the project resolves** — this is the live create-requisition test §9 item 1 has been waiting on
+all along.
