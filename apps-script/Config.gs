@@ -218,11 +218,16 @@ const CONFIG = {
   // ProcoreSend.gs/sendInvoiceToProcore). updateInvoiceRow's generic Override Log entry says the
   // STATUS changed; only this says which Procore record it became and who sent it — the "why is this
   // In Procore" answer months later, same role Nexus Sync Log plays for Nexus-driven changes.
+  // 'Record Type' (added when Direct Cost support shipped) is 'Subcontractor Invoice' or 'Direct
+  // Cost' — a Direct Cost send leaves Commitment ID/Number blank, since it doesn't need one.
+  // 'Procore Record ID' (renamed from 'Requisition ID' the same day, before this sheet ever had a
+  // real row in it — no data to migrate) holds a requisition id for one Record Type and a direct
+  // cost id for the other; the column name no longer assumes which.
   SHEET_PROCORE_SEND_LOG_TAB: 'Procore Send Log',
   PROCORE_SEND_LOG_COLUMNS: [
-    'Timestamp', 'Sent By', 'Row ID', 'Invoice Number', 'Vendor', 'Amount', 'Currency',
+    'Timestamp', 'Sent By', 'Row ID', 'Invoice Number', 'Vendor', 'Amount', 'Currency', 'Record Type',
     'Procore Project ID', 'Procore Project Name', 'Commitment ID', 'Commitment Number',
-    'Requisition ID', 'Attached', 'Environment'
+    'Procore Record ID', 'Attached', 'Environment'
   ],
 
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)

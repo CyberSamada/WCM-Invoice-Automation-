@@ -690,6 +690,10 @@ vendor-ID-split finding, and how the matcher was tested. What's left:
    `procoreAttachFileToRequisition_`'s documented-but-unverified shapes. **This is also the test that
    finally settles the notification question (§3)** — check `email_communications` for the created
    requisition's topic afterward, exactly as the integration repo's session proposed.
+   **Update, §11: this ran, live, for real, from the dashboard.** Got a real, informative `400` — the
+   project needs an open billing period — not the notification-question answer yet, since no requisition
+   was actually created. Ahmed is opening a billing period himself; re-run once that's done. The
+   notification question is still open.
 2. **PR 2's real shape is now fully built, not just clearer.** The matcher
    (`procoreFindCommitmentForInvoiceRow_`, chaining `procoreFindProjectByNumber_` →
    `procoreFindCommitmentForInvoice_`), the "human picks when ambiguous" UI, AND the crosswalk
@@ -843,6 +847,90 @@ for all four: 618651, 618652, 618653, 618665) was never confirmed done — only 
 was. Same tool gap applies (no edit-commitment tool); it's a manual Procore UI edit, cosmetic only (the
 matcher never reads a commitment's `number` field, only `vendor`/`id`/`title`/`kind` — see
 `procoreListCommitmentResource_`, `ProcoreClient.gs`), so it doesn't block testing `sendInvoiceToProcore`
-for real, just tidiness. **Next real step: actually click "Send to Procore…" on one of these three now
-that the project resolves** — this is the live create-requisition test §9 item 1 has been waiting on
-all along.
+for real, just tidiness.
+
+---
+
+## 11. The live requisition test finally ran — real 4xx, real information, plus Direct Cost as a
+## first-class send path
+
+Ahmed selected 3 real Paid invoices (OUTER CONSTRUCTION ×2, CROSSROADS C & I ×1) and ran the bulk send
+for real, live, from the deployed dashboard. Results:
+
+- **CROSSROADS C & I** — `needsMatch`: no commitment existed for this vendor at all. Expected, not a bug.
+- **OUTER CONSTRUCTION ×2** — both got a real `400` from `POST requisitions?project_id=362778`:
+  `{"errors":"The project must have an open billing period (or admin can specify a period_id) to create
+  an invoice"}`. **This is new, load-bearing information** — Procore's Subcontractor Invoice create
+  needs an open billing period on the project (or an explicit `period_id`), something no amount of
+  reading the OAS schema surfaced ahead of a live call. Ahmed is opening a billing period on the sandbox
+  project himself; no code change was made for this specific gap. Whoever next runs a live
+  `kind: 'invoice'` send should expect this to now succeed, or to fail differently if the period still
+  isn't open — either way it's informative, per this file's own standing advice for the first live call.
+
+**Ahmed's response to hitting both gaps at once: build a Direct Cost option as a genuine alternative to
+a Subcontractor Invoice, chosen per invoice, not a fallback baked into the invoice path.** His exact
+ask: *"give a window showing what is selected, and a selector next to it to specify each as invoice or
+as direct cost. I selected 3, 2 goes into invoice, 1 should go into direct cost."* Direct Cost doesn't
+need a commitment OR a billing period — it's the create call already proven working back in PR 1.5
+(`testProcoreSendDirectCost`), which is exactly why it's a real answer to both gaps at once, not a
+workaround for one.
+
+**Built:**
+- `procoreCreateDirectCost_` / `procoreAttachFileToDirectCost_` (`ProcoreClient.gs`) — the PR 1.5 smoke
+  test's exact proven call, extracted into the client so the real send flow can use it as a first-class
+  path instead of a one-off diagnostic.
+- `sendInvoiceToProcore(rowId, kind)` (`ProcoreSend.gs`) now takes a `kind` — `'invoice'` (default,
+  unchanged behavior: requires a confirmed commitment match already in the crosswalk) or
+  `'direct_cost'` (resolves project + vendor live on every call, no commitment or prior matching step
+  needed — nothing to cache since there's no "pick one" ambiguity to persist the way a commitment has).
+  The idempotency guard (`procoreFindExistingSend_`) blocks a resend REGARDLESS of which kind either
+  send used — sending the same invoice as both an Invoice and a Direct Cost would still double-count it
+  in Procore, so "already sent" is kind-agnostic on purpose.
+- `sendInvoicesToProcoreBulk(items)` — signature changed from a bare Row ID array to
+  `[{rowId, kind}, ...]`; each item carries its own kind, per Ahmed's own framing ("2 goes into invoice,
+  1 goes into direct cost" — a per-invoice choice, never a single choice for the whole batch). A
+  `kind: 'invoice'` item still goes through the existing match-then-send flow (ambiguous → `needsMatch`,
+  never auto-picked); a `kind: 'direct_cost'` item skips matching entirely — a vendor-match failure
+  there lands in `errors`, since there's no picker UI for that case in bulk.
+- **Procore Send Log gained two columns** (`Config.gs`): `Record Type` (`'Subcontractor Invoice'` or
+  `'Direct Cost'`) and a renamed `Procore Record ID` (was `Requisition ID` — renamed the same day, before
+  this sheet had ever held a real data row, so nothing needed migrating; it now holds a requisition id
+  for one Record Type and a direct cost id for the other without the column name assuming which).
+- **Dashboard** (`Dashboard.html`): the bulk "Send to Procore" flow is now a REVIEW step first — one row
+  per selected invoice (vendor, invoice #, amount) with its OWN Subcontractor Invoice / Direct Cost
+  `<select>`, defaulting to Subcontractor Invoice. Confirming reads each row's choice
+  (`procoreBulkReviewItems()`) and sends accordingly. The single-invoice "Send to Procore…" panel is
+  UNCHANGED — still `kind: 'invoice'` only; nobody asked for a per-invoice type choice there and the
+  bulk review window is where Ahmed actually wanted it.
+
+Unit-tested (27 new assertions, 101 total in the extended harness): a Direct Cost send with no
+commitment succeeding end to end (create, attach, log with the right Record Type, status flip), a
+Direct Cost send refusing cleanly when the vendor genuinely isn't in Procore, the idempotency guard
+blocking a resend across DIFFERENT kinds (send as invoice, then try again as direct_cost — blocked, no
+second Procore call), and bulk send routing two different rows to two different kinds correctly in one
+call, each logged with its own Record Type.
+
+**Also done, same session, directly in Procore (Ahmed asked for this too):**
+- **New company: CROSSROADS C & I** (company id `3739564`, project-scoped vendor id `3739565`) — the
+  vendor from the third test invoice, which had no company/commitment/anything until now.
+- **New commitment**: `618715` (`SC-1234-005`, Draft) for CROSSROADS C & I — same "matcher test
+  subcontract" pattern as the other four, gives it something to resolve against for a `kind: 'invoice'`
+  test later (a `kind: 'direct_cost'` send doesn't need this at all, which is exactly why one was sent
+  that way live already).
+- **One contact per company, added to the project as External Contractor**: Dana Morrison (DGM),
+  Cody Popp (Copp's), Owen Turner (OUTER), Casey Ingram (CROSSROADS) — contact ids
+  466483–466486. All under `@example.com` (IANA-reserved documentation domain, no real inbox) —
+  `create_contact`'s own tool description warns Procore may auto-email an invitation with no way to
+  suppress it, so a domain guaranteed to have no real recipient is the only safe choice for dummy
+  contacts. `role: 'subcontractor'` was used for "external contractor" — the MCP tool's own description
+  lists "contractor" as a synonym for that category, so this needed no guessing. Two of the four
+  `add_contact_to_project` calls hit transient network errors (502, connection timeout) on the first
+  attempt; both succeeded on retry — not a capability gap, just flaky infrastructure that day.
+- **Confirmed gap, not fixed: Ahmed also asked for dummy Commitment SOV (SCHEDULE OF VALUES) line
+  items, so the commitments have an actual dollar value** (all four sit at `grand_total: "0.0"` right
+  now). Checked thoroughly: Procore's REST API DOES have a documented line-item resource
+  (`work_order_contracts/{id}/line_items` exists per `search_procore_api`), but there is no tool on this
+  MCP surface that can create or edit one — same shape as the missing project-rename/commitment-rename
+  gaps already documented above. `procore_get` is explicitly read-only and cannot be used to work around
+  this. **Needs either a Procore admin adding line items by hand (Commitments → contract → Schedule of
+  Values → add line item) or a widened tool surface** — not something to attempt via workarounds.

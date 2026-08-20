@@ -678,3 +678,52 @@ function procoreAttachFileToRequisition_(projectId, requisitionId, fileUuid) {
     contentType: 'application/json'
   });
 }
+
+/**
+ * Creates a Direct Cost draft in Procore for one invoice — no commitment needed, unlike
+ * procoreCreateSubcontractorInvoice_, and no billing period either (the requirement that surfaced
+ * 2026-08-20 the first time a real Subcontractor Invoice create was attempted live — see HANDOFF.md).
+ * This exact call is the one PROVEN working against the real sandbox back in PR 1.5
+ * (testProcoreSendDirectCost, Setup.gs) — extracted here so the real send flow (ProcoreSend.gs) can
+ * use it as a first-class alternative, not just a one-off smoke test.
+ *
+ * @param {number} projectId
+ * @param {number} vendorId - from procoreFindVendorByName_.
+ * @param {string} invoiceNumber
+ * @return {{directCostId: number, status: string}}
+ */
+function procoreCreateDirectCost_(projectId, vendorId, invoiceNumber) {
+  const response = procoreFetch_('post', 'direct_costs', `projects/${projectId}/direct_costs`, {
+    payload: JSON.stringify({
+      item: {
+        invoice_number: invoiceNumber,
+        vendor_id: vendorId,
+        direct_cost_type: 'invoice',
+        status: 'draft'
+      }
+    }),
+    contentType: 'application/json'
+  });
+  const created = JSON.parse(response.getContentText());
+  if (!created.id) {
+    throw new Error(`Procore returned 20x with no direct cost id: ${response.getContentText().slice(0, 300)}`);
+  }
+  return { directCostId: created.id, status: created.status || 'draft' };
+}
+
+/**
+ * Attaches a file to a Direct Cost — raw multipart PATCH with an `attachments[]` blob field, NOT the
+ * two-step signed-upload UUID reference procoreAttachFileToRequisition_ uses. Two different resources,
+ * two different attachment mechanisms — confirmed directly against Procore's OAS schema, not assumed.
+ * No contentType set on purpose: that is what makes UrlFetchApp encode the payload as
+ * multipart/form-data when it contains a Blob.
+ *
+ * @param {number} projectId
+ * @param {number} directCostId
+ * @param {GoogleAppsScript.Base.Blob} blob
+ */
+function procoreAttachFileToDirectCost_(projectId, directCostId, blob) {
+  procoreFetch_('patch', 'direct_costs', `projects/${projectId}/direct_costs/${directCostId}`, {
+    payload: { 'attachments[]': blob }
+  });
+}

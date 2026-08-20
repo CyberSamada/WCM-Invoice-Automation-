@@ -351,10 +351,10 @@ function confirmProcoreCommitmentPick(rowId, candidate, projectId, projectName) 
  *
  * This is the guard that makes sendInvoiceToProcore safe to call twice on the same row — a double
  * click, or the same row appearing in two overlapping bulk selections — without creating a second
- * Subcontractor Invoice for one WCM invoice. Nothing enforced this before sendInvoicesToProcoreBulk
- * existed; a single accidental re-click was a real but low-probability risk, a bulk button pressed
- * twice on the same selection was not.
- * @return {{requisitionId:(number|string), timestamp:string, attached:boolean}|null}
+ * Procore record for one WCM invoice, REGARDLESS of which kind (Subcontractor Invoice or Direct
+ * Cost) either send used — sending the same invoice as both would still double-count it in Procore,
+ * so this blocks on ANY prior send, not just a same-kind one.
+ * @return {{requisitionId:(number|string), recordType:string, timestamp:string, attached:boolean}|null}
  */
 function procoreFindExistingSend_(rowId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_PROCORE_SEND_LOG_TAB);
@@ -363,7 +363,7 @@ function procoreFindExistingSend_(rowId) {
   if (values.length < 2) return null;
   const header = values[0];
   const idx = {};
-  ['Row ID', 'Requisition ID', 'Timestamp', 'Attached', 'Environment'].forEach(c => { idx[c] = header.indexOf(c); });
+  ['Row ID', 'Procore Record ID', 'Record Type', 'Timestamp', 'Attached', 'Environment'].forEach(c => { idx[c] = header.indexOf(c); });
   if (idx['Row ID'] === -1) return null;
 
   const env = procoreEnv_();
@@ -373,7 +373,8 @@ function procoreFindExistingSend_(rowId) {
     if (String(row[idx['Row ID']] || '').trim() !== String(rowId)) continue;
     if (idx['Environment'] > -1 && String(row[idx['Environment']] || '').trim() !== env) continue;
     found = {
-      requisitionId: idx['Requisition ID'] > -1 ? row[idx['Requisition ID']] : '',
+      requisitionId: idx['Procore Record ID'] > -1 ? row[idx['Procore Record ID']] : '',
+      recordType: idx['Record Type'] > -1 ? String(row[idx['Record Type']] || '') : '',
       timestamp: idx['Timestamp'] > -1 ? String(row[idx['Timestamp']] || '') : '',
       attached: idx['Attached'] > -1 && String(row[idx['Attached']] || '').trim() === 'Yes'
     };
@@ -399,17 +400,18 @@ function procoreLogSendRow_(entry) {
     'Vendor': entry.vendor,
     'Amount': entry.amount == null ? '' : entry.amount,
     'Currency': entry.currency || '',
+    'Record Type': entry.recordType,
     'Procore Project ID': entry.projectId,
     'Procore Project Name': entry.projectName,
-    'Commitment ID': entry.commitmentId,
-    'Commitment Number': entry.commitmentNumber,
-    'Requisition ID': entry.requisitionId,
+    'Commitment ID': entry.commitmentId || '',
+    'Commitment Number': entry.commitmentNumber || '',
+    'Procore Record ID': entry.requisitionId,
     'Attached': entry.attached ? 'Yes' : 'No',
     'Environment': entry.environment
   };
   sheet.appendRow(header.map(col => (filled[col] !== undefined ? filled[col] : '')));
   const lastRow = sheet.getLastRow();
-  ['Row ID', 'Invoice Number', 'Procore Project ID', 'Commitment ID', 'Requisition ID'].forEach(col => {
+  ['Row ID', 'Invoice Number', 'Procore Project ID', 'Commitment ID', 'Procore Record ID'].forEach(col => {
     const i = header.indexOf(col);
     if (i > -1) sheet.getRange(lastRow, i + 1).setNumberFormat('@');
   });
@@ -426,29 +428,40 @@ function procoreMarkSendRowAttached_(sheetRow) {
 }
 
 /**
- * THE REAL SEND. Creates a Subcontractor Invoice (Procore `requisitions`) against the commitment the
- * Procore Commitment Map already has confirmed for this row's vendor+project, attaches the invoice
- * PDF, logs it to the Procore Send Log, and flips the Invoice Log Status to STORED_PROCESSED_STATUS
- * through updateInvoiceRow — the single write path (CLAUDE.md), never the literal 'Captured' typed
- * here.
+ * THE REAL SEND. Creates a Procore record for one invoice — either a Subcontractor Invoice
+ * (`requisitions`, against the commitment the Procore Commitment Map already has confirmed for this
+ * row's vendor+project) or a Direct Cost (`direct_costs`, matched by vendor+project only, no
+ * commitment needed) — attaches the invoice PDF, logs it to the Procore Send Log, and flips the
+ * Invoice Log Status to STORED_PROCESSED_STATUS through updateInvoiceRow — the single write path
+ * (CLAUDE.md), never the literal 'Captured' typed here.
  *
- * Requires a confirmed match to already exist (matchInvoiceToProcoreCommitment or
- * confirmProcoreCommitmentPick must have run first) — this function does NOT match on the fly, so a
- * send can never silently pick a commitment nobody confirmed.
+ * Which kind depends entirely on `kind`; nothing here infers or defaults based on whether a commitment
+ * happens to exist. Ahmed, 2026-08-20: real invoices split across both — some bill against a
+ * commitment, some don't have one and should go in as a Direct Cost instead, per invoice, chosen by
+ * whoever is sending. `kind: 'invoice'` REQUIRES a confirmed commitment match already exist
+ * (matchInvoiceToProcoreCommitment or confirmProcoreCommitmentPick must have run first — this function
+ * does NOT match a commitment on the fly, so an invoice send can never silently pick one nobody
+ * confirmed); `kind: 'direct_cost'` resolves project + vendor live on every call (both cheap, no
+ * "pick one" ambiguity to persist the way a commitment has), no prior matching step required.
  *
  * Create -> log -> attach -> status, in that order (HANDOFF.md §4's design point): the ledger row is
  * written immediately after a successful create, before the attach is even attempted, so a mid-run
  * failure still leaves a findable record of what was created in Procore — a duplicate create on retry
- * is the recoverable failure mode; a created-but-unlogged requisition is not.
+ * is the recoverable failure mode; a created-but-unlogged record is not.
  *
  * @param {string} rowId
+ * @param {string} [kind] - 'invoice' (default, Subcontractor Invoice against a commitment) or
+ *   'direct_cost' (Direct Cost, vendor-matched only).
  * @return {{ok: true, requisitionId: number, attached: boolean, message: string,
  *           row: (Object|undefined), alreadySent: (boolean|undefined)}
  *          | {ok: false, message: string}}
  *   `row` is updateInvoiceRow's own return value (display-translated Status included) — present on
  *   every real send, absent on the alreadySent short-circuit (nothing was updated that time).
  */
-function sendInvoiceToProcore(rowId) {
+function sendInvoiceToProcore(rowId, kind) {
+  kind = (kind === 'direct_cost') ? 'direct_cost' : 'invoice';
+  const recordTypeLabel = kind === 'invoice' ? 'Subcontractor Invoice' : 'Direct Cost';
+
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to send invoices to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
   }
@@ -473,21 +486,36 @@ function sendInvoiceToProcore(rowId) {
       alreadySent: true,
       requisitionId: existing.requisitionId,
       attached: existing.attached,
-      message: `Already sent — Subcontractor Invoice ${existing.requisitionId} was created ${existing.timestamp} (${procoreEnv_()}). Not creating a second one.`
+      message: `Already sent — ${existing.recordType || 'a record'} ${existing.requisitionId} was created ${existing.timestamp} (${procoreEnv_()}). Not creating a second one.`
     };
   }
 
   const matchProjectNumber = procoreProjectMatchKey_(invoice.projectNumber, invoice.subprojectNumber);
-  const match = procoreLoadCommitmentMap_()[procoreCommitmentMapKey_(invoice.vendor, matchProjectNumber)];
-  if (!match) {
-    throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${matchProjectNumber} yet — match it first ("Send to Procore…").`);
+
+  let created, projectId, projectName, commitmentId = '', commitmentNumber = '';
+  if (kind === 'invoice') {
+    const match = procoreLoadCommitmentMap_()[procoreCommitmentMapKey_(invoice.vendor, matchProjectNumber)];
+    if (!match) {
+      throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${matchProjectNumber} yet — match it first ("Send to Procore…"), or send this one as a Direct Cost instead.`);
+    }
+    const billingDate = invoice.invoiceDate
+      ? Utilities.formatDate(new Date(invoice.invoiceDate), CONFIG_TIMEZONE_(), 'yyyy-MM-dd')
+      : Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd');
+    created = procoreCreateSubcontractorInvoice_(match.projectId, match.commitmentId, invoice.invoiceNumber, billingDate);
+    projectId = match.projectId;
+    projectName = match.projectName;
+    commitmentId = match.commitmentId;
+    commitmentNumber = match.commitmentNumber;
+  } else {
+    const projectResult = procoreFindProjectByNumber_(matchProjectNumber);
+    if (!projectResult.matched) throw new Error(projectResult.reason);
+    const vendorResult = procoreFindVendorByName_(projectResult.projectId, invoice.vendor);
+    if (!vendorResult.matched) throw new Error(vendorResult.reason);
+    created = procoreCreateDirectCost_(projectResult.projectId, vendorResult.vendorId, invoice.invoiceNumber);
+    projectId = projectResult.projectId;
+    projectName = projectResult.projectName;
   }
-
-  const billingDate = invoice.invoiceDate
-    ? Utilities.formatDate(new Date(invoice.invoiceDate), CONFIG_TIMEZONE_(), 'yyyy-MM-dd')
-    : Utilities.formatDate(new Date(), CONFIG_TIMEZONE_(), 'yyyy-MM-dd');
-
-  const created = procoreCreateSubcontractorInvoice_(match.projectId, match.commitmentId, invoice.invoiceNumber, billingDate);
+  const recordId = kind === 'invoice' ? created.requisitionId : created.directCostId;
 
   // Ledger row written NOW, before the attach is even attempted — see the function doc comment.
   const logRow = procoreLogSendRow_({
@@ -496,11 +524,12 @@ function sendInvoiceToProcore(rowId) {
     vendor: invoice.vendor,
     amount: invoice.amount,
     currency: invoice.currency,
-    projectId: match.projectId,
-    projectName: match.projectName,
-    commitmentId: match.commitmentId,
-    commitmentNumber: match.commitmentNumber,
-    requisitionId: created.requisitionId,
+    recordType: recordTypeLabel,
+    projectId: projectId,
+    projectName: projectName,
+    commitmentId: commitmentId,
+    commitmentNumber: commitmentNumber,
+    requisitionId: recordId,
     attached: false,
     environment: procoreEnv_()
   });
@@ -510,8 +539,12 @@ function sendInvoiceToProcore(rowId) {
   if (invoice.fileId) {
     try {
       const blob = DriveApp.getFileById(invoice.fileId).getBlob();
-      const uuid = procoreUploadFile_(match.projectId, blob);
-      procoreAttachFileToRequisition_(match.projectId, created.requisitionId, uuid);
+      if (kind === 'invoice') {
+        const uuid = procoreUploadFile_(projectId, blob);
+        procoreAttachFileToRequisition_(projectId, recordId, uuid);
+      } else {
+        procoreAttachFileToDirectCost_(projectId, recordId, blob);
+      }
       attached = true;
     } catch (e) {
       attachError = e.message;
@@ -530,22 +563,23 @@ function sendInvoiceToProcore(rowId) {
   // hand — that's exactly the stored-vs-displayed mixup CLAUDE.md calls out as the bug to watch for.
   const updatedRow = updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS });
 
+  const commitmentClause = kind === 'invoice' ? ` against commitment ${commitmentNumber}` : '';
   if (!attached) {
     return {
       ok: true,
-      requisitionId: created.requisitionId,
+      requisitionId: recordId,
       attached: false,
       row: updatedRow,
-      message: `Created Subcontractor Invoice ${created.requisitionId} in Procore project ${match.projectId} against commitment ${match.commitmentNumber}, but the PDF didn't attach: ${attachError || 'no Drive file found on this row'}. Status updated anyway — the record exists in Procore, attach it by hand.`
+      message: `Created ${recordTypeLabel} ${recordId} in Procore project ${projectId}${commitmentClause}, but the PDF didn't attach: ${attachError || 'no Drive file found on this row'}. Status updated anyway — the record exists in Procore, attach it by hand.`
     };
   }
 
   return {
     ok: true,
-    requisitionId: created.requisitionId,
+    requisitionId: recordId,
     attached: true,
     row: updatedRow,
-    message: `Sent — Subcontractor Invoice ${created.requisitionId} created in Procore project ${match.projectId} against commitment ${match.commitmentNumber}, PDF attached, status updated.`
+    message: `Sent — ${recordTypeLabel} ${recordId} created in Procore project ${projectId}${commitmentClause}, PDF attached, status updated.`
   };
 }
 
@@ -563,38 +597,46 @@ const PROCORE_SEND_BULK_MAX_ = 25;
 const PROCORE_SEND_BULK_TIME_BUDGET_MS_ = 4.5 * 60 * 1000;
 
 /**
- * Bulk "Send to Procore" for the dashboard's multi-select bar. For each Row ID: skip the same
- * statuses sendInvoiceToProcore itself refuses (Duplicate, Not an Invoice); otherwise resolve a
- * commitment via matchInvoiceToProcoreCommitment (cached instantly if this vendor+project pair was
- * ever confirmed before, live otherwise) and only actually send when that resolves WITHOUT asking a
- * human — an ambiguous vendor (more than one commitment) is never auto-picked here, same "let user
- * pick" rule as the single-invoice flow, it just means picking it happens later from that invoice's
- * own preview panel instead of blocking the whole batch. sendInvoiceToProcore's own idempotency guard
- * (procoreFindExistingSend_) makes re-selecting an already-sent row a safe no-op, not a duplicate.
+ * Bulk "Send to Procore" for the dashboard's multi-select bar. Each item carries its OWN kind — Ahmed,
+ * 2026-08-20: "I selected 3, 2 goes into invoice, 1 should go into direct cost" — this is deliberately
+ * a per-invoice choice made in the review window before sending, never inferred here.
+ *
+ * Per item: skip the same statuses sendInvoiceToProcore itself refuses (Duplicate, Not an Invoice).
+ * For `kind: 'invoice'`: resolve a commitment via matchInvoiceToProcoreCommitment (cached instantly if
+ * this vendor+project pair was ever confirmed before, live otherwise) and only actually send when that
+ * resolves WITHOUT asking a human — an ambiguous vendor (more than one commitment) is never auto-picked
+ * here, same "let user pick" rule as the single-invoice flow; it just means picking it happens later
+ * from that invoice's own preview panel instead of blocking the whole batch. For `kind: 'direct_cost'`:
+ * no commitment matching step at all — sendInvoiceToProcore resolves project + vendor live and sends
+ * directly; a vendor-matching failure there (not found, or ambiguous) lands in `errors`, since there is
+ * no picker UI for that case in this flow. sendInvoiceToProcore's own idempotency guard
+ * (procoreFindExistingSend_) makes re-selecting an already-sent row a safe no-op, not a duplicate,
+ * regardless of which kind either send used.
  *
  * NO SILENT CAPS: exceeding PROCORE_SEND_BULK_MAX_ refuses the whole call up front (same shape as
  * DOWNLOAD_MAX_FILES) rather than silently sending only the first N; running out of time budget mid-
  * batch reports exactly which Row IDs were never attempted in `remaining`, not just how many.
  *
- * @param {Array<string>} rowIds
+ * @param {Array<{rowId: string, kind: string}>} items - `kind` is 'invoice' (default if omitted) or
+ *   'direct_cost'.
  * @return {{ok: true, sent: Array, alreadySent: Array, needsMatch: Array, skipped: Array,
  *           errors: Array, remaining: Array<string>}
  *          | {ok: false, message: string}}
  */
-function sendInvoicesToProcoreBulk(rowIds) {
+function sendInvoicesToProcoreBulk(items) {
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to send invoices to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
   }
   if (!procoreConfigured_()) {
     throw new Error('Procore is not configured — set the Script Properties and run setupProcore() first.');
   }
-  if (!rowIds || !rowIds.length) {
+  if (!items || !items.length) {
     return { ok: true, sent: [], alreadySent: [], needsMatch: [], skipped: [], errors: [], remaining: [] };
   }
-  if (rowIds.length > PROCORE_SEND_BULK_MAX_) {
+  if (items.length > PROCORE_SEND_BULK_MAX_) {
     return {
       ok: false,
-      message: `${rowIds.length} invoices selected — Send to Procore is capped at ${PROCORE_SEND_BULK_MAX_} per batch (each one is a real Procore API call, not a cheap file copy). Select fewer, or send in two batches.`
+      message: `${items.length} invoices selected — Send to Procore is capped at ${PROCORE_SEND_BULK_MAX_} per batch (each one is a real Procore API call, not a cheap file copy). Select fewer, or send in two batches.`
     };
   }
 
@@ -606,8 +648,9 @@ function sendInvoicesToProcoreBulk(rowIds) {
   const errors = [];
   const remaining = [];
 
-  for (let i = 0; i < rowIds.length; i++) {
-    const rowId = rowIds[i];
+  for (let i = 0; i < items.length; i++) {
+    const rowId = items[i].rowId;
+    const kind = items[i].kind === 'direct_cost' ? 'direct_cost' : 'invoice';
     if (Date.now() - startedAt > PROCORE_SEND_BULK_TIME_BUDGET_MS_) {
       remaining.push(rowId);
       continue;
@@ -625,30 +668,33 @@ function sendInvoicesToProcoreBulk(rowIds) {
       continue;
     }
 
-    let matchResult;
-    try {
-      matchResult = matchInvoiceToProcoreCommitment(rowId);
-    } catch (e) {
-      errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
-      continue;
-    }
-    if (!matchResult.ok) {
-      needsMatch.push({
-        rowId: rowId,
-        invoiceNumber: invoice.invoiceNumber,
-        vendor: invoice.vendor,
-        ambiguous: !!matchResult.ambiguous,
-        reason: matchResult.reason
-      });
-      continue;
+    if (kind === 'invoice') {
+      let matchResult;
+      try {
+        matchResult = matchInvoiceToProcoreCommitment(rowId);
+      } catch (e) {
+        errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
+        continue;
+      }
+      if (!matchResult.ok) {
+        needsMatch.push({
+          rowId: rowId,
+          invoiceNumber: invoice.invoiceNumber,
+          vendor: invoice.vendor,
+          ambiguous: !!matchResult.ambiguous,
+          reason: matchResult.reason
+        });
+        continue;
+      }
     }
 
     try {
-      const sendResult = sendInvoiceToProcore(rowId);
+      const sendResult = sendInvoiceToProcore(rowId, kind);
       const record = {
         rowId: rowId,
         invoiceNumber: invoice.invoiceNumber,
         vendor: invoice.vendor,
+        kind: kind,
         requisitionId: sendResult.requisitionId,
         attached: sendResult.attached,
         message: sendResult.message,
