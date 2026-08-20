@@ -48,6 +48,7 @@ considered tradeoff, not an oversight.
 | Dashboard "Send test to Procore" button | **live and reachable** (preview modal, gated on `canControl && procoreConfigured`) — not yet actually clicked/exercised by Ahmed as of this write-up |
 | Vendor-by-name matching | built, unit-tested (13 assertions), **not yet exercised against live Procore** |
 | Commitment auto-matching | **built and unit-tested** (`procoreFindCommitmentForInvoice_`, `ProcoreClient.gs`), proven against the real sandbox commitments — see §8/§9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly. |
+| Project-number resolution | **built and unit-tested** (`procoreFindProjectByNumber_` + `procoreFindCommitmentForInvoiceRow_`, `ProcoreClient.gs`) — Procore project derived from its own `project_number` field vs. the Invoice Log's Project Number, leading-zero safe. See §8. Not yet proven against a *real* WCM project number (sandbox has none registered) — see the gap noted in §8. |
 | Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (still the reference for PR 2/3's crosswalk-table design; this session partially preempted it, see §0) |
 
 **Nexus apply status unknown.** PR #93 fixed the `ReferenceError` that meant `applyNexusStatusUpdate`
@@ -484,6 +485,57 @@ Not yet exercised: `purchase_order_contracts` matching against a **real** PO rec
 sandbox project) — implemented per finding 1 and unit-tested against a mocked one, but genuinely
 unproven live, same caveat §3 already carries for everything tagged [SPEC].
 
+**Project resolution added, same session — this closes the gap the matcher above didn't cover.**
+`procoreFindCommitmentForInvoice_` takes a Procore project ID as a given; it doesn't say *which*
+project. Ahmed was explicit this should not be a manual pick or a crosswalk table: **"the project is
+derived from the project number that is already assigned"** — Procore's own `project_number` field on
+each project should be matched against the Invoice Log's "Project Number" column directly.
+
+`procoreFindProjectByNumber_` (`ProcoreClient.gs`) does that: lists every project in the company
+(`procoreListCompanyProjects_`, `GET projects?company_id=...`, paginated like everything else in this
+file) and matches on `project_number` through `normalizeNumberKey_` (**not** `vendorNormalizedKey_` —
+different function, already exists in `DashboardServer.gs` for exactly this: Sheets' leading-zero
+coercion). Ahmed named the exact failure mode to guard: WCM might have "31.1" where Procore has
+"031.1" (or the reverse) — `normalizeNumberKey_` strips a leading run of zeros before the first digit,
+so both key to "31.1" while "31.1" and "31.10" correctly stay distinct. Same never-guess discipline as
+every other matcher here: zero Procore projects with that number, or more than one sharing it once
+normalized, is reported back with a reason, never picked silently.
+
+`procoreFindCommitmentForInvoiceRow_` chains the two: given `{vendor, projectNumber}` (exactly the
+shape `listInvoicesByStatus`, Setup.gs, already returns per row), it resolves the Procore project by
+number first, then the commitment by vendor within that project — and reports which stage failed
+(`stage: 'project'` vs `'commitment'`) so a future dashboard queue can show the right message ("this
+project isn't in Procore yet" vs "this vendor has no commitment on a project Procore does know
+about"). This is the function an actual "send" flow would call.
+
+Real REST shape confirmed the same way as the commitment fields: `GET /rest/v1.0/projects?company_id=4288787`
+(raw response, not the MCP wrapper) — each project has a top-level `project_number` string (`"1234"`
+on project `362778`, `null` on `362775`) plus `id`/`name`. **`company_id` is a required query param on
+this endpoint** — separate from the `Procore-Company-Id` header `procoreFetch_` already sends on every
+call; the header alone 400s here, confirmed live.
+
+Unit-tested (21 assertions, same mocked-`procoreFetch_` pattern): exact project-number match, the
+leading-zero case in **both directions** (WCM-side zero, then Procore-side zero) using the real
+sandbox number "1234"/"01234", no-Procore-project reported not guessed, empty project number
+short-circuits before any fetch, two Procore projects sharing a normalized number reported ambiguous,
+the full row-level chain succeeding end to end, the chain failing at the project stage, the chain
+failing at the commitment stage (project resolves, vendor doesn't), and company-project-list
+pagination stopping on a short page.
+
+**Real-data proof has one real gap, and it's honest to say so rather than paper over it: no real WCM
+project number has ever been resolved against a real Procore project, because none of the 8 real Paid
+invoices' project numbers (43, 49, 6, 45, 46) exist as a `project_number` on any project in this
+sandbox company — it only has `362778` ("1234") and `362775` (no number).** The live proof this session
+could actually run was narrower: confirmed `GET /rest/v1.0/projects?company_id=4288787` returns exactly
+those two projects with exactly that shape, and that the code's normalization logic (unit-tested above)
+correctly derives "1234" both ways from "01234". Making a *real* WCM project number resolve live would
+need either a new Procore project numbered to match one, or renumbering `362778` — **neither is
+possible with the current tool surface**: the Procore MCP connector's dedicated tools cover creating
+companies, contacts, commitments, direct costs, RFIs, subcontractor invoices and uploads, but there is
+no create-project or update-project tool, and `search_procore_api` for "create project" found no such
+endpoint either. Whoever needs this proven against a real number will need either a Procore admin to
+number an existing sandbox project by hand, or a widened tool surface.
+
 ---
 
 ## 9. Immediate next steps for whoever picks this up
@@ -491,22 +543,31 @@ unproven live, same caveat §3 already carries for everything tagged [SPEC].
 Items 1–3 (below, historical) are **done** — see the rewritten §8 for what actually happened, the new
 vendor-ID-split finding, and how the matcher was tested. What's left:
 
-1. **PR 2's real shape is now clearer than when §7 was written.** The matcher (`procoreFindCommitmentForInvoice_`)
-   exists and works — PR 2 no longer needs to build vendor/commitment matching from scratch, only the
-   crosswalk-table UI *around* a matcher that already runs, plus deciding what happens on a no-match or
-   ambiguous result in the dashboard (surface it for a human pick, most likely — same shape as Nexus's
-   confirmation queue). Re-read the plan file (§1 table) with that in mind before starting PR 2; some of
-   its steps may already be redundant.
-2. **The three dummy commitments are sandbox-only test fixtures**, not real WCM data — they exist so the
+1. **PR 2's real shape is now clearer than when §7 was written.** The matcher
+   (`procoreFindCommitmentForInvoiceRow_`, chaining `procoreFindProjectByNumber_` →
+   `procoreFindCommitmentForInvoice_`) exists and works end to end from a WCM invoice row down to a
+   Procore commitment — PR 2 no longer needs to build vendor/project/commitment matching from scratch,
+   only the crosswalk-table UI *around* a matcher that already runs, plus deciding what happens on a
+   no-match or ambiguous result in the dashboard (surface it for a human pick, most likely — same shape
+   as Nexus's confirmation queue, and `stage: 'project'|'commitment'` on the result already tells you
+   which message to show). Re-read the plan file (§1 table) with that in mind before starting PR 2;
+   some of its steps may already be redundant.
+2. **Get a real WCM project number into the sandbox and re-test live** — the one real gap called out
+   in §8: no real WCM project number (43, 49, 6, 45, 46) exists as a Procore `project_number` yet,
+   because there's no create/update-project tool on the current MCP surface. Ask Ahmed to number an
+   existing sandbox project by hand (or widen the tool surface), then re-run
+   `procoreFindProjectByNumber_`/`procoreFindCommitmentForInvoiceRow_` against it — the code and its
+   leading-zero handling are already unit-tested, this closes the live-proof gap, not a code gap.
+3. **The three dummy commitments are sandbox-only test fixtures**, not real WCM data — they exist so the
    matcher had something real to run against, not because DGM/Copp's/OUTER actually have subcontracts
    on "Sandbox Test Project" (project `362778`, a generic Procore demo project, not a real WCM job).
    Don't reuse commitment IDs 618651–618653 for anything beyond matcher testing, and don't be surprised
    the project name doesn't match a real WCM address — sandbox company `4288787` only has two projects
    total (`362778` "Sandbox Test Project", `362775` "Standard Project Template"), neither WCM-specific.
-3. **`purchase_order_contracts` matching is still unproven against a live record** (no PO exists in this
+4. **`purchase_order_contracts` matching is still unproven against a live record** (no PO exists in this
    sandbox project) — settle it whenever a real or dummy PO becomes available, same discipline as
    everything else in this file.
-4. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
+5. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
    Procore, cheap to check.
-5. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
+6. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
    acted on. Resurfaces if he brings it up; not urgent otherwise.

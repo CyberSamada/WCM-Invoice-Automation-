@@ -480,3 +480,106 @@ function procoreFindCommitmentForInvoice_(projectId, vendorName, kind) {
     vendorName: hits[0].vendorName
   };
 }
+
+/**
+ * All projects in the configured Procore company — GET projects?company_id=..., walked with
+ * page/per_page like procoreListProjectVendors_. `company_id` is a required query param on this
+ * endpoint (separate from the Procore-Company-Id header procoreFetch_ already sends on every call —
+ * confirmed against the real API 2026-08-20, the header alone is not enough here).
+ * @return {Array<{id: number, name: string, projectNumber: string|null}>}
+ */
+function procoreListCompanyProjects_() {
+  const companyId = procoreCredentials_().companyId;
+  const out = [];
+  const perPage = 100;
+  for (let page = 1; out.length < 1000; page++) {
+    const response = procoreFetch_('get', 'projects', `projects?company_id=${companyId}&page=${page}&per_page=${perPage}`);
+    const batch = JSON.parse(response.getContentText());
+    if (!Array.isArray(batch) || !batch.length) break;
+    batch.forEach(p => out.push({ id: p.id, name: p.name, projectNumber: p.project_number }));
+    if (batch.length < perPage) break; // short page — that was the last one
+  }
+  return out;
+}
+
+/**
+ * Finds the ONE Procore project whose project_number matches a WCM Project Number — "the project is
+ * derived from the project number that is already assigned" (Ahmed, 2026-08-20), not a manual pick
+ * or a crosswalk table. Compares through normalizeNumberKey_ (DashboardServer.gs) rather than a
+ * strict string match, for the same reason CLAUDE.md already documents for every other project-number
+ * comparison in this repo: Sheets coerces "06" to 6, and Procore's own project_number field can carry
+ * leading zeros WCM's doesn't (or vice versa) — e.g. WCM "31.1" vs Procore "031.1". normalizeNumberKey_
+ * strips only a leading run of zeros before the first digit, so "031.1" and "31.1" both key to "31.1"
+ * while genuinely different numbers ("31.1" vs "31.10") stay apart.
+ *
+ * Same "never guess" discipline as procoreFindVendorByName_/procoreFindCommitmentForInvoice_: no
+ * Procore project with that number, or more than one sharing it once normalized, is reported back
+ * rather than picked silently — filing into the wrong project's commitment is a real-money mistake.
+ *
+ * @param {string|number} wcmProjectNumber - the Invoice Log's "Project Number" for this row.
+ * @return {{matched: true, projectId: number, projectName: string, projectNumber: string}
+ *          | {matched: false, reason: string}}
+ */
+function procoreFindProjectByNumber_(wcmProjectNumber) {
+  const wantKey = normalizeNumberKey_(wcmProjectNumber);
+  if (!wantKey) {
+    return { matched: false, reason: 'This invoice has no project number to match against Procore.' };
+  }
+
+  const projects = procoreListCompanyProjects_();
+  const hits = projects.filter(p => p.projectNumber && normalizeNumberKey_(p.projectNumber) === wantKey);
+
+  if (hits.length === 0) {
+    return {
+      matched: false,
+      reason: `No Procore project with project number "${wcmProjectNumber}" (checked ${projects.length} project(s) in the company). Add/correct the project number in Procore first, or check the digits actually match once leading zeros are stripped.`
+    };
+  }
+  if (hits.length > 1) {
+    const list = hits.map(h => `${h.name} (id ${h.id}, #${h.projectNumber})`).join(', ');
+    return {
+      matched: false,
+      reason: `${hits.length} Procore projects share project number "${wcmProjectNumber}" once normalized: ${list}. Ambiguous — fix the duplicate numbering in Procore first, then try again.`
+    };
+  }
+  return { matched: true, projectId: hits[0].id, projectName: hits[0].name, projectNumber: hits[0].projectNumber };
+}
+
+/**
+ * The full chain for one invoice, end to end: WCM Project Number -> Procore project -> vendor ->
+ * commitment. This is the function a "send to Procore" flow actually calls — everything above it is
+ * a building block. Fails at whichever stage first has no answer, and says which stage that was
+ * (`stage: 'project'` or `'commitment'`) so a caller (dashboard preview, a queue like Nexus's) can
+ * show the right fix ("this project isn't in Procore yet" reads very differently from "this vendor
+ * has no commitment on a project Procore does know about").
+ *
+ * @param {{vendor: string, projectNumber: (string|number)}} invoice - shape matches what
+ *   listInvoicesByStatus (Setup.gs) already returns per row (vendor, projectNumber, ...).
+ * @param {string} [kind] - forwarded to procoreFindCommitmentForInvoice_; 'all' (default),
+ *   'subcontracts', or 'purchase_orders'.
+ * @return {{matched: true, projectId: number, projectName: string, commitmentId: number,
+ *           commitmentTitle: string, commitmentNumber: string, commitmentKind: string, vendorName: string}
+ *          | {matched: false, stage: 'project'|'commitment', reason: string}}
+ */
+function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
+  const projectResult = procoreFindProjectByNumber_(invoice.projectNumber);
+  if (!projectResult.matched) {
+    return { matched: false, stage: 'project', reason: projectResult.reason };
+  }
+
+  const commitmentResult = procoreFindCommitmentForInvoice_(projectResult.projectId, invoice.vendor, kind);
+  if (!commitmentResult.matched) {
+    return { matched: false, stage: 'commitment', reason: commitmentResult.reason };
+  }
+
+  return {
+    matched: true,
+    projectId: projectResult.projectId,
+    projectName: projectResult.projectName,
+    commitmentId: commitmentResult.commitmentId,
+    commitmentTitle: commitmentResult.commitmentTitle,
+    commitmentNumber: commitmentResult.commitmentNumber,
+    commitmentKind: commitmentResult.commitmentKind,
+    vendorName: commitmentResult.vendorName
+  };
+}
