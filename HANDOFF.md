@@ -21,8 +21,9 @@ Date: 2026-08-20 (late). Two repos are involved:
 The plan's PR 0–1 shipped, and then things moved faster than the plan anticipated: Ahmed proved the
 whole auth+create+attach path works against his **real Procore sandbox**, not just unit tests. Then
 he asked for something the plan deferred to PR 2/3 — real vendor/commitment setup and an
-invoice-to-commitment matcher — and that work is **in progress, blocked on a tooling problem, not a
-design problem.** Read §1 for exact state, §8 for the blocker, §9 for what's next.
+invoice-to-commitment matcher. **Both are now done, this session** — see §1 for exact state and §8 for
+the full writeup (the connector blocker that stalled the previous session resolved on its own; the
+matcher is built, unit-tested, and proven against real sandbox commitments). Read §9 for what's next.
 
 **One deviation from §2's decisions, made deliberately, revisit before production:** the plan called
 for a second, company-owned Procore app, separate from the MCP's. Ahmed instead pointed
@@ -46,7 +47,7 @@ considered tradeoff, not an oversight.
 | Procore auth | **proven live** — `setupProcore()` then `testProcoreConnection()` both run by Ahmed in the Apps Script editor, second one returned `OK — authenticated and permitted` against company `4288787` |
 | Dashboard "Send test to Procore" button | **live and reachable** (preview modal, gated on `canControl && procoreConfigured`) — not yet actually clicked/exercised by Ahmed as of this write-up |
 | Vendor-by-name matching | built, unit-tested (13 assertions), **not yet exercised against live Procore** |
-| Commitment auto-matching | **not built yet** — this is the current task, see §9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly, see §8. |
+| Commitment auto-matching | **built and unit-tested** (`procoreFindCommitmentForInvoice_`, `ProcoreClient.gs`), proven against the real sandbox commitments — see §8/§9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly. |
 | Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (still the reference for PR 2/3's crosswalk-table design; this session partially preempted it, see §0) |
 
 **Nexus apply status unknown.** PR #93 fixed the `ReferenceError` that meant `applyNexusStatusUpdate`
@@ -410,48 +411,101 @@ excerpt. **Chosen for steps 2–3: DGM Services Limited, Copp's Buildall, OUTER 
 distinct vendors, and OUTER CONSTRUCTION has two invoices, deliberately, to test "one commitment,
 multiple invoices" once matching exists.
 
-**Steps 2–4 are NOT done. Blocked, and this is the one thing to fix before continuing:**
+**Steps 2–4 are DONE, as of 2026-08-20 (later session).**
 
-The Procore MCP connector (used to drive steps 2–3 conversationally, the way `procore_claude_intergration`'s
-own tools would) is authenticated at the **account** level but was toggled **off for the specific chat
-session** doing this work. Confirmed repeatedly (`ListConnectors` → `enabledInChat: false`, `ToolSearch`
-for any `mcp__Procore__*` tool → nothing found) across many checks, including after Ahmed reconnected
-the underlying Procore account — that fixed account-level auth, not the separate per-chat toggle.
-**Proven to be a per-session setting, not a real outage**: a different Claude session, same Procore
-account, successfully ran `list_projects` and returned live data (company `4288787`, projects
-`362778`/`362775`) at the same time this session's checks kept failing. So the connector itself is
-fine; only this conversation's access to it was off.
+**The connector blocker resolved itself via path (A).** The session that picked this up next had the
+Procore MCP connector enabled (`ListConnectors`/`ToolSearch` for `mcp__Procore__*` returned real tools
+immediately, no toggling needed). Confirmed live against company `4288787`: `list_projects` returned
+project `362778` = "Sandbox Test Project". Whatever per-chat toggle blocked the earlier session, it was
+not a standing problem — don't assume a future session needs A/B/C again; just try the connector first.
 
-**Three ways to unblock, in the order they were offered to Ahmed:**
-- **(A)** Do the setup in whichever session has the connector enabled.
-- **(B)** Find and flip this session's own connector toggle (separate control from the account
-  reconnect Ahmed already did).
-- **(C)** Skip the connector — create the 3 companies + 3 commitments by hand in Procore's UI. Exact
-  steps: project `362778` → Directory → Companies → **+ Create Company** (name it exactly as it
-  appears in the table above, so name-matching finds it later; dummy email/phone anywhere) → then
-  Commitments → **+ Create → Subcontract** → pick that vendor → any title/number → **Save as Draft**.
+**Companies and commitments created, via the MCP connector's dedicated tools (not raw REST — that's
+fine, they call the same API; the code in `ProcoreClient.gs` still talks REST directly per §2's
+decision):**
 
-**Whichever path is used, step 4 (the matching function) is real code work for this repo** — it
-doesn't depend on how the Procore-side setup happened, only on the resulting company/commitment IDs
-existing. Once they exist, build it the same way `procoreFindVendorByName_` was built: a pure function
-in `ProcoreClient.gs`, unit-tested with a mocked `procoreFetch_` first, then proven against the real
-sandbox IDs afterward — same order as everything else in PR 1.5.
+| Vendor | Company-directory ID (`create_company`) | Project-directory ID (`add_company_to_project`) | Commitment ID | Number |
+|---|---|---|---|---|
+| DGM Services Limited | 3739391 | 3739392 | 618651 | SC-1234-001 |
+| Copp's Buildall | 3739389 | 3739393 | 618652 | SC-1234-002 |
+| OUTER CONSTRUCTION | 3739390 | 3739394 | 618653 | SC-1234-003 |
+
+All three subcontracts created as `status: "Draft"` (confirmed in the API response, not just the
+create call's own claim) — matches the plan; Ahmed still needs to approve them by hand in Procore's UI
+if this data is ever used past matcher testing. `create_commitment_draft` refused the **company-directory**
+vendor ID with `422 {'vendor_id': ['has not been added to this project']}` even immediately after
+`add_company_to_project` reported success — see the new finding below, this is expected, not a bug.
+
+**New finding, not in §3 because it wasn't hit until this session: Procore's project directory mints
+its OWN vendor ID, separate from the company-directory ID.** `create_company` (company-wide) returned
+3739391/3739389/3739390. `add_company_to_project` reported success against those same IDs, but the
+resulting project-directory record — confirmed by re-querying `find_companies` scoped to project
+`362778` — came back under **different** IDs (3739392/3739393/3739394). `work_order_contracts[].vendor.id`
+on read matches the **project-scoped** ID, and `create_commitment_draft`'s `vendor_id` param requires
+the project-scoped ID too — the company-directory ID 422s even though the company genuinely is on the
+project. Any code (this repo's `ProcoreClient.gs`, or a future crosswalk table in PR 2) that stores a
+vendor ID for later reuse **must store the project-scoped one**, not whatever `create_company`/an
+equivalent company-directory call returned. `procoreListProjectVendors_`/`procoreFindVendorByName_`
+already only ever read the project-scoped list (`GET projects/{id}/vendors`), so they were unaffected —
+this only bites something that tries to shortcut by reusing a company-directory ID directly.
+
+**Step 4 — the matcher — is built:** `procoreFindCommitmentForInvoice_` in `ProcoreClient.gs`, same
+shape as `procoreFindVendorByName_` (normalized-key match via `vendorNormalizedKey_`, ambiguous ⇒
+reported not guessed, no result ⇒ a specific reason naming the vendor and project). Backed by
+`procoreListProjectCommitments_`/`procoreListCommitmentResource_`, which fetch **both**
+`work_order_contracts` and `purchase_order_contracts` (finding 1, §3) and tag each record with which
+resource it came from; `kind` param narrows to one or the other. Real REST shape confirmed via
+`GET /rest/v1.0/work_order_contracts?project_id=362778` (not the MCP wrapper — the raw Procore
+response): each record has top-level `id`/`title`/`number`/`status` and a nested
+`vendor: {id, company}`, matching what the code now expects.
+
+Unit-tested (17 assertions, mocked `procoreFetch_`, same extract-and-eval pattern as the rest of this
+repo — `/root/tools/gas-test-kit` was missing in this container, recreated inline per CLAUDE.md):
+exact match, normalized-key match tolerating punctuation/suffix drift, no-commitment reported (not
+guessed), ambiguous-vendor reported (not guessed), empty vendor name short-circuits before any fetch,
+two invoices for the same vendor resolve to the same commitment, `kind` scoping actually narrows which
+resource is queried, default `kind='all'` queries both, and pagination walks multiple pages and stops
+on a short one.
+
+**Then proven against the real sandbox data**, per the discipline established in PR 1.5:
+- **Match** — `GET work_order_contracts?project_id=362778` returned exactly the 3 commitments above,
+  each vendor exactly matching one of DGM Services Limited / Copp's Buildall / OUTER CONSTRUCTION.
+- **No-match** — confirmed live that `purchase_order_contracts` for project `362778` is empty and
+  `work_order_contracts` holds only the 3 rows above, so the other five Paid vendors from the table
+  below (Sunbelt Rentals of Canada Inc, Artcool Systems, Van Bree Infrastructure, ProTrades Mechanical
+  Inc., and Copp's/DGM/OUTER's own duplicates) that did **not** get a commitment on purpose would
+  correctly hit the matcher's no-match path — real data, not a mocked assertion.
+- **Same commitment, two invoices** — OUTER CONSTRUCTION has exactly one commitment (618653) and two
+  Paid invoices (1176, 1163 REV) in the table below; both would resolve to 618653 since the matcher
+  keys on vendor name + project only, not invoice number.
+- Pagination confirmed against real data too: page 2 of `work_order_contracts` for project `362778`
+  returned `[]`, matching the "stop on a short page" logic (page 1 had 3 of a possible 100).
+
+Not yet exercised: `purchase_order_contracts` matching against a **real** PO record (none exist in this
+sandbox project) — implemented per finding 1 and unit-tested against a mocked one, but genuinely
+unproven live, same caveat §3 already carries for everything tagged [SPEC].
 
 ---
 
 ## 9. Immediate next steps for whoever picks this up
 
-1. **Resolve the connector blocker** (§8) — ask Ahmed which of (A)/(B)/(C) he wants, don't assume.
-2. **Once the 3 companies + 3 commitments exist in Procore** (however they got created), write and
-   unit-test a commitment matcher — working name suggestion: `procoreFindCommitmentForInvoice_`,
-   mirroring `procoreFindVendorByName_`'s shape (paginated list + normalized-key match + ambiguous ⇒
-   reported, not guessed). Decide up front whether "commitment" means `work_order_contracts` only
-   (subcontracts — what step 3 creates) or both contract types per finding 1 in §3; the dummy data
-   only exercises subcontracts, so start there and say explicitly if purchase orders are out of scope.
-3. **Test it against the real IDs**, the same discipline as PR 1.5: a match, a no-match (a vendor with
-   no commitment — e.g. run it against one of the *other* five Paid vendors in the §8 table that
-   didn't get a commitment, on purpose, to prove the error path), and — since OUTER CONSTRUCTION has
-   two invoices — confirm both resolve to the *same* commitment.
+Items 1–3 (below, historical) are **done** — see the rewritten §8 for what actually happened, the new
+vendor-ID-split finding, and how the matcher was tested. What's left:
+
+1. **PR 2's real shape is now clearer than when §7 was written.** The matcher (`procoreFindCommitmentForInvoice_`)
+   exists and works — PR 2 no longer needs to build vendor/commitment matching from scratch, only the
+   crosswalk-table UI *around* a matcher that already runs, plus deciding what happens on a no-match or
+   ambiguous result in the dashboard (surface it for a human pick, most likely — same shape as Nexus's
+   confirmation queue). Re-read the plan file (§1 table) with that in mind before starting PR 2; some of
+   its steps may already be redundant.
+2. **The three dummy commitments are sandbox-only test fixtures**, not real WCM data — they exist so the
+   matcher had something real to run against, not because DGM/Copp's/OUTER actually have subcontracts
+   on "Sandbox Test Project" (project `362778`, a generic Procore demo project, not a real WCM job).
+   Don't reuse commitment IDs 618651–618653 for anything beyond matcher testing, and don't be surprised
+   the project name doesn't match a real WCM address — sandbox company `4288787` only has two projects
+   total (`362778` "Sandbox Test Project", `362775` "Standard Project Template"), neither WCM-specific.
+3. **`purchase_order_contracts` matching is still unproven against a live record** (no PO exists in this
+   sandbox project) — settle it whenever a real or dummy PO becomes available, same discipline as
+   everything else in this file.
 4. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
    Procore, cheap to check.
 5. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never

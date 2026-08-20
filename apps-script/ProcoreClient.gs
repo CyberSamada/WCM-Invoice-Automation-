@@ -375,3 +375,108 @@ function procoreUploadFile_(projectId, blob) {
 
   return uuid;
 }
+
+/**
+ * Raw list of one commitment resource on a project — GET {resource}?project_id=..., walked with
+ * page/per_page like procoreListProjectVendors_. `resource` is 'work_order_contracts' (subcontracts)
+ * or 'purchase_order_contracts' (purchase orders) — Procore keeps these as two separate resources
+ * with no merged endpoint (see HANDOFF.md finding 1). Each record's `vendor.id` is the PROJECT-scoped
+ * vendor id (the same id procoreListProjectVendors_/procoreFindVendorByName_ use), not the
+ * company-directory id create_company-equivalent calls return — confirmed 2026-08-20 against the
+ * sandbox: adding a company to a project mints a new id distinct from its company-directory id, and
+ * `work_order_contracts[].vendor.id` comes back as that project-scoped one.
+ * @return {Array<{id:number, title:string, number:string, status:string, kind:string, vendorId:number, vendorName:string}>}
+ */
+function procoreListCommitmentResource_(projectId, resource, kindLabel) {
+  const out = [];
+  const perPage = 100;
+  for (let page = 1; out.length < 500; page++) {
+    const response = procoreFetch_('get', resource, `${resource}?project_id=${projectId}&page=${page}&per_page=${perPage}`);
+    const batch = JSON.parse(response.getContentText());
+    if (!Array.isArray(batch) || !batch.length) break;
+    batch.forEach(c => out.push({
+      id: c.id,
+      title: c.title,
+      number: c.number,
+      status: c.status,
+      kind: kindLabel,
+      vendorId: c.vendor ? c.vendor.id : null,
+      vendorName: c.vendor ? c.vendor.company : ''
+    }));
+    if (batch.length < perPage) break; // short page — that was the last one
+  }
+  return out;
+}
+
+/**
+ * All commitments on a project, subcontracts and/or purchase orders, flattened into one shape.
+ * @param {number} projectId
+ * @param {string} [kind] - 'all' (default), 'subcontracts', or 'purchase_orders'.
+ * @return {Array<{id:number, title:string, number:string, status:string, kind:string, vendorId:number, vendorName:string}>}
+ */
+function procoreListProjectCommitments_(projectId, kind) {
+  kind = kind || 'all';
+  let out = [];
+  if (kind === 'all' || kind === 'subcontracts') {
+    out = out.concat(procoreListCommitmentResource_(projectId, 'work_order_contracts', 'subcontract'));
+  }
+  if (kind === 'all' || kind === 'purchase_orders') {
+    out = out.concat(procoreListCommitmentResource_(projectId, 'purchase_order_contracts', 'purchase_order'));
+  }
+  return out;
+}
+
+/**
+ * Finds the ONE commitment on a Procore project whose vendor matches `vendorName`, for filing an
+ * invoice against (see HANDOFF.md §8/§9 — this is the matcher that work built towards). Same
+ * normalized-key matching as procoreFindVendorByName_ (vendorNormalizedKey_, SheetService.gs), and
+ * the same "never guess" discipline it and NexusSync.gs both apply: no commitment, or more than one
+ * commitment whose vendor normalizes to the same key, is reported back as unresolved rather than
+ * picked silently — an invoice billed against the wrong commitment is a real-money mistake.
+ *
+ * Deliberately does NOT filter by commitment status. Draft is the only status reachable through the
+ * API (see create_commitment_draft's own note) and is a legitimate match; whether a draft commitment
+ * can actually accept a requisition is Procore's own business rule to enforce on the write, not
+ * this function's to pre-judge.
+ *
+ * @param {number} projectId
+ * @param {string} vendorName
+ * @param {string} [kind] - 'all' (default), 'subcontracts', or 'purchase_orders'. Only subcontracts
+ *   have been exercised against real sandbox data as of 2026-08-20 (§8: DGM Services Limited, Copp's
+ *   Buildall, OUTER CONSTRUCTION, project 362778) — purchase orders are implemented per finding 1 but
+ *   unproven against a live purchase_order_contracts record.
+ * @return {{matched: true, commitmentId: number, commitmentTitle: string, commitmentNumber: string,
+ *           commitmentKind: string, vendorName: string}
+ *          | {matched: false, reason: string}}
+ */
+function procoreFindCommitmentForInvoice_(projectId, vendorName, kind) {
+  const wantKey = vendorNormalizedKey_(vendorName);
+  if (!wantKey) {
+    return { matched: false, reason: 'This invoice has no vendor name to match against Procore.' };
+  }
+
+  const commitments = procoreListProjectCommitments_(projectId, kind || 'all');
+  const hits = commitments.filter(c => vendorNormalizedKey_(c.vendorName) === wantKey);
+
+  if (hits.length === 0) {
+    return {
+      matched: false,
+      reason: `No commitment for "${vendorName}" on Procore project ${projectId}. Create a subcontract or purchase order with this vendor first, or check the spelling matches.`
+    };
+  }
+  if (hits.length > 1) {
+    const list = hits.map(h => `${h.title} (${h.kind} ${h.number}, id ${h.id})`).join(', ');
+    return {
+      matched: false,
+      reason: `${hits.length} commitments on Procore project ${projectId} match vendor "${vendorName}": ${list}. Ambiguous — resolve which commitment this invoice bills against before sending.`
+    };
+  }
+  return {
+    matched: true,
+    commitmentId: hits[0].id,
+    commitmentTitle: hits[0].title,
+    commitmentNumber: hits[0].number,
+    commitmentKind: hits[0].kind,
+    vendorName: hits[0].vendorName
+  };
+}
