@@ -172,6 +172,29 @@ const CONFIG = {
     'To Project', 'To Subproject', 'To Status'
   ],
 
+  // Procore — sends selected invoices from the dashboard as Procore records (see ProcoreClient.gs /
+  // ProcoreSend.gs). Credentials are set manually as Script Properties (Project Settings > Script
+  // Properties), same as GEMINI_API_KEY — never hardcoded, never in the repo. PROCORE_ENV_PROPERTY
+  // defaults to 'sandbox' when unset or unrecognized: a missing or fat-fingered property must never
+  // resolve to the live company (same fail-safe reasoning CLAUDE.md applies to Drive folder IDs).
+  PROCORE_CLIENT_ID_PROPERTY: 'PROCORE_CLIENT_ID',
+  PROCORE_CLIENT_SECRET_PROPERTY: 'PROCORE_CLIENT_SECRET',
+  PROCORE_COMPANY_ID_PROPERTY: 'PROCORE_COMPANY_ID',
+  PROCORE_ENV_PROPERTY: 'PROCORE_ENV', // 'sandbox' (default) or 'production'
+
+  PROCORE_SANDBOX_API_URL: 'https://sandbox.procore.com',
+  PROCORE_SANDBOX_LOGIN_URL: 'https://login-sandbox.procore.com',
+  PROCORE_PRODUCTION_API_URL: 'https://api.procore.com',
+  PROCORE_PRODUCTION_LOGIN_URL: 'https://login.procore.com',
+
+  // Procore versions resources independently (/rest/v{version}/{path}); 1.0 is the default for
+  // anything not listed here. Confirmed against the Procore integration repo's OpenAPI reading —
+  // requisitions (subcontractor invoices) sit on 1.1, budget_line_items on 2.0. See HANDOFF.md.
+  PROCORE_RESOURCE_VERSIONS: {
+    requisitions: '1.1',
+    budget_line_items: '2.0'
+  },
+
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
     'Project Number', 'Project Name', 'Subproject Number', 'Subproject Name', 'Drive Folder ID'

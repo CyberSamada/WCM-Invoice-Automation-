@@ -149,3 +149,60 @@ function normalizeInvoiceStatuses() {
   Logger.log(`Done. ${total} row(s) normalized. The Status column now reads one word.`);
   return total;
 }
+
+/**
+ * Run once, manually, after the four Procore Script Properties are set (see SETUP.md): checks they're
+ * all present and that PROCORE_ENV resolves to a real value, without making any network call. Mirrors
+ * the GEMINI_API_KEY pattern — credentials are entered directly into Project Settings > Script
+ * Properties, never passed as a function argument, so nothing sensitive passes through the Apps
+ * Script editor's execution log or this codebase. Run testProcoreConnection() next to actually talk
+ * to Procore.
+ */
+function setupProcore() {
+  const props = PropertiesService.getScriptProperties();
+  const missing = [
+    CONFIG.PROCORE_CLIENT_ID_PROPERTY,
+    CONFIG.PROCORE_CLIENT_SECRET_PROPERTY,
+    CONFIG.PROCORE_COMPANY_ID_PROPERTY
+  ].filter(name => !props.getProperty(name));
+
+  if (missing.length) {
+    Logger.log(
+      `Not configured yet. Missing Script Propert${missing.length === 1 ? 'y' : 'ies'}: ${missing.join(', ')}. ` +
+      `Set ${missing.length === 1 ? 'it' : 'them'} under Project Settings > Script Properties, then run setupProcore() again.`
+    );
+    return;
+  }
+
+  const env = procoreEnv_();
+  const envProp = props.getProperty(CONFIG.PROCORE_ENV_PROPERTY);
+  if (!envProp) {
+    Logger.log(`"${CONFIG.PROCORE_ENV_PROPERTY}" is not set — defaulting to "sandbox" (the safe default). Set it to "production" explicitly when ready to go live.`);
+  } else if (envProp.trim().toLowerCase() !== 'production' && envProp.trim().toLowerCase() !== 'sandbox') {
+    Logger.log(`"${CONFIG.PROCORE_ENV_PROPERTY}" is set to "${envProp}", which isn't recognized — treating it as "sandbox" (the safe default). Use exactly "production" to go live.`);
+  }
+
+  Logger.log(`Procore credentials are present. Environment: ${env}. Run testProcoreConnection() next to verify they actually work against Procore.`);
+}
+
+/**
+ * Run manually after setupProcore(). Makes exactly one real, read-only call to Procore
+ * (GET the configured company) to prove the credentials authenticate AND have access — the two are
+ * separate failure modes (see ProcoreClient.gs), so this reports which one, if either, is wrong.
+ */
+function testProcoreConnection() {
+  const env = procoreEnv_();
+  const companyId = PropertiesService.getScriptProperties().getProperty(CONFIG.PROCORE_COMPANY_ID_PROPERTY);
+  Logger.log(`Testing against Procore ${env} (company ${companyId})...`);
+
+  let response;
+  try {
+    response = procoreFetch_('get', 'companies', `companies/${companyId}`, { maxRetries: 1 });
+  } catch (e) {
+    Logger.log(`FAILED: ${e.message}`);
+    return;
+  }
+
+  const body = JSON.parse(response.getContentText());
+  Logger.log(`OK — authenticated and permitted. Company: "${body.name || '(no name returned)'}" (id ${companyId}), environment: ${env}.`);
+}
