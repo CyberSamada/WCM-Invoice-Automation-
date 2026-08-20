@@ -202,6 +202,11 @@ const CONFIG = {
   // candidate is decided once a person picks from the list — either way, the pairing is remembered
   // here so the same vendor+project resolves instantly on every later invoice instead of re-querying
   // Procore and re-asking a human.
+  // "Project Number" here is really procoreProjectMatchKey_'s output (ProcoreSend.gs), NOT always the
+  // Invoice Log's bare Project Number column — it's the Subproject Number when an invoice has one
+  // (already the full dotted form in this system, e.g. "6.4" under project "06"), so a Procore project
+  // numbered at the subproject grain resolves correctly without every row needing a matching bare
+  // project number.
   SHEET_PROCORE_COMMITMENT_MAP_TAB: 'Procore Commitment Map',
   PROCORE_COMMITMENT_MAP_COLUMNS: [
     'Vendor', 'Project Number', 'Procore Project ID', 'Procore Project Name',

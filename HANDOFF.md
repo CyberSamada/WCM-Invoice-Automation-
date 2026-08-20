@@ -807,19 +807,36 @@ direct costs, RFIs and uploads, but nothing for projects), so Ahmed made the cha
 UI: project `362778`'s `project_number` is now **`"06.4"`** (his own leading-zero convention, matching
 the commitment-number scheme below), confirmed live via `list_projects` immediately after.
 
-**One real gotcha surfaced and got resolved in the same exchange, worth remembering:**
-`normalizeNumberKey_` only strips a LEADING run of zeros — it does not merge `"6"` and `"6.4"` into one
-key. The first live test (§10 above) had actually hit `project number "6"` in its error, meaning WCM's
-own Project Number column read bare `"6"` at that moment — renaming Procore to `"06.4"` alone would
-still have left `"6"` ≠ `"6.4"` and failed the SAME way. Ahmed confirmed the WCM side now genuinely
-reads `"6.4"` too (whether it was corrected in the same session or misread the first time isn't fully
-resolved, but isn't worth chasing — what matters is both sides now normalize to the identical key
-`"6.4"`, confirmed by hand: `normalizeNumberKey_('6.4') === normalizeNumberKey_('06.4')` → `true`).
-**Lesson for whoever debugs a "still doesn't match" report on this pairing in the future: check the
-LIVE error message's exact quoted project number against the sheet, don't assume it says what the UI
-dropdown implies** — a Project dropdown showing "06 - Forest Edge Cmns" and a blank Subproject dropdown
-is consistent with the underlying Project Number cell holding "6", "6.4", or something else entirely;
-the matcher only ever sees the raw cell value, quoted verbatim in its error.
+**A real gotcha surfaced, and the actual root cause turned out to be a genuine design gap, not a
+one-off data mixup.** `normalizeNumberKey_` only strips a LEADING run of zeros — it never merges `"6"`
+and `"6.4"` into one key. The first live test (§10 above) hit `project number "6"` in its error. Ahmed
+then confirmed the real structure from the dashboard's own Project/Subproject dropdowns on that
+invoice: WCM Project Number is **`"06"`** (bare — Forest Edge Commons, the whole property) and
+Subproject Number is **`"6.4"`** (already the full dotted form, not a bare child digit — a specific
+building/phase, "CRU3 PH2"). Procore's project was renamed to `"06.4"`, i.e. numbered at the
+**subproject** grain — but `procoreFindProjectByNumber_` only ever compared against bare Project
+Number (`"06"` → `"6"`), so it would have kept failing (`"6"` ≠ `"6.4"`) no matter how carefully the
+Procore side was set, until the code itself changed.
+
+**Fixed, not just documented.** `procoreProjectMatchKey_` (`ProcoreSend.gs`) now resolves the identifier
+actually used for Procore project matching as: Subproject Number when the invoice has one, else the
+bare Project Number. Safe as a preference (not a separate new matching mode) specifically because this
+system's Subproject Number is always the full dotted form already — a subproject value is strictly MORE
+specific than the bare project number, never a different, unrelated one. Threaded through all three
+entry points (`matchInvoiceToProcoreCommitment`, `confirmProcoreCommitmentPick`,
+`sendInvoiceToProcore`) and the crosswalk key itself (`procoreCommitmentMapKey_`'s "Project Number"
+input), so a match, a human's pick, a cache hit, and a send all resolve at the exact same grain — a
+send can never miss the cache the match that confirmed it just wrote. Unit-tested (3 new cases, 83
+assertions total in the extended harness): OUTER CONSTRUCTION's real shape (Project `"06"` + Subproject
+`"6.4"` → resolves to the project numbered `"06.4"`, not the one numbered `"1234"`), the fallback case
+(no subproject set → bare Project Number, unchanged from before), and that `sendInvoiceToProcore`'s
+crosswalk lookup uses the identical key a prior `matchInvoiceToProcoreCommitment` call just saved.
+
+**Lesson for whoever hits a "still doesn't match" report on a project+subproject pairing in the
+future:** check the LIVE error message's exact quoted project number against the sheet — a Project
+dropdown reading "06 - Forest Edge Cmns" and a Subproject dropdown reading "6.4 - ..." are two SEPARATE
+cells, and which one the matcher actually reads depends on `procoreProjectMatchKey_`'s stated
+preference, not on what looks most "correct" from the dropdowns alone.
 
 **Still open:** the commitment RENUMBERING half of Ahmed's original ask (`SC-1234-00#` → `SC-06.4-00#`
 for all four: 618651, 618652, 618653, 618665) was never confirmed done — only the project number update
