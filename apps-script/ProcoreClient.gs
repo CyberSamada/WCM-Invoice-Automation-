@@ -1,0 +1,240 @@
+/**
+ * ProcoreClient.gs
+ * Low-level Procore REST client: mint/cache a client-credentials token and make one HTTP call with
+ * the right retry behavior. No SpreadsheetApp, no UI — everything here is a pure function of its
+ * arguments plus Script Properties/CacheService/LockService, so it is unit-testable with a mocked
+ * UrlFetchApp (see the CLAUDE.md testing section for the extract-and-eval harness).
+ *
+ * The workflow (which rows to send, what a Procore record looks like, crosswalk lookups) lives in
+ * ProcoreSend.gs, a structural analogue of NexusSync.gs. This file only knows how to talk to Procore.
+ *
+ * Everything below was checked against a real Procore company by CyberSamada/Procore_Claude_Intergration
+ * before this shipped — see HANDOFF.md for the full finding-by-finding writeup and issue #9 there for
+ * the exchange. The two behaviors that matter most and are easy to get backwards:
+ *
+ *   - 401 means the app isn't installed on the company (or has no Data Connector component) — drop
+ *     the cached token and retry once.
+ *   - 403 means authentication is fine but the service account has no access to that project or tool
+ *     (most often: the project isn't on the app's permitted-projects list yet, or the account lacks
+ *     company-level Directory: Admin) — NEVER drop the token on a 403; it is valid, and re-minting it
+ *     changes nothing.
+ */
+
+/** 'sandbox' (default) or 'production'. Anything unset or unrecognized resolves to sandbox — a
+ *  missing or fat-fingered Script Property must never point at the live company. */
+function procoreEnv_() {
+  const raw = (PropertiesService.getScriptProperties().getProperty(CONFIG.PROCORE_ENV_PROPERTY) || '').trim().toLowerCase();
+  return raw === 'production' ? 'production' : 'sandbox';
+}
+
+function procoreIsProduction_() {
+  return procoreEnv_() === 'production';
+}
+
+function procoreApiBaseUrl_() {
+  return procoreIsProduction_() ? CONFIG.PROCORE_PRODUCTION_API_URL : CONFIG.PROCORE_SANDBOX_API_URL;
+}
+
+function procoreLoginBaseUrl_() {
+  return procoreIsProduction_() ? CONFIG.PROCORE_PRODUCTION_LOGIN_URL : CONFIG.PROCORE_SANDBOX_LOGIN_URL;
+}
+
+/**
+ * Every host worth trying for a token exchange, API host first. Which host actually accepts a
+ * client_credentials grant is not documented reliably enough to pin — the Procore integration repo's
+ * own note records that pinning to the login host (on the strength of a quick-start guide covering a
+ * different grant type) turned a working setup into a silent 401. Trying both costs one extra request
+ * in the failure case and removes a whole class of "which host does Procore want today" mistake.
+ */
+function procoreTokenUrls_() {
+  return [
+    `${procoreApiBaseUrl_()}/oauth/token`,
+    `${procoreLoginBaseUrl_()}/oauth/token`
+  ];
+}
+
+function procoreCredentials_() {
+  const props = PropertiesService.getScriptProperties();
+  const clientId = props.getProperty(CONFIG.PROCORE_CLIENT_ID_PROPERTY);
+  const clientSecret = props.getProperty(CONFIG.PROCORE_CLIENT_SECRET_PROPERTY);
+  const companyId = props.getProperty(CONFIG.PROCORE_COMPANY_ID_PROPERTY);
+  if (!clientId || !clientSecret || !companyId) {
+    throw new Error(
+      `Procore is not configured. Set the Script Properties "${CONFIG.PROCORE_CLIENT_ID_PROPERTY}", ` +
+      `"${CONFIG.PROCORE_CLIENT_SECRET_PROPERTY}" and "${CONFIG.PROCORE_COMPANY_ID_PROPERTY}" under ` +
+      `Project Settings > Script Properties, then run setupProcore().`
+    );
+  }
+  return { clientId, clientSecret, companyId };
+}
+
+const PROCORE_TOKEN_CACHE_KEY_ = 'PROCORE_ACCESS_TOKEN';
+// Refresh a little before Procore's own expiry rather than racing it. Procore's client defaults to
+// 3600s (1hr) when a token response omits expires_in; do not assume any particular value here — read
+// whatever the token response actually says (see mintProcoreToken_).
+const PROCORE_TOKEN_REFRESH_MARGIN_SECONDS_ = 120;
+
+/**
+ * Requests a fresh token via client_credentials, trying both token hosts. Does NOT read or write the
+ * cache — callers go through getProcoreAccessToken_(), which handles caching and locking.
+ * @return {{token: string, expiresInSeconds: number}}
+ */
+function mintProcoreToken_() {
+  const creds = procoreCredentials_();
+  const payload = {
+    grant_type: 'client_credentials',
+    client_id: creds.clientId,
+    client_secret: creds.clientSecret
+  };
+  const options = {
+    method: 'post',
+    contentType: 'application/x-www-form-urlencoded',
+    payload: payload,
+    muteHttpExceptions: true
+  };
+
+  let lastResponse = null;
+  const urls = procoreTokenUrls_();
+  for (let i = 0; i < urls.length; i++) {
+    const response = UrlFetchApp.fetch(urls[i], options);
+    lastResponse = response;
+    if (response.getResponseCode() === 200) {
+      const body = JSON.parse(response.getContentText());
+      if (!body.access_token) {
+        throw new Error(`Procore token endpoint (${urls[i]}) returned 200 with no access_token.`);
+      }
+      return {
+        token: body.access_token,
+        expiresInSeconds: Number(body.expires_in) || 3600 // Procore's own default when the field is absent
+      };
+    }
+  }
+  throw new Error(
+    `Procore token request failed on every host tried (${urls.join(', ')}): ` +
+    `${lastResponse.getResponseCode()} ${lastResponse.getContentText().slice(0, 300)}`
+  );
+}
+
+/**
+ * Returns a valid access token, minting a fresh one if the cache is empty or stale. Mint happens
+ * under a LockService lock so a burst of concurrent google.script.run calls shares one token instead
+ * of each minting its own; the cache is re-checked after acquiring the lock in case another execution
+ * already refreshed it while this one was waiting.
+ *
+ * Uses a document lock distinct in purpose from the send-apply resumable loop's lock (ProcoreSend.gs)
+ * — token minting is short and must never be blocked behind a multi-minute apply run holding a lock
+ * for an unrelated reason.
+ */
+function getProcoreAccessToken_() {
+  const cache = CacheService.getScriptCache();
+  const cached = cache.get(PROCORE_TOKEN_CACHE_KEY_);
+  if (cached) return cached;
+
+  const lock = LockService.getScriptLock();
+  lock.waitLock(30000);
+  try {
+    const recheck = cache.get(PROCORE_TOKEN_CACHE_KEY_);
+    if (recheck) return recheck;
+
+    const minted = mintProcoreToken_();
+    const ttl = Math.max(60, minted.expiresInSeconds - PROCORE_TOKEN_REFRESH_MARGIN_SECONDS_);
+    cache.put(PROCORE_TOKEN_CACHE_KEY_, minted.token, Math.min(ttl, 21600)); // CacheService caps at 6h
+    return minted.token;
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+function procoreDropCachedToken_() {
+  CacheService.getScriptCache().remove(PROCORE_TOKEN_CACHE_KEY_);
+}
+
+/** version_for(resource) — 1.0 unless CONFIG.PROCORE_RESOURCE_VERSIONS names a specific one. */
+function procoreResourceVersion_(resource) {
+  return (CONFIG.PROCORE_RESOURCE_VERSIONS && CONFIG.PROCORE_RESOURCE_VERSIONS[resource]) || '1.0';
+}
+
+/** Builds a full /rest/v{version}/{path} URL. `path` should not include a leading "rest/..." segment. */
+function procoreUrl_(resource, path) {
+  const version = procoreResourceVersion_(resource);
+  return `${procoreApiBaseUrl_()}/rest/v${version}/${String(path).replace(/^\/+/, '')}`;
+}
+
+/**
+ * Makes one Procore API call with the retry/error semantics established against a real company (see
+ * file header). `resource` picks the API version (procoreResourceVersion_) and has no other effect.
+ *
+ * @param {string} method - 'get', 'post', 'patch', etc.
+ * @param {string} resource - e.g. 'requisitions', 'work_order_contracts' — used only for versioning.
+ * @param {string} path - appended after /rest/v{version}/, e.g. 'requisitions?project_id=123'.
+ * @param {Object} [options] - { payload, contentType, maxRetries }. Do not set contentType when
+ *   payload contains a Blob (multipart) — see ProcoreSend.gs for why that specific combination breaks.
+ * @return {GoogleAppsScript.URL_Fetch.HTTPResponse}
+ */
+function procoreFetch_(method, resource, path, options) {
+  options = options || {};
+  const maxRetries = options.maxRetries != null ? options.maxRetries : 4;
+  const url = procoreUrl_(resource, path);
+
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    const token = getProcoreAccessToken_();
+    const creds = procoreCredentials_();
+    const fetchOptions = {
+      method: method,
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Procore-Company-Id': String(creds.companyId)
+      },
+      muteHttpExceptions: true
+    };
+    if (options.payload !== undefined) fetchOptions.payload = options.payload;
+    // Deliberately omit contentType when the caller didn't set one — UrlFetchApp only encodes a
+    // payload containing a Blob as multipart/form-data when contentType is left unset. Setting it
+    // (the habit carried over from the Gemini JSON calls) silently breaks the multipart boundary.
+    if (options.contentType !== undefined) fetchOptions.contentType = options.contentType;
+
+    const response = UrlFetchApp.fetch(url, fetchOptions);
+    const code = response.getResponseCode();
+
+    if (code === 200 || code === 201 || code === 204) return response;
+
+    if (code === 429 || code >= 500) {
+      const retryAfterHeader = response.getHeaders()['Retry-After'] || response.getHeaders()['retry-after'];
+      const waitMs = retryAfterHeader ? Number(retryAfterHeader) * 1000 : 2000 * Math.pow(2, attempt);
+      if (attempt < maxRetries) {
+        Logger.log(`Procore ${method.toUpperCase()} ${path} returned ${code}, retrying in ${Math.round(waitMs / 1000)}s (attempt ${attempt + 1}/${maxRetries})...`);
+        Utilities.sleep(waitMs);
+        continue;
+      }
+      return response; // out of retries — let the caller see the last response and decide
+    }
+
+    if (code === 401) {
+      // App not installed on the company, or no Data Connector component — the token itself is the
+      // problem. Drop it and retry exactly once with a freshly minted one.
+      procoreDropCachedToken_();
+      if (attempt === 0) continue;
+      throw new Error(
+        `Procore rejected the request twice with 401 (${method.toUpperCase()} ${path}). The Client ` +
+        `ID/Secret are being accepted (a token was issued) but access is still refused — this usually ` +
+        `means the app version is not installed on the company, or it has no Data Connector component. ` +
+        `Check Company Admin > App Management.`
+      );
+    }
+
+    if (code === 403) {
+      // Authenticated fine; the service account just has no access to this. Never drop the token —
+      // re-minting changes nothing and burns a request. The first cause in practice is the
+      // permitted-projects list, which fails silently on reads too.
+      throw new Error(
+        `Procore returned 403 (${method.toUpperCase()} ${path}) — authenticated, but not permitted. ` +
+        `Most likely: this project is not on the app's permitted-projects list (Company Admin > App ` +
+        `Management > the app > Permissions), or the service account lacks company-level Directory: ` +
+        `Admin for a company-scoped call. Not a credentials problem — do not retry with a new token.`
+      );
+    }
+
+    // 400/404/422/etc — a real request problem, not transient. Retrying burns budget for nothing.
+    throw new Error(`Procore ${method.toUpperCase()} ${path} failed (${code}): ${response.getContentText().slice(0, 400)}`);
+  }
+}
