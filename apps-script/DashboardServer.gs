@@ -301,7 +301,10 @@ function getAutomationStatus() {
   return {
     paused: isAutomationPaused_(),
     hasTrigger: hasTrigger,
-    canControl: canControlAutomation_()
+    canControl: canControlAutomation_(),
+    // Script Properties present — not proof the credentials work, just that testProcoreSendDirectCost
+    // (Setup.gs) has something to try. See ProcoreClient.gs/procoreConfigured_.
+    procoreConfigured: procoreConfigured_()
   };
 }
 

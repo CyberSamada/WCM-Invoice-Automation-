@@ -239,6 +239,20 @@ function procoreFetch_(method, resource, path, options) {
   }
 }
 
+/**
+ * Whether the three required Procore Script Properties are present — no network call, so safe to
+ * call on every dashboard page load (see getAutomationStatus, DashboardServer.gs). Does NOT mean
+ * the credentials actually work; only testProcoreConnection() (Setup.gs) proves that.
+ */
+function procoreConfigured_() {
+  const props = PropertiesService.getScriptProperties();
+  return !!(
+    props.getProperty(CONFIG.PROCORE_CLIENT_ID_PROPERTY) &&
+    props.getProperty(CONFIG.PROCORE_CLIENT_SECRET_PROPERTY) &&
+    props.getProperty(CONFIG.PROCORE_COMPANY_ID_PROPERTY)
+  );
+}
+
 const PROCORE_MAX_UPLOAD_BYTES_ = 20 * 1024 * 1024; // our cap; Procore's own storage service allows 100MB
 
 /**

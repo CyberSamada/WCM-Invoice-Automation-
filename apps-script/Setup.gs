@@ -209,8 +209,19 @@ function setupProcore() {
  * likely uses. Two different resources, two different attachment mechanisms — do not assume they
  * match without checking each one's schema. Split into create-then-attach (not one combined
  * multipart POST) on purpose: a failed attach still leaves a valid, findable draft record.
+ *
+ * Also callable from the dashboard (Dashboard.html's preview modal, gated on canControl +
+ * procoreConfigured, same as Start/Pause and Manage hints) — hence the canControlAutomation_ gate
+ * and the structured return value below; Logger.log calls stay too, for running this from the
+ * editor. This is still the smoke test, not the real send feature: the dashboard button asks for a
+ * Procore project/vendor ID by hand because no crosswalk table exists yet.
+ *
+ * @return {{ok: boolean, directCostId: (number|null), attached: boolean, message: string}}
  */
 function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to send test records to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
+  }
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_LOG_TAB);
   if (!sheet) throw new Error(`"${CONFIG.SHEET_LOG_TAB}" tab not found.`);
   const values = sheet.getDataRange().getValues();
@@ -261,10 +272,21 @@ function testProcoreSendDirectCost(rowId, procoreProjectId, procoreVendorId) {
   } catch (e) {
     Logger.log(`Direct cost ${directCostId} WAS created, but the attach failed: ${e.message}`);
     Logger.log('The record still exists in Procore — this is the recoverable half of the split, not a failed test.');
-    return;
+    return {
+      ok: false,
+      directCostId: directCostId,
+      attached: false,
+      message: `Created (id ${directCostId}) but the PDF didn't attach: ${e.message}`
+    };
   }
 
   Logger.log(`Done. Check Procore project ${procoreProjectId} > Direct Costs for id ${directCostId} — draft, with the PDF attached. Nothing in the Invoice Log was changed by this test.`);
+  return {
+    ok: true,
+    directCostId: directCostId,
+    attached: true,
+    message: `Created direct cost ${directCostId} in Procore project ${procoreProjectId}, PDF attached.`
+  };
 }
 
 /**
