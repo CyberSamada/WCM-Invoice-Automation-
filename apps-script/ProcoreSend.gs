@@ -23,7 +23,7 @@
  */
 
 /**
- * Reads one Invoice Log row's Vendor and Project Number by Row ID — the two fields
+ * Reads one Invoice Log row's Vendor, Project Number and Subproject Number by Row ID — the fields
  * procoreFindCommitmentForInvoiceRow_ needs. Same header-name-lookup, byte-for-byte row scan as
  * testProcoreSendDirectCost (Setup.gs) — CLAUDE.md's rule against positional column access applies
  * here the same as everywhere else this sheet is read.
@@ -36,6 +36,7 @@ function procoreLoadInvoiceRowForMatch_(rowId) {
   const idIdx = header.indexOf('Row ID');
   const vendorIdx = header.indexOf('Vendor');
   const projectNumberIdx = header.indexOf('Project Number');
+  const subprojectNumberIdx = header.indexOf('Subproject Number');
   const invoiceNumberIdx = header.indexOf('Invoice Number');
   if (idIdx === -1) throw new Error('No "Row ID" column in the Invoice Log.');
 
@@ -46,6 +47,7 @@ function procoreLoadInvoiceRowForMatch_(rowId) {
         rowId: String(rowId),
         vendor: vendorIdx > -1 ? String(row[vendorIdx] || '').trim() : '',
         projectNumber: projectNumberIdx > -1 ? row[projectNumberIdx] : '',
+        subprojectNumber: subprojectNumberIdx > -1 ? row[subprojectNumberIdx] : '',
         invoiceNumber: invoiceNumberIdx > -1 ? String(row[invoiceNumberIdx] || '').trim() : ''
       };
     }
@@ -65,7 +67,7 @@ function procoreLoadInvoiceRowForSend_(rowId) {
   const values = sheet.getDataRange().getValues();
   const header = values[0] || [];
   const idx = {};
-  ['Row ID', 'Vendor', 'Project Number', 'Invoice Number', 'Invoice Date', 'Amount', 'Currency', 'Drive File ID', 'Drive Link', 'Status']
+  ['Row ID', 'Vendor', 'Project Number', 'Subproject Number', 'Invoice Number', 'Invoice Date', 'Amount', 'Currency', 'Drive File ID', 'Drive Link', 'Status']
     .forEach(name => { idx[name] = header.indexOf(name); });
   if (idx['Row ID'] === -1) throw new Error('No "Row ID" column in the Invoice Log.');
 
@@ -79,6 +81,7 @@ function procoreLoadInvoiceRowForSend_(rowId) {
         rowId: String(rowId),
         vendor: idx['Vendor'] > -1 ? String(row[idx['Vendor']] || '').trim() : '',
         projectNumber: idx['Project Number'] > -1 ? row[idx['Project Number']] : '',
+        subprojectNumber: idx['Subproject Number'] > -1 ? row[idx['Subproject Number']] : '',
         invoiceNumber: idx['Invoice Number'] > -1 ? String(row[idx['Invoice Number']] || '').trim() : '',
         invoiceDate: invoiceDate,
         amount: idx['Amount'] > -1 ? row[idx['Amount']] : '',
@@ -91,9 +94,27 @@ function procoreLoadInvoiceRowForSend_(rowId) {
   throw new Error(`No row with Row ID "${rowId}" in the Invoice Log.`);
 }
 
+/**
+ * The identifier actually used to resolve a Procore project for an invoice: its Subproject Number
+ * when one is set, else the bare Project Number. Confirmed against real data 2026-08-20 (Ahmed):
+ * this system's Subproject Number is already the full dotted form ("6.4" under project "06"), never a
+ * bare child digit — so it is always a MORE SPECIFIC identifier than Project Number when present, not
+ * a different one, and a Procore project numbered at the subproject grain (matching how Procore's own
+ * project was actually set up here) resolves correctly without forcing every WCM row to carry a
+ * matching bare project number. Falls back to Project Number when no subproject is set, so a
+ * project-level invoice resolves exactly as it always did.
+ */
+function procoreProjectMatchKey_(projectNumber, subprojectNumber) {
+  const sub = String(subprojectNumber == null ? '' : subprojectNumber).trim();
+  return sub || projectNumber;
+}
+
 // --- Procore Commitment Map (the learned crosswalk) -----------------------------------------------
 
-/** Same key shape on both sides of the crosswalk: normalized vendor + normalized project number. */
+/** Same key shape on both sides of the crosswalk: normalized vendor + normalized project number.
+ * "Project Number" here is whatever procoreProjectMatchKey_ resolved to for the row — a subproject
+ * value when the invoice has one, so the crosswalk key matches at the same grain matching itself
+ * resolves at. */
 function procoreCommitmentMapKey_(vendor, projectNumber) {
   return vendorNormalizedKey_(vendor) + '|' + normalizeNumberKey_(projectNumber);
 }
@@ -203,8 +224,9 @@ function matchInvoiceToProcoreCommitment(rowId) {
   if (!invoice.vendor) {
     throw new Error(`Row ${rowId} has no Vendor — nothing to match against Procore.`);
   }
+  const matchProjectNumber = procoreProjectMatchKey_(invoice.projectNumber, invoice.subprojectNumber);
 
-  const cacheKey = procoreCommitmentMapKey_(invoice.vendor, invoice.projectNumber);
+  const cacheKey = procoreCommitmentMapKey_(invoice.vendor, matchProjectNumber);
   const cached = procoreLoadCommitmentMap_()[cacheKey];
   if (cached) {
     return Object.assign({
@@ -213,13 +235,13 @@ function matchInvoiceToProcoreCommitment(rowId) {
       fromCache: true,
       vendorName: invoice.vendor,
       vendor: invoice.vendor,
-      projectNumber: invoice.projectNumber,
+      projectNumber: matchProjectNumber,
       invoiceNumber: invoice.invoiceNumber
     }, cached);
   }
 
   const result = procoreFindCommitmentForInvoiceRow_(
-    { vendor: invoice.vendor, projectNumber: invoice.projectNumber },
+    { vendor: invoice.vendor, projectNumber: matchProjectNumber },
     'all'
   );
 
@@ -233,7 +255,7 @@ function matchInvoiceToProcoreCommitment(rowId) {
       projectId: result.projectId,
       projectName: result.projectName,
       vendor: invoice.vendor,
-      projectNumber: invoice.projectNumber,
+      projectNumber: matchProjectNumber,
       invoiceNumber: invoice.invoiceNumber
     };
   }
@@ -241,7 +263,7 @@ function matchInvoiceToProcoreCommitment(rowId) {
   // Exactly one candidate — nothing to pick, so this IS the decision. Save it now.
   procoreSaveCommitmentMatch_({
     vendor: invoice.vendor,
-    projectNumber: invoice.projectNumber,
+    projectNumber: matchProjectNumber,
     projectId: result.projectId,
     projectName: result.projectName,
     commitmentId: result.commitmentId,
@@ -262,7 +284,7 @@ function matchInvoiceToProcoreCommitment(rowId) {
     commitmentKind: result.commitmentKind,
     vendorName: result.vendorName,
     vendor: invoice.vendor,
-    projectNumber: invoice.projectNumber,
+    projectNumber: matchProjectNumber,
     invoiceNumber: invoice.invoiceNumber
   };
 }
@@ -299,7 +321,10 @@ function confirmProcoreCommitmentPick(rowId, candidate, projectId, projectName) 
 
   procoreSaveCommitmentMatch_({
     vendor: invoice.vendor,
-    projectNumber: invoice.projectNumber,
+    // Same key grain matchInvoiceToProcoreCommitment used to produce this candidate list in the first
+    // place — must match exactly, or this pick would be cached under a different key than future
+    // lookups for this same invoice will use.
+    projectNumber: procoreProjectMatchKey_(invoice.projectNumber, invoice.subprojectNumber),
     projectId: projectId,
     projectName: projectName || '',
     commitmentId: candidate.commitmentId,
@@ -452,9 +477,10 @@ function sendInvoiceToProcore(rowId) {
     };
   }
 
-  const match = procoreLoadCommitmentMap_()[procoreCommitmentMapKey_(invoice.vendor, invoice.projectNumber)];
+  const matchProjectNumber = procoreProjectMatchKey_(invoice.projectNumber, invoice.subprojectNumber);
+  const match = procoreLoadCommitmentMap_()[procoreCommitmentMapKey_(invoice.vendor, matchProjectNumber)];
   if (!match) {
-    throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${invoice.projectNumber} yet — match it first ("Send to Procore…").`);
+    throw new Error(`No confirmed Procore commitment for "${invoice.vendor}" on project ${matchProjectNumber} yet — match it first ("Send to Procore…").`);
   }
 
   const billingDate = invoice.invoiceDate
