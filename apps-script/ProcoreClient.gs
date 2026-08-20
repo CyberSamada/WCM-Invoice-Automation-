@@ -468,7 +468,16 @@ function procoreFindCommitmentForInvoice_(projectId, vendorName, kind) {
     const list = hits.map(h => `${h.title} (${h.kind} ${h.number}, id ${h.id})`).join(', ');
     return {
       matched: false,
-      reason: `${hits.length} commitments on Procore project ${projectId} match vendor "${vendorName}": ${list}. Ambiguous — resolve which commitment this invoice bills against before sending.`
+      reason: `${hits.length} commitments on Procore project ${projectId} match vendor "${vendorName}": ${list}. Ambiguous — resolve which commitment this invoice bills against before sending.`,
+      // Structured, not just the message above — so a caller with a UI (the dashboard's commitment
+      // picker) can render one option per candidate instead of parsing the sentence back apart.
+      candidates: hits.map(h => ({
+        commitmentId: h.id,
+        commitmentTitle: h.title,
+        commitmentNumber: h.number,
+        commitmentKind: h.kind,
+        vendorName: h.vendorName
+      }))
     };
   }
   return {
@@ -559,7 +568,10 @@ function procoreFindProjectByNumber_(wcmProjectNumber) {
  *   'subcontracts', or 'purchase_orders'.
  * @return {{matched: true, projectId: number, projectName: string, commitmentId: number,
  *           commitmentTitle: string, commitmentNumber: string, commitmentKind: string, vendorName: string}
- *          | {matched: false, stage: 'project'|'commitment', reason: string}}
+ *          | {matched: false, stage: 'project'|'commitment', reason: string, candidates: (Array|undefined)}}
+ *   `candidates` is only present when stage is 'commitment' and the vendor matched more than one —
+ *   see procoreFindCommitmentForInvoice_. Absent (not an empty array) on every other failure, so a
+ *   caller can tell "ambiguous, here's the list" apart from "no match at all" with one truthy check.
  */
 function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
   const projectResult = procoreFindProjectByNumber_(invoice.projectNumber);
@@ -569,7 +581,9 @@ function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
 
   const commitmentResult = procoreFindCommitmentForInvoice_(projectResult.projectId, invoice.vendor, kind);
   if (!commitmentResult.matched) {
-    return { matched: false, stage: 'commitment', reason: commitmentResult.reason };
+    const failure = { matched: false, stage: 'commitment', reason: commitmentResult.reason };
+    if (commitmentResult.candidates) failure.candidates = commitmentResult.candidates;
+    return failure;
   }
 
   return {

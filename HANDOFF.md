@@ -49,6 +49,7 @@ considered tradeoff, not an oversight.
 | Vendor-by-name matching | built, unit-tested (13 assertions), **not yet exercised against live Procore** |
 | Commitment auto-matching | **built and unit-tested** (`procoreFindCommitmentForInvoice_`, `ProcoreClient.gs`), proven against the real sandbox commitments — see §8/§9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly. |
 | Project-number resolution | **built and unit-tested** (`procoreFindProjectByNumber_` + `procoreFindCommitmentForInvoiceRow_`, `ProcoreClient.gs`) — Procore project derived from its own `project_number` field vs. the Invoice Log's Project Number, leading-zero safe. See §8. Not yet proven against a *real* WCM project number (sandbox has none registered) — see the gap noted in §8. |
+| Commitment picker UI | **built and unit-tested** — dashboard "Match to Procore commitment…" button (`Dashboard.html`) + `matchInvoiceToProcoreCommitment` (new file `ProcoreSend.gs`). Auto-shows a single match; renders a pick-one list on ambiguous. Matching only, no writes yet — see §8. Not yet clicked live in the dashboard. |
 | Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (still the reference for PR 2/3's crosswalk-table design; this session partially preempted it, see §0) |
 
 **Nexus apply status unknown.** PR #93 fixed the `ReferenceError` that meant `applyNexusStatusUpdate`
@@ -453,6 +454,38 @@ the user pick; if only one, assign directly") but the request was interrupted/di
 scoping it — it's real PR 2/3 work, not done. The fixture above exists so whoever builds that picker
 has a real ambiguous case to develop against, not just a mock.
 
+**Update, same session — the picker got built.** Ahmed asked directly ("build it now") right after the
+fixture above went in, so it's no longer "still open":
+
+- `procoreFindCommitmentForInvoice_`'s ambiguous branch (`ProcoreClient.gs`) now also returns a
+  `candidates` array (`commitmentId`/`commitmentTitle`/`commitmentNumber`/`commitmentKind`/`vendorName`
+  per row) alongside the existing `reason` sentence — additive only, every prior caller/test that reads
+  `matched`/`reason` is unaffected. `procoreFindCommitmentForInvoiceRow_` forwards it when the failure
+  is at the commitment stage; it's `undefined` (not an empty array) on every other failure, so a caller
+  can tell "ambiguous, here's the list" apart from "no match at all" with one truthy check.
+- **New file, `ProcoreSend.gs`** — the workflow layer `ProcoreClient.gs`'s own header comment has
+  referenced since before this file existed ("a structural analogue of NexusSync.gs"). Holds
+  `procoreLoadInvoiceRowForMatch_` (Row ID → vendor/project number, header-keyed like every other sheet
+  read here) and the dashboard entry point `matchInvoiceToProcoreCommitment(rowId)` — gated the same as
+  the Procore smoke test (`canControlAutomation_` + `procoreConfigured_`), and just as READ-ONLY: it
+  resolves the match and returns it, it does not write to the Invoice Log or create anything in Procore.
+  That's still PR 3.
+- **Dashboard UI** (`Dashboard.html`, preview panel, right under "Send test to Procore…", same
+  `canControl && procoreConfigured` gate): a "Match to Procore commitment…" button. One commitment
+  candidate → shows it directly ("Matched to ... on ..."). More than one → renders a pick-one list of
+  buttons, one per candidate; clicking one shows "Selected: ..." with an explicit note that the real
+  send feature doesn't exist yet, so picking only confirms the choice on screen — it is not wired to
+  write anything anywhere, on purpose, matching this file's "matching only" scope for now. Zero
+  candidates, or the project itself not resolving → the matcher's own reason string, verbatim.
+- Unit-tested (20 more assertions, same mocked-`procoreFetch_` + mocked-`SpreadsheetApp` pattern) using
+  the REAL current sandbox state as the fixture: DGM Services Limited's two live commitments (618651,
+  618665) come back as two candidates from `procoreFindCommitmentForInvoice_` and propagate through
+  `procoreFindCommitmentForInvoiceRow_` and the `matchInvoiceToProcoreCommitment` endpoint intact, while
+  Copp's Buildall (still exactly one commitment) auto-matches through the same endpoint end to end, and
+  the permission gate throws before ever touching the mocked sheet when `canControlAutomation_` is
+  false. Not yet exercised by an actual click in a live dashboard — same caveat as the original Procore
+  smoke test button had before Ahmed clicked it.
+
 **New finding, not in §3 because it wasn't hit until this session: Procore's project directory mints
 its OWN vendor ID, separate from the company-directory ID.** `create_company` (company-wide) returned
 3739391/3739389/3739390. `add_company_to_project` reported success against those same IDs, but the
@@ -564,10 +597,13 @@ vendor-ID-split finding, and how the matcher was tested. What's left:
    (`procoreFindCommitmentForInvoiceRow_`, chaining `procoreFindProjectByNumber_` →
    `procoreFindCommitmentForInvoice_`) exists and works end to end from a WCM invoice row down to a
    Procore commitment — PR 2 no longer needs to build vendor/project/commitment matching from scratch,
-   only the crosswalk-table UI *around* a matcher that already runs, plus deciding what happens on a
-   no-match or ambiguous result in the dashboard (surface it for a human pick, most likely — same shape
-   as Nexus's confirmation queue, and `stage: 'project'|'commitment'` on the result already tells you
-   which message to show). Re-read the plan file (§1 table) with that in mind before starting PR 2;
+   and the "human picks when ambiguous" UI is now built too (`ProcoreSend.gs`/`matchInvoiceToProcoreCommitment`,
+   the "Match to Procore commitment…" button in `Dashboard.html`) — see the same-session update in §8.
+   **What's still missing is persistence**: picking a candidate today only confirms the choice on
+   screen (an explicit, deliberate limitation — see §8) — nothing is written back anywhere, so the same
+   invoice re-matched tomorrow starts from zero again. PR 2's crosswalk table is what turns "picked
+   once" into "remembered forever", the same role `Nexus Vendor Map`/`Nexus Invoice Map` play for
+   Nexus. Re-read the plan file (§1 table) with that in mind before starting PR 2;
    some of its steps may already be redundant.
 2. **Get a real WCM project number into the sandbox and re-test live** — the one real gap called out
    in §8: no real WCM project number (43, 49, 6, 45, 46) exists as a Procore `project_number` yet,
