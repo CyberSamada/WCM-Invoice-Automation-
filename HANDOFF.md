@@ -1,15 +1,36 @@
 # HANDOFF — send invoices from the dashboard to Procore
 
 Written for the next Claude session picking this up. Read `CLAUDE.md` first for the repo's standing
-rules; this file is only the in-flight state that isn't in there yet.
+rules; this file is only the in-flight state that isn't in there yet. **This rewrite supersedes
+everything in §1 and §5 below from the first version of this file** — PRs 1 and the smoke test both
+shipped and were proven against a real Procore company since it was written. §§2–4 (decisions,
+endpoint findings, design points) are unchanged and still the reference to work from.
 
-Date: 2026-08-20. Two repos are involved:
+Date: 2026-08-20 (late). Two repos are involved:
 
 - `CyberSamada/WCM-Invoice-Automation-` — this repo. Apps Script. Where the feature gets built.
 - `CyberSamada/Procore_Claude_Intergration` — a separate Python MCP server on Cloudflare Containers.
   **Not part of the build.** Read-only reference for how Procore's API actually behaves; a clone sits
-  at `/workspace/cybersamada/procore_claude_intergration`. Issue #9 there carries this summary and
-  three open questions.
+  at `/workspace/cybersamada/procore_claude_intergration`. Issue #9 there carries the original
+  cross-repo exchange and three questions, all now answered.
+
+---
+
+## 0. Read this first — what actually happened tonight
+
+The plan's PR 0–1 shipped, and then things moved faster than the plan anticipated: Ahmed proved the
+whole auth+create+attach path works against his **real Procore sandbox**, not just unit tests. Then
+he asked for something the plan deferred to PR 2/3 — real vendor/commitment setup and an
+invoice-to-commitment matcher — and that work is **in progress, blocked on a tooling problem, not a
+design problem.** Read §1 for exact state, §8 for the blocker, §9 for what's next.
+
+**One deviation from §2's decisions, made deliberately, revisit before production:** the plan called
+for a second, company-owned Procore app, separate from the MCP's. Ahmed instead pointed
+`PROCORE_CLIENT_ID`/`SECRET` at the **same app** `procore_claude_intergration` already uses (sandbox
+company `4288787`), to start testing immediately rather than wait on registering a new one. Agreed
+explicitly as sandbox-only: split into a dedicated company-owned app **before** production sending,
+not before writing code. Don't "fix" this by registering a separate app unless asked — it was a
+considered tradeoff, not an oversight.
 
 ---
 
@@ -17,14 +38,20 @@ Date: 2026-08-20. Two repos are involved:
 
 | Item | State |
 |---|---|
-| PR #93 (Nexus `startRow` fix) | **merged**, `447364a` on `main`, deploy run #96 green |
-| Branch `claude/dashboard-logo-wyaf1d` | realigned to `main`, pushed, tree identical to `main` |
-| Procore feature | **not started** — blocked, see §5 |
-| Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (approved, but predates §3 corrections) |
+| PR #93 (Nexus `startRow` fix) | **merged**, deploy green. Ahmed has not yet reported back on testing it live. |
+| PR #94 (`ProcoreClient.gs`, PR 1 from §7) | **merged** |
+| PR #95 (sandbox smoke test + dashboard button) | **merged** |
+| PR #96 (vendor matching by name, `listInvoicesByStatus`) | **merged**, `c8c5ac6` on `main` |
+| Branch `claude/dashboard-logo-wyaf1d` | at `origin/main` (`c8c5ac6`) as of this write-up, clean |
+| Procore auth | **proven live** — `setupProcore()` then `testProcoreConnection()` both run by Ahmed in the Apps Script editor, second one returned `OK — authenticated and permitted` against company `4288787` |
+| Dashboard "Send test to Procore" button | **live and reachable** (preview modal, gated on `canControl && procoreConfigured`) — not yet actually clicked/exercised by Ahmed as of this write-up |
+| Vendor-by-name matching | built, unit-tested (13 assertions), **not yet exercised against live Procore** |
+| Commitment auto-matching | **not built yet** — this is the current task, see §9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly, see §8. |
+| Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (still the reference for PR 2/3's crosswalk-table design; this session partially preempted it, see §0) |
 
-**Nexus apply has never been exercised in production.** PR #93 fixed a `ReferenceError` that meant
-`applyNexusStatusUpdate` was never reached. Preview always worked; apply never ran. Ahmed has been
-asked to test it. If he reports it still hangs, that is new behaviour, not the old bug.
+**Nexus apply status unknown.** PR #93 fixed the `ReferenceError` that meant `applyNexusStatusUpdate`
+was never reached. Ahmed was asked to test it live and has not reported back either way. Don't assume
+either outcome.
 
 ---
 
@@ -270,7 +297,12 @@ Asked directly by Ahmed. Reuse `currentViewerEmail_()` (`NexusSync.gs:773`); do 
 
 ## 5. Blocked on Ahmed
 
-Nothing else gates the work.
+**Items 1–3 below are already satisfied for sandbox** — Ahmed's current credentials (the shared
+`procore_claude_intergration` app, see §0) authenticate AND are permitted, proven by
+`testProcoreConnection()` returning OK. They stay in this list because **all three have to be redone
+for the separate, company-owned app §0 requires before production** — that app doesn't exist yet, and
+until it does, these are the exact steps whoever registers it will need. Don't treat items 1–3 as
+currently blocking; treat them as the production checklist. Items 4–6 are live blockers regardless.
 
 **Registering the app and creating the service account gets you authenticated, not operational.**
 There are three more admin steps behind it, each of which fails as a 403 that names nothing useful.
@@ -315,16 +347,112 @@ Dashboard load time. Ahmed asked for options and the answer was never delivered:
 
 ## 7. PR sequencing
 
-| PR | Contents | Risk |
-|---|---|---|
-| ~~0~~ | ~~`startRow` fix~~ | **done, #93** |
-| 1 | `ProcoreClient.gs`, `CONFIG.PROCORE`, `setupProcore()`, `testProcoreConnection()` | read-only against Procore |
-| 2 | Four crosswalk tabs + mapping UI + `saveProcore*Mapping`, plus `Changed By` on the Override Log | no sending |
-| 3 | Preview + apply + audit + bulk-bar button | first writes |
+| PR | Contents | Risk | Status |
+|---|---|---|---|
+| ~~0~~ | ~~`startRow` fix~~ | none | **done, #93** |
+| ~~1~~ | ~~`ProcoreClient.gs`, `CONFIG.PROCORE`, `setupProcore()`, `testProcoreConnection()`~~ | read-only against Procore | **done, #94 — and proven live, see §1** |
+| 1.5 *(unplanned)* | Sandbox smoke test (`testProcoreSendDirectCost`, Direct Cost only), dashboard button, vendor-by-name matching, `listInvoicesByStatus` | first real writes (sandbox) | **done, #95 + #96** |
+| 2 | Four crosswalk tabs + mapping UI + `saveProcore*Mapping`, `Changed By` on the Override Log | no sending | not started — **partially preempted, see §0/§9** |
+| 3 | Preview + apply + audit + bulk-bar button (Subcontractor Invoice, the real send feature) | first production-shaped writes | not started |
 
-PR 1 is read-only on purpose: it pins every endpoint shape in §3 against the live company before
-anything depends on it, and settles findings 3 and 6 for real.
+PR 1 being read-only turned out to matter exactly as intended: it pinned every endpoint shape in §3
+against the live company before PR 1.5 depended on any of it, and settled findings 3 and 6 for real —
+except finding 3 (billing period) is *still* unsettled; see §5 item 5.
+
+**PR 1.5 wasn't in the original plan.** It exists because proving the plumbing end-to-end mattered
+more than following the sequencing literally, and because Ahmed pushed for it directly. It only
+creates **Direct Costs**, never Subcontractor Invoices/requisitions — so the unresolved notification
+question (§3) has never actually been tested, on purpose. Don't read PR 1.5's success as answering it.
 
 Ship with `PROCORE_ENV=sandbox`. Send one invoice, verify in the Procore UI, delete it there and re-run
 to prove the ledger blocks the second send. Then one Direct Cost, then 3 across 2 projects. Only then
 production, with one real invoice checked by eye.
+
+---
+
+## 8. What's actually happening right now, and what's blocking it
+
+Ahmed wants to get ahead of PR 2's manual crosswalk-table UI by proving something more useful first:
+**can the system automatically match an invoice to the right Procore commitment, using real data, and
+fail clearly when it can't?** That's not "type in an ID" (PR 1.5) and it's not the full learned
+crosswalk (PR 2's original design) — it's the actual matching logic PR 2/3 will eventually need,
+tested against real Procore records before the UI around it gets built.
+
+**The plan for this, agreed with Ahmed:**
+
+1. Pick a handful of real **Paid** invoices from the Invoice Log (not fabricated data).
+2. For each one's vendor, create a company in Procore's directory (project `362778`, sandbox) with a
+   placeholder email/phone, if it's not already there.
+3. Create one dummy commitment (subcontract) per vendor on that project — **as a Draft**, since the
+   API can't approve/issue one (Procore's own commitment-creation tool documents this: Draft is the
+   only reachable status via API). Ahmed approves them by hand in Procore's UI afterward.
+4. Build and test a function that, given an invoice, finds the matching commitment (by vendor +
+   project, minimum) and either returns it or returns a **clear, specific error** — "no commitment for
+   this vendor on this project" — never a guess. Same discipline as `procoreFindVendorByName_`
+   (§ProcoreClient.gs) and `NexusSync.gs`: ambiguous or missing is reported, not resolved silently.
+
+**Step 1 is done.** `listInvoicesByStatus('Paid')` (new in PR #96, see §9) was run live and returned
+real rows. Real vendors/projects/invoice numbers to use for steps 2–4:
+
+| Vendor | WCM Project | Invoice # | Amount | Row ID |
+|---|---|---|---|---|
+| DGM Services Limited | 43 Hyland Centre / 43.6 | S0012 | 4412.09 CAD | `b89d2d7f-2874-42ec-b5b7-e05913306c0f` |
+| Sunbelt Rentals of Canada Inc | 49 Saugeen Shores SC | 79923410-0001 | 934.68 CAD | `c99744b2-c2c7-4e8e-b0cb-1fd373d7abaf` |
+| Copp's Buildall | 6 Forest Edge Cmns / 6.3 | 2190294 | 970.81 CAD | `bfff7708-5cc6-48f6-bcb7-c85d790cf164` |
+| Artcool Systems | 43 Hyland Centre / 43.1 | 2513 | 3038.07 CAD | `96bdfba5-0d07-4efb-8de3-543c708f75d9` |
+| Van Bree Infrastructure | 45 Wellington Gate | 2411-HB | 69557.88 CAD | `aafea9d8-f5d4-4f57-9593-54d6f7dd8131` |
+| ProTrades Mechanical Inc. | 46 University Plaza | 261727-1 | 614.72 CAD | `3a2ddcb8-2a02-4c64-8a23-5d621de6b645` |
+| OUTER CONSTRUCTION | 6 Forest Edge Cmns | 1176 | 4497.68 CAD | `6953d369-6b4b-428e-80f4-466811ca8ef6` |
+| OUTER CONSTRUCTION | 6 Forest Edge Cmns | 1163 REV | 22041.52 CAD | `31b60f36-077a-4751-b7be-0b7c4978ac95` |
+
+That's every "Paid" row that exists right now — small sample, treat it as exhaustive, not a filtered
+excerpt. **Chosen for steps 2–3: DGM Services Limited, Copp's Buildall, OUTER CONSTRUCTION** — three
+distinct vendors, and OUTER CONSTRUCTION has two invoices, deliberately, to test "one commitment,
+multiple invoices" once matching exists.
+
+**Steps 2–4 are NOT done. Blocked, and this is the one thing to fix before continuing:**
+
+The Procore MCP connector (used to drive steps 2–3 conversationally, the way `procore_claude_intergration`'s
+own tools would) is authenticated at the **account** level but was toggled **off for the specific chat
+session** doing this work. Confirmed repeatedly (`ListConnectors` → `enabledInChat: false`, `ToolSearch`
+for any `mcp__Procore__*` tool → nothing found) across many checks, including after Ahmed reconnected
+the underlying Procore account — that fixed account-level auth, not the separate per-chat toggle.
+**Proven to be a per-session setting, not a real outage**: a different Claude session, same Procore
+account, successfully ran `list_projects` and returned live data (company `4288787`, projects
+`362778`/`362775`) at the same time this session's checks kept failing. So the connector itself is
+fine; only this conversation's access to it was off.
+
+**Three ways to unblock, in the order they were offered to Ahmed:**
+- **(A)** Do the setup in whichever session has the connector enabled.
+- **(B)** Find and flip this session's own connector toggle (separate control from the account
+  reconnect Ahmed already did).
+- **(C)** Skip the connector — create the 3 companies + 3 commitments by hand in Procore's UI. Exact
+  steps: project `362778` → Directory → Companies → **+ Create Company** (name it exactly as it
+  appears in the table above, so name-matching finds it later; dummy email/phone anywhere) → then
+  Commitments → **+ Create → Subcontract** → pick that vendor → any title/number → **Save as Draft**.
+
+**Whichever path is used, step 4 (the matching function) is real code work for this repo** — it
+doesn't depend on how the Procore-side setup happened, only on the resulting company/commitment IDs
+existing. Once they exist, build it the same way `procoreFindVendorByName_` was built: a pure function
+in `ProcoreClient.gs`, unit-tested with a mocked `procoreFetch_` first, then proven against the real
+sandbox IDs afterward — same order as everything else in PR 1.5.
+
+---
+
+## 9. Immediate next steps for whoever picks this up
+
+1. **Resolve the connector blocker** (§8) — ask Ahmed which of (A)/(B)/(C) he wants, don't assume.
+2. **Once the 3 companies + 3 commitments exist in Procore** (however they got created), write and
+   unit-test a commitment matcher — working name suggestion: `procoreFindCommitmentForInvoice_`,
+   mirroring `procoreFindVendorByName_`'s shape (paginated list + normalized-key match + ambiguous ⇒
+   reported, not guessed). Decide up front whether "commitment" means `work_order_contracts` only
+   (subcontracts — what step 3 creates) or both contract types per finding 1 in §3; the dummy data
+   only exercises subcontracts, so start there and say explicitly if purchase orders are out of scope.
+3. **Test it against the real IDs**, the same discipline as PR 1.5: a match, a no-match (a vendor with
+   no commitment — e.g. run it against one of the *other* five Paid vendors in the §8 table that
+   didn't get a commitment, on purpose, to prove the error path), and — since OUTER CONSTRUCTION has
+   two invoices — confirm both resolve to the *same* commitment.
+4. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
+   Procore, cheap to check.
+5. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
+   acted on. Resurfaces if he brings it up; not urgent otherwise.
