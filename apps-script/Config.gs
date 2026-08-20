@@ -195,6 +195,31 @@ const CONFIG = {
     budget_line_items: '2.0'
   },
 
+  // Procore commitment crosswalk — "one pick per vendor-project pair, ever" (HANDOFF.md §4), the same
+  // learned-crosswalk shape as the Nexus maps above. Keyed on WCM Vendor + WCM Project Number (both
+  // scoped the way this system already scopes everything else — see ProcoreSend.gs). A single
+  // candidate is decided automatically the first time it's matched (nothing to pick); more than one
+  // candidate is decided once a person picks from the list — either way, the pairing is remembered
+  // here so the same vendor+project resolves instantly on every later invoice instead of re-querying
+  // Procore and re-asking a human.
+  SHEET_PROCORE_COMMITMENT_MAP_TAB: 'Procore Commitment Map',
+  PROCORE_COMMITMENT_MAP_COLUMNS: [
+    'Vendor', 'Project Number', 'Procore Project ID', 'Procore Project Name',
+    'Commitment ID', 'Commitment Title', 'Commitment Number', 'Commitment Kind',
+    'Confirmed At', 'Confirmed By'
+  ],
+
+  // "Procore Send Log" — the audit trail for every invoice actually sent to Procore (see
+  // ProcoreSend.gs/sendInvoiceToProcore). updateInvoiceRow's generic Override Log entry says the
+  // STATUS changed; only this says which Procore record it became and who sent it — the "why is this
+  // In Procore" answer months later, same role Nexus Sync Log plays for Nexus-driven changes.
+  SHEET_PROCORE_SEND_LOG_TAB: 'Procore Send Log',
+  PROCORE_SEND_LOG_COLUMNS: [
+    'Timestamp', 'Sent By', 'Row ID', 'Invoice Number', 'Vendor', 'Amount', 'Currency',
+    'Procore Project ID', 'Procore Project Name', 'Commitment ID', 'Commitment Number',
+    'Requisition ID', 'Attached', 'Environment'
+  ],
+
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
   REFERENCE_COLUMNS: [
     'Project Number', 'Project Name', 'Subproject Number', 'Subproject Name', 'Drive Folder ID'

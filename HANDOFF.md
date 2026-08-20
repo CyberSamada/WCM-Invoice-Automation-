@@ -49,7 +49,7 @@ considered tradeoff, not an oversight.
 | Vendor-by-name matching | built, unit-tested (13 assertions), **not yet exercised against live Procore** |
 | Commitment auto-matching | **built and unit-tested** (`procoreFindCommitmentForInvoice_`, `ProcoreClient.gs`), proven against the real sandbox commitments — see §8/§9. Not in the original plan's PR 2/3 shape; Ahmed asked for it directly. |
 | Project-number resolution | **built and unit-tested** (`procoreFindProjectByNumber_` + `procoreFindCommitmentForInvoiceRow_`, `ProcoreClient.gs`) — Procore project derived from its own `project_number` field vs. the Invoice Log's Project Number, leading-zero safe. See §8. Not yet proven against a *real* WCM project number (sandbox has none registered) — see the gap noted in §8. |
-| Commitment picker UI | **built and unit-tested** — dashboard "Match to Procore commitment…" button (`Dashboard.html`) + `matchInvoiceToProcoreCommitment` (new file `ProcoreSend.gs`). Auto-shows a single match; renders a pick-one list on ambiguous. Matching only, no writes yet — see §8. Not yet clicked live in the dashboard. |
+| Commitment picker + real send | **built and unit-tested** (43 assertions) — "Match to Procore commitment…" + "Send to Procore" buttons (`Dashboard.html`), `ProcoreSend.gs`: crosswalk persistence (`Procore Commitment Map` tab), pick confirmation, and the actual `sendInvoiceToProcore` (creates a real Subcontractor Invoice, attaches the PDF, logs to `Procore Send Log`, flips Status). See §8. **The live create call is genuinely unverified** — blocked by this session's permission classifier; needs explicit permission or a manual run before trusting it beyond code review. |
 | Full plan | `/root/.claude/plans/mutable-crunching-iverson.md` (still the reference for PR 2/3's crosswalk-table design; this session partially preempted it, see §0) |
 
 **Nexus apply status unknown.** PR #93 fixed the `ReferenceError` that meant `applyNexusStatusUpdate`
@@ -486,6 +486,77 @@ fixture above went in, so it's no longer "still open":
   false. Not yet exercised by an actual click in a live dashboard — same caveat as the original Procore
   smoke test button had before Ahmed clicked it.
 
+**Update, same session, immediately after — Ahmed: "dont half ass it i want the shit built."** The
+picker above only confirmed a pick on screen; nothing persisted and nothing actually sent. That's now
+built too — real persistence and a real send, not another smoke test:
+
+- **Two new tabs**, same crosswalk/audit-log shape as the Nexus tabs (`Config.gs`):
+  - `Procore Commitment Map` (`PROCORE_COMMITMENT_MAP_COLUMNS`) — the learned crosswalk. Keyed on
+    normalized Vendor + normalized Project Number (`procoreCommitmentMapKey_`, `ProcoreSend.gs`, same
+    `vendorNormalizedKey_`/`normalizeNumberKey_` the live matchers use, so a cache hit and a fresh live
+    match always agree). One row per confirmed vendor+project → commitment pairing, appended (never
+    edited in place) by `procoreSaveCommitmentMatch_`.
+  - `Procore Send Log` (`PROCORE_SEND_LOG_COLUMNS`) — one row per actual send: who, when, which
+    requisition id, whether the PDF attached, which environment (sandbox/production). The "why is this
+    In Procore" answer months later, same role `Nexus Sync Log` plays for Nexus.
+- **`matchInvoiceToProcoreCommitment` now checks the crosswalk FIRST** — a previously confirmed
+  vendor+project resolves instantly with zero Procore calls (`fromCache: true` in the response). On a
+  fresh, unambiguous match (exactly one candidate) it now **saves immediately** — "if only 1, assign
+  directly" means exactly that, nothing left to confirm. An ambiguous result is still left unsaved.
+- **New endpoint, `confirmProcoreCommitmentPick(rowId, candidate, projectId, projectName)`** — saves a
+  human's pick from the ambiguous list exactly as permanently as an auto-match. `procoreFindCommitmentForInvoiceRow_`
+  was extended to expose `projectId`/`projectName` even on a commitment-stage failure, specifically so
+  the dashboard can pass them back here without a second project lookup.
+- **New endpoint, `sendInvoiceToProcore(rowId)` — the actual send.** Requires a confirmed crosswalk
+  entry to already exist (it does not match on the fly — a send can never silently invent which
+  commitment to use). In order: `procoreCreateSubcontractorInvoice_` (`POST requisitions`, finding 2's
+  documented body shape) → **write the Procore Send Log row immediately** (HANDOFF §4's design point:
+  create → log → attach → status, never batched, so a mid-run failure still leaves a findable record
+  of what was created) → attach the PDF via the two-step upload (`procoreUploadFile_`) +
+  `procoreAttachFileToRequisition_` (new — `PATCH requisitions/{id}` with `{requisition:
+  {prostore_file_ids: [uuid]}}`) → flip the log row's own `Attached` cell to Yes in place (not a second
+  row) → `updateInvoiceRow(rowId, {status: STORED_PROCESSED_STATUS})`, the single write path, never a
+  literal `'Captured'` typed here. An attach failure does **not** roll back the create or the status
+  flip — the created record is real and findable via the log; the message says exactly what didn't
+  attach, matching `testProcoreSendDirectCost`'s same create-then-attach split. Refuses `Duplicate` and
+  `Not an Invoice` rows before ever calling Procore.
+- **Dashboard UI**: the picker's "Selected: ..." text-only confirmation is gone. Picking a candidate
+  now calls `confirmProcoreCommitmentPick` for real (shows "Confirming…" then "✓ Confirmed: ... —
+  Remembered for future invoices"); either an auto-match or a confirmed pick now reveals a **"Send to
+  Procore"** button, which calls `sendInvoiceToProcore` and shows Procore's own success/error message.
+- Unit-tested (43 assertions, `ProcoreSend.gs`'s full pipeline against an in-memory multi-sheet
+  spreadsheet mock — not just a single-sheet mock, since this now reads/writes three different tabs in
+  one flow): cache-first matching, auto-save-on-single-candidate, ambiguous-stays-unsaved,
+  confirm-a-pick persists it, a send with no confirmed match refuses with a clear message, the full
+  happy path (create → log → attach → status flip, exactly one send-log row with `Attached` flipped in
+  place, not two), a create-succeeds-attach-fails path (status still flips, log correctly shows
+  `Attached: No`), Duplicate/Not-an-Invoice refusal before any Procore call, and the permission gate on
+  all three entry points. **Two real bugs were caught by writing these tests**, not found by inspection:
+  a broken `procoreLogSendRow_(Object.assign({}, arguments[0], {}))` call that would have silently
+  appended a second, garbage send-log row on every successful attach (now `procoreMarkSendRowAttached_`
+  flips one cell in place instead), and nothing else — the rest of the design held up first try.
+
+**What's genuinely NOT verified, and why — read this before trusting a live send.** The create call
+itself (`create_subcontractor_invoice_draft` via the Procore MCP connector, tried directly against the
+sandbox to observe the real request/response shape and to finally settle finding 3/the notification
+question) was **blocked by this session's own permission classifier** — a different, stricter gate than
+the one that allowed company/commitment creation earlier in this same session; the tool call returned
+"Permission for this action was denied by the Claude Code auto mode classifier," and per this
+environment's own instructions that denial was not retried or worked around. So:
+- `procoreCreateSubcontractorInvoice_`'s body shape follows finding 2 exactly, `procoreAttachFileToRequisition_`'s
+  `prostore_file_ids` field follows `procoreUploadFile_`'s own pre-existing doc comment — both are the
+  best-documented guess, **neither has executed against a live Procore response**.
+  `procoreCreateSubcontractorInvoice_` defensively sends `project_id` in both the query string and the
+  JSON body since which one Procore actually reads was exactly what the blocked call would have shown.
+- **The notification question (§3) is STILL open.** Nothing in this session proved or disproved whether
+  creating a requisition emails a subcontractor — the one test that would have (create in sandbox
+  against a dummy vendor with a placeholder email, then check `email_communications` for that topic)
+  is the same blocked action.
+- **Ask Ahmed to grant this specific permission (or run one live send himself) before relying on this
+  for anything beyond code review.** If the first live `sendInvoiceToProcore` 4xxs, treat the response
+  body as the authoritative correction to finding 2/4's documented shape, not a bug in this code — that
+  is exactly the scenario every comment above already anticipates.
+
 **New finding, not in §3 because it wasn't hit until this session: Procore's project directory mints
 its OWN vendor ID, separate from the company-directory ID.** `create_company` (company-wide) returned
 3739391/3739389/3739390. `add_company_to_project` reported success against those same IDs, but the
@@ -593,34 +664,43 @@ number an existing sandbox project by hand, or a widened tool surface.
 Items 1–3 (below, historical) are **done** — see the rewritten §8 for what actually happened, the new
 vendor-ID-split finding, and how the matcher was tested. What's left:
 
-1. **PR 2's real shape is now clearer than when §7 was written.** The matcher
+1. **Get explicit permission for (or manually run) the one blocked action, then run a real
+   `sendInvoiceToProcore` end to end.** This is now the single highest-value next step — everything
+   else in the pipeline (match, cache, pick, confirm, create, attach, log, status flip) is built and
+   unit-tested; only the live create call itself is unproven, and only because this session's own
+   permission classifier refused it (see §8's last update). Whoever picks this up: ask Ahmed to grant
+   it, or run `sendInvoiceToProcore` for one of the three matched sandbox vendors (Copp's Buildall is
+   the clean single-commitment case to start with) directly from the dashboard, and treat any 4xx
+   response body as ground truth for correcting `procoreCreateSubcontractorInvoice_`/
+   `procoreAttachFileToRequisition_`'s documented-but-unverified shapes. **This is also the test that
+   finally settles the notification question (§3)** — check `email_communications` for the created
+   requisition's topic afterward, exactly as the integration repo's session proposed.
+2. **PR 2's real shape is now fully built, not just clearer.** The matcher
    (`procoreFindCommitmentForInvoiceRow_`, chaining `procoreFindProjectByNumber_` →
-   `procoreFindCommitmentForInvoice_`) exists and works end to end from a WCM invoice row down to a
-   Procore commitment — PR 2 no longer needs to build vendor/project/commitment matching from scratch,
-   and the "human picks when ambiguous" UI is now built too (`ProcoreSend.gs`/`matchInvoiceToProcoreCommitment`,
-   the "Match to Procore commitment…" button in `Dashboard.html`) — see the same-session update in §8.
-   **What's still missing is persistence**: picking a candidate today only confirms the choice on
-   screen (an explicit, deliberate limitation — see §8) — nothing is written back anywhere, so the same
-   invoice re-matched tomorrow starts from zero again. PR 2's crosswalk table is what turns "picked
-   once" into "remembered forever", the same role `Nexus Vendor Map`/`Nexus Invoice Map` play for
-   Nexus. Re-read the plan file (§1 table) with that in mind before starting PR 2;
-   some of its steps may already be redundant.
-2. **Get a real WCM project number into the sandbox and re-test live** — the one real gap called out
+   `procoreFindCommitmentForInvoice_`), the "human picks when ambiguous" UI, AND the crosswalk
+   persistence (`Procore Commitment Map` tab, `confirmProcoreCommitmentPick`) all exist and are wired
+   together — PR 2 no longer needs to build vendor/project/commitment matching OR the "remember it"
+   table from scratch. What PR 2's plan still adds on top: a dedicated management UI for the crosswalk
+   (view/edit/delete a saved pairing, the way "Manage hints" does for aliases) — today the only way to
+   change a saved pairing is editing the `Procore Commitment Map` tab by hand. Re-read the plan file
+   (§1 table) with that in mind before starting PR 2; several of its steps are already redundant.
+3. **Get a real WCM project number into the sandbox and re-test live** — the one real gap called out
    in §8: no real WCM project number (43, 49, 6, 45, 46) exists as a Procore `project_number` yet,
    because there's no create/update-project tool on the current MCP surface. Ask Ahmed to number an
    existing sandbox project by hand (or widen the tool surface), then re-run
    `procoreFindProjectByNumber_`/`procoreFindCommitmentForInvoiceRow_` against it — the code and its
    leading-zero handling are already unit-tested, this closes the live-proof gap, not a code gap.
-3. **The three dummy commitments are sandbox-only test fixtures**, not real WCM data — they exist so the
-   matcher had something real to run against, not because DGM/Copp's/OUTER actually have subcontracts
-   on "Sandbox Test Project" (project `362778`, a generic Procore demo project, not a real WCM job).
-   Don't reuse commitment IDs 618651–618653 for anything beyond matcher testing, and don't be surprised
-   the project name doesn't match a real WCM address — sandbox company `4288787` only has two projects
-   total (`362778` "Sandbox Test Project", `362775` "Standard Project Template"), neither WCM-specific.
-4. **`purchase_order_contracts` matching is still unproven against a live record** (no PO exists in this
+4. **The three dummy commitments (four, counting DGM's second) are sandbox-only test fixtures**, not
+   real WCM data — they exist so the matcher had something real to run against, not because
+   DGM/Copp's/OUTER actually have subcontracts on "Sandbox Test Project" (project `362778`, a generic
+   Procore demo project, not a real WCM job). Don't reuse commitment IDs 618651–618653/618665 for
+   anything beyond matcher testing, and don't be surprised the project name doesn't match a real WCM
+   address — sandbox company `4288787` only has two projects total (`362778` "Sandbox Test Project",
+   `362775` "Standard Project Template"), neither WCM-specific.
+5. **`purchase_order_contracts` matching is still unproven against a live record** (no PO exists in this
    sandbox project) — settle it whenever a real or dummy PO becomes available, same discipline as
    everything else in this file.
-5. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
+6. **Ask Ahmed whether Nexus apply has been tested yet** (§1) — still unconfirmed, unrelated to
    Procore, cheap to check.
-6. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
+7. Dashboard load time (§6) — unrelated to Procore, still open, options given to Ahmed but never
    acted on. Resurfaces if he brings it up; not urgent otherwise.

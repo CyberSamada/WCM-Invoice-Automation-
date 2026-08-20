@@ -568,10 +568,14 @@ function procoreFindProjectByNumber_(wcmProjectNumber) {
  *   'subcontracts', or 'purchase_orders'.
  * @return {{matched: true, projectId: number, projectName: string, commitmentId: number,
  *           commitmentTitle: string, commitmentNumber: string, commitmentKind: string, vendorName: string}
- *          | {matched: false, stage: 'project'|'commitment', reason: string, candidates: (Array|undefined)}}
+ *          | {matched: false, stage: 'project'|'commitment', reason: string, candidates: (Array|undefined),
+ *             projectId: (number|undefined), projectName: (string|undefined)}}
  *   `candidates` is only present when stage is 'commitment' and the vendor matched more than one —
  *   see procoreFindCommitmentForInvoice_. Absent (not an empty array) on every other failure, so a
  *   caller can tell "ambiguous, here's the list" apart from "no match at all" with one truthy check.
+ *   `projectId`/`projectName` are present whenever the project stage succeeded (i.e. always, on a
+ *   `stage: 'commitment'` failure) — so a caller resolving an ambiguous pick doesn't have to re-run
+ *   the project lookup just to confirm which project the chosen commitment is on.
  */
 function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
   const projectResult = procoreFindProjectByNumber_(invoice.projectNumber);
@@ -581,7 +585,13 @@ function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
 
   const commitmentResult = procoreFindCommitmentForInvoice_(projectResult.projectId, invoice.vendor, kind);
   if (!commitmentResult.matched) {
-    const failure = { matched: false, stage: 'commitment', reason: commitmentResult.reason };
+    const failure = {
+      matched: false,
+      stage: 'commitment',
+      reason: commitmentResult.reason,
+      projectId: projectResult.projectId,
+      projectName: projectResult.projectName
+    };
     if (commitmentResult.candidates) failure.candidates = commitmentResult.candidates;
     return failure;
   }
@@ -596,4 +606,75 @@ function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
     commitmentKind: commitmentResult.commitmentKind,
     vendorName: commitmentResult.vendorName
   };
+}
+
+/**
+ * Creates a Subcontractor Invoice (Procore's `requisitions` resource — see HANDOFF.md finding 2) as a
+ * DRAFT, billed against a specific commitment. This is the real send, not the Direct Cost smoke test
+ * (testProcoreSendDirectCost, Setup.gs) — a requisition is what actually bills a commitment, which is
+ * the entire reason the commitment matcher above exists.
+ *
+ * Body shape per finding 2: `{project_id, commitment_id, requisition: {status: 'draft',
+ * invoice_number, billing_date}}`. Deliberately omits `period_id` — finding 3 found it optional in
+ * the schema and flagged the schema's required-lists as unreliable in general, but nothing has run
+ * this call live yet to confirm draft creation actually succeeds without one (see HANDOFF.md §8/§9 for
+ * why: the live test call itself is blocked in this session, pending explicit permission). If a real
+ * create ever fails citing a missing period, that's the fallback finding 3 already anticipated: fetch
+ * the project's billing periods and pass the current one's id.
+ *
+ * Also deliberately does NOT set `invite_id` — finding 3 flags it as a hazard word ("invite") for a
+ * system that must never notify a subcontractor by accident, and nothing in this codebase or in
+ * Procore's own OAS ties it to notification, but it's simplest to just never touch it.
+ *
+ * @param {number} projectId
+ * @param {number} commitmentId
+ * @param {string} invoiceNumber
+ * @param {string} billingDate - 'YYYY-MM-DD'
+ * @return {{requisitionId: number, status: string}}
+ */
+function procoreCreateSubcontractorInvoice_(projectId, commitmentId, invoiceNumber, billingDate) {
+  // project_id goes both in the query string (requisitions is a top-level resource, same as the GET
+  // list endpoint requires) AND in the body (finding 2's documented shape) — belt and suspenders,
+  // since the live create call to confirm which one Procore actually reads is the thing currently
+  // blocked (see the function doc comment). Redundant, not conflicting, either way.
+  const response = procoreFetch_('post', 'requisitions', `requisitions?project_id=${projectId}`, {
+    payload: JSON.stringify({
+      project_id: projectId,
+      commitment_id: commitmentId,
+      requisition: {
+        status: 'draft',
+        invoice_number: invoiceNumber,
+        billing_date: billingDate
+      }
+    }),
+    contentType: 'application/json'
+  });
+  const created = JSON.parse(response.getContentText());
+  if (!created.id) {
+    throw new Error(`Procore returned 20x with no requisition id: ${response.getContentText().slice(0, 300)}`);
+  }
+  return { requisitionId: created.id, status: created.status || 'draft' };
+}
+
+/**
+ * Attaches an already-uploaded file (see procoreUploadFile_) to a requisition, by UUID reference —
+ * the two-step signed-upload pattern finding 4 confirmed for `direct_costs`' create path, extended
+ * here to `requisitions` on the strength of procoreUploadFile_'s own original doc comment
+ * ("e.g. `{ prostore_file_ids: [uuid] }` on a direct cost or requisition"). **Genuinely unconfirmed
+ * against a live requisition** — finding 4 explicitly says this resource's attachment shape was never
+ * checked, unlike direct_costs (which turned out to want raw multipart instead, the opposite
+ * mechanism). If this 4xxs citing the field name or shape, that is the thing to check first, not a
+ * retry.
+ *
+ * @param {number} projectId
+ * @param {number} requisitionId
+ * @param {string} fileUuid - from procoreUploadFile_
+ */
+function procoreAttachFileToRequisition_(projectId, requisitionId, fileUuid) {
+  procoreFetch_('patch', 'requisitions', `requisitions/${requisitionId}?project_id=${projectId}`, {
+    payload: JSON.stringify({
+      requisition: { prostore_file_ids: [fileUuid] }
+    }),
+    contentType: 'application/json'
+  });
 }

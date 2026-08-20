@@ -1530,16 +1530,18 @@
               <p id="procoreTestSuccess" style="display:none; color:#2b6e4d; font-size:13px; margin-top:6px; font-weight:600"></p>
             </div>
           </div>
-          <!-- Matching only — resolves this invoice's Procore project (by Project Number) and
-               commitment (by Vendor), per procoreFindCommitmentForInvoiceRow_ (ProcoreClient.gs).
-               Auto-shows the one match, or a pick-one list when the vendor has more than one
-               commitment. Does not create or send anything — the real send feature (PR 3) doesn't
-               exist yet, so picking a candidate here only confirms the choice on screen. Shown only
+          <!-- Resolves this invoice's Procore project (by Project Number) and commitment (by
+               Vendor), per procoreFindCommitmentForInvoiceRow_ (ProcoreClient.gs). Auto-shows the
+               one match, or a pick-one list when the vendor has more than one commitment — a pick
+               is saved to the "Procore Commitment Map" crosswalk tab (ProcoreSend.gs), same as an
+               auto-match, so it's remembered on every later invoice from that vendor+project. Once
+               confirmed, the Send button creates the real Subcontractor Invoice in Procore
+               (sendInvoiceToProcore, ProcoreSend.gs) — a genuine write, not a smoke test. Shown only
                when canControl && procoreConfigured, same gate as procoreTestBlock above. -->
           <div id="procoreMatchBlock" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
             <button type="button" class="btn-secondary" id="procoreMatchBtn">Match to Procore commitment&hellip;</button>
             <div id="procoreMatchForm" style="display:none; margin-top:8px">
-              <p class="preview-edit-label2" style="margin:0 0 6px">Resolves the Procore project from this invoice's Project Number, then the commitment from its Vendor. Matching only — nothing is created or sent.</p>
+              <p class="preview-edit-label2" style="margin:0 0 6px">Resolves the Procore project from this invoice's Project Number, then the commitment from its Vendor.</p>
               <p id="procoreMatchLoading" style="font-size:13px; color:var(--text-muted)">Matching&hellip;</p>
               <p id="procoreMatchAuto" style="display:none"></p>
               <div id="procoreMatchPicker" style="display:none">
@@ -1548,6 +1550,12 @@
               </div>
               <p class="modal-error" id="procoreMatchError"></p>
               <p id="procoreMatchPicked" style="display:none; color:#2b6e4d; font-size:13px; margin-top:6px; font-weight:600"></p>
+              <div id="procoreSendWrap" style="display:none; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
+                <p class="preview-edit-label2" style="margin:0 0 6px">Creates a real DRAFT Subcontractor Invoice in Procore against the matched commitment, attaches this invoice's PDF, and marks this row In Procore.</p>
+                <button type="button" class="btn-primary" id="procoreSendBtn">Send to Procore</button>
+                <p class="modal-error" id="procoreSendError"></p>
+                <p id="procoreSendSuccess" style="display:none; color:#2b6e4d; font-size:13px; margin-top:6px; font-weight:600"></p>
+              </div>
               <div style="display:flex; gap:8px; margin-top:8px">
                 <button type="button" class="btn-secondary" id="procoreMatchCloseBtn">Close</button>
               </div>
@@ -3210,13 +3218,14 @@
         .testProcoreSendDirectCost(previewRowId, Number(projectId));
     }
 
-    // --- Procore commitment matcher ---------------------------------------------------------------
+    // --- Procore commitment matcher + real send -----------------------------------------------------
     // Resolves an invoice's Procore project (by its own Project Number) and commitment (by Vendor).
     // Auto-shows the single match, or a pick-one list when the vendor has more than one commitment
     // (Ahmed, 2026-08-20: "if there is multiple commitments, let user pick, if only 1, assign
-    // directly"). Matching only — see ProcoreSend.gs/matchInvoiceToProcoreCommitment; nothing here
-    // writes to the Invoice Log or to Procore, so "picking" a candidate just confirms the choice on
-    // screen until the real send feature (PR 3) exists to act on it.
+    // directly"). Either way the pairing is SAVED to the Procore Commitment Map crosswalk
+    // (ProcoreSend.gs) — an auto-match saves itself, a pick is saved by confirmProcoreCommitmentPick
+    // — so the Send button that appears once a commitment is confirmed can actually create the real
+    // Subcontractor Invoice (sendInvoiceToProcore) without asking again next time.
 
     function openProcoreMatchForm() {
       if (!previewRowId) return;
@@ -3227,6 +3236,7 @@
       document.getElementById('procoreMatchAuto').innerHTML = '';
       document.getElementById('procoreMatchPicker').style.display = 'none';
       document.getElementById('procoreMatchCandidates').innerHTML = '';
+      hideProcoreSend();
       document.getElementById('procoreMatchLoading').style.display = '';
       document.getElementById('procoreMatchForm').style.display = '';
       document.getElementById('procoreMatchBtn').style.display = 'none';
@@ -3253,10 +3263,11 @@
       }
       if (res.ok) {
         var autoEl = document.getElementById('procoreMatchAuto');
-        autoEl.innerHTML = '&#10003; Matched to <strong>' + escapeHtml(res.commitmentTitle) + '</strong> (' +
-          escapeHtml(res.commitmentKind) + ' ' + escapeHtml(res.commitmentNumber) + ') on <strong>' +
-          escapeHtml(res.projectName) + '</strong>.';
+        autoEl.innerHTML = '&#10003; ' + (res.fromCache ? 'Already matched to ' : 'Matched to ') + '<strong>' +
+          escapeHtml(res.commitmentTitle) + '</strong> (' + escapeHtml(res.commitmentKind) + ' ' +
+          escapeHtml(res.commitmentNumber) + ') on <strong>' + escapeHtml(res.projectName) + '</strong>.';
         autoEl.style.display = '';
+        showProcoreSend();
         return;
       }
       if (res.ambiguous && res.candidates && res.candidates.length) {
@@ -3269,7 +3280,7 @@
           btn.className = 'btn-secondary';
           btn.style.cssText = 'display:block; width:100%; text-align:left; margin-top:6px';
           btn.textContent = c.commitmentTitle + ' (' + c.commitmentKind + ' ' + c.commitmentNumber + ')';
-          btn.addEventListener('click', function () { pickProcoreCommitment(c); });
+          btn.addEventListener('click', function () { pickProcoreCommitment(c, res.projectId, res.projectName); });
           list.appendChild(btn);
         });
         document.getElementById('procoreMatchPicker').style.display = '';
@@ -3278,11 +3289,77 @@
       document.getElementById('procoreMatchError').textContent = res.reason || 'No match — no further detail returned.';
     }
 
-    function pickProcoreCommitment(candidate) {
+    function pickProcoreCommitment(candidate, projectId, projectName) {
       var pickedEl = document.getElementById('procoreMatchPicked');
       pickedEl.style.display = '';
-      pickedEl.textContent = '✓ Selected: ' + candidate.commitmentTitle + ' (' + candidate.commitmentKind + ' ' +
-        candidate.commitmentNumber + '). The real send feature isn’t built yet — this only confirms which commitment this invoice would bill against.';
+      pickedEl.textContent = 'Confirming…';
+      var pickerEl = document.getElementById('procoreMatchPicker');
+      Array.prototype.forEach.call(pickerEl.querySelectorAll('button'), function (b) { b.disabled = true; });
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          if (res && res.ok) {
+            pickedEl.textContent = '✓ Confirmed: ' + res.commitmentTitle + ' (' + res.commitmentNumber +
+              '). Remembered for future invoices from this vendor on this project.';
+            pickerEl.style.display = 'none';
+            showProcoreSend();
+          } else {
+            pickedEl.style.display = 'none';
+            document.getElementById('procoreMatchError').textContent = 'Could not confirm that pick — no further detail returned.';
+            Array.prototype.forEach.call(pickerEl.querySelectorAll('button'), function (b) { b.disabled = false; });
+          }
+        })
+        .withFailureHandler(function (err) {
+          pickedEl.style.display = 'none';
+          document.getElementById('procoreMatchError').textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
+          Array.prototype.forEach.call(pickerEl.querySelectorAll('button'), function (b) { b.disabled = false; });
+        })
+        .confirmProcoreCommitmentPick(previewRowId, candidate, projectId, projectName);
+    }
+
+    function showProcoreSend() {
+      document.getElementById('procoreSendError').textContent = '';
+      document.getElementById('procoreSendSuccess').style.display = 'none';
+      document.getElementById('procoreSendSuccess').textContent = '';
+      var btn = document.getElementById('procoreSendBtn');
+      btn.disabled = false;
+      btn.textContent = 'Send to Procore';
+      btn.style.display = '';
+      document.getElementById('procoreSendWrap').style.display = '';
+    }
+
+    function hideProcoreSend() {
+      document.getElementById('procoreSendWrap').style.display = 'none';
+    }
+
+    function sendProcoreInvoice() {
+      if (!previewRowId) return;
+      var btn = document.getElementById('procoreSendBtn');
+      var errorEl = document.getElementById('procoreSendError');
+      var successEl = document.getElementById('procoreSendSuccess');
+      errorEl.textContent = '';
+      successEl.style.display = 'none';
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Send to Procore';
+          if (res && res.ok) {
+            successEl.style.display = '';
+            successEl.textContent = '✓ ' + res.message;
+            btn.style.display = 'none'; // sent — nothing left to do from this panel
+          } else {
+            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
+          }
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Send to Procore';
+          errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
+        })
+        .sendInvoiceToProcore(previewRowId);
     }
 
     // --- Duplicate merge ------------------------------------------------------------------------
@@ -4556,6 +4633,7 @@
       document.getElementById('procoreTestSendBtn').addEventListener('click', sendProcoreTest);
       document.getElementById('procoreMatchBtn').addEventListener('click', openProcoreMatchForm);
       document.getElementById('procoreMatchCloseBtn').addEventListener('click', closeProcoreMatchForm);
+      document.getElementById('procoreSendBtn').addEventListener('click', sendProcoreInvoice);
       document.getElementById('mergeCancelBtn').addEventListener('click', closeMergeModal);
       document.getElementById('mergeConfirmBtn').addEventListener('click', doMerge);
       document.getElementById('mergeCanon').addEventListener('change', updateMergeSummary);
