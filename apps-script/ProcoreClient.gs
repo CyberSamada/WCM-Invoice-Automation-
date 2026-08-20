@@ -238,3 +238,82 @@ function procoreFetch_(method, resource, path, options) {
     throw new Error(`Procore ${method.toUpperCase()} ${path} failed (${code}): ${response.getContentText().slice(0, 400)}`);
   }
 }
+
+/**
+ * Whether the three required Procore Script Properties are present — no network call, so safe to
+ * call on every dashboard page load (see getAutomationStatus, DashboardServer.gs). Does NOT mean
+ * the credentials actually work; only testProcoreConnection() (Setup.gs) proves that.
+ */
+function procoreConfigured_() {
+  const props = PropertiesService.getScriptProperties();
+  return !!(
+    props.getProperty(CONFIG.PROCORE_CLIENT_ID_PROPERTY) &&
+    props.getProperty(CONFIG.PROCORE_CLIENT_SECRET_PROPERTY) &&
+    props.getProperty(CONFIG.PROCORE_COMPANY_ID_PROPERTY)
+  );
+}
+
+const PROCORE_MAX_UPLOAD_BYTES_ = 20 * 1024 * 1024; // our cap; Procore's own storage service allows 100MB
+
+/**
+ * Puts a file into Procore's storage and returns its upload UUID, for attaching to a record
+ * afterward (e.g. { prostore_file_ids: [uuid] } on a direct cost or requisition).
+ *
+ * Two steps, checked against the Procore integration repo's working implementation:
+ *   1. POST projects/{id}/uploads asking Procore how to upload — it hands back a UUID, a URL, and
+ *      a set of form fields.
+ *   2. POST the file to THAT URL, with THOSE fields — carrying NO Procore Authorization header and
+ *      NO Procore-Company-Id. The URL and fields arrive in a response body; sending our bearer
+ *      token to whatever host that response named would hand a live Procore credential to it. This
+ *      goes out on a fresh, header-less request, and only over HTTPS.
+ *
+ * @param {number} projectId
+ * @param {GoogleAppsScript.Base.Blob} blob
+ * @return {string} the upload UUID
+ */
+function procoreUploadFile_(projectId, blob) {
+  const bytes = blob.getBytes();
+  if (bytes.length > PROCORE_MAX_UPLOAD_BYTES_) {
+    throw new Error(`"${blob.getName()}" is ${(bytes.length / 1048576).toFixed(1)} MB; the cap is ${PROCORE_MAX_UPLOAD_BYTES_ / 1048576} MB.`);
+  }
+  if (!bytes.length) throw new Error(`"${blob.getName()}" is empty.`);
+
+  const instructionsResponse = procoreFetch_('post', 'uploads', `projects/${projectId}/uploads`, {
+    payload: JSON.stringify({
+      response_filename: blob.getName(),
+      response_content_type: blob.getContentType() || 'application/pdf',
+      size: bytes.length
+    }),
+    contentType: 'application/json'
+  });
+  const instructions = JSON.parse(instructionsResponse.getContentText());
+  const uuid = instructions.uuid;
+  const url = String(instructions.url || '');
+  const fields = instructions.fields || {};
+  if (!uuid || !url) {
+    throw new Error(`Procore's upload instructions were incomplete: ${JSON.stringify(Object.keys(instructions))}`);
+  }
+  if (!/^https:\/\//i.test(url)) {
+    // Plain HTTP would put the file and the storage fields on the wire in clear.
+    throw new Error(`Procore returned a non-HTTPS upload URL (${url.slice(0, 40)}...); refusing to send a file to it.`);
+  }
+
+  const payload = {};
+  Object.keys(fields).forEach(k => { payload[k] = String(fields[k]); });
+  payload.file = blob;
+
+  // No Authorization, no Procore-Company-Id, no other header of ours — see the note above.
+  // Also deliberately no contentType: UrlFetchApp only encodes a payload containing a Blob as
+  // multipart/form-data when contentType is left unset; setting it (the habit from JSON calls
+  // elsewhere) silently breaks the multipart boundary.
+  const uploadResponse = UrlFetchApp.fetch(url, {
+    method: 'post',
+    payload: payload,
+    muteHttpExceptions: true
+  });
+  if (uploadResponse.getResponseCode() >= 400) {
+    throw new Error(`Procore's storage service rejected the file (${uploadResponse.getResponseCode()}): ${uploadResponse.getContentText().slice(0, 300)}`);
+  }
+
+  return uuid;
+}

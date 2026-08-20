@@ -1509,6 +1509,27 @@
           </div>
           <p class="modal-error" id="previewEditError"></p>
           <button type="button" class="btn-secondary" id="previewMergeBtn" style="margin-top:4px">Merge as duplicate of&hellip;</button>
+          <!-- Smoke test only — proves ProcoreClient.gs (auth/create/attach) works against a real
+               Procore company before the mapping tables (PR 2) or the real send feature (PR 3) exist.
+               Manual project/vendor entry on purpose: no crosswalk to read from yet, and mapping
+               against sandbox data would be thrown away once real production pairs exist. Shown only
+               when canControl && procoreConfigured (see renderAutomationStatus). -->
+          <div id="procoreTestBlock" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
+            <button type="button" class="btn-secondary" id="procoreTestBtn">Send test to Procore&hellip;</button>
+            <div id="procoreTestForm" style="display:none; margin-top:8px">
+              <p class="preview-edit-label2" style="margin:0 0 6px">Creates a real DRAFT Direct Cost in whichever Procore company is currently configured (sandbox, unless PROCORE_ENV says otherwise). No mapping table yet — enter the target by hand.</p>
+              <label for="procoreTestProjectId" class="preview-edit-label2">Procore project ID</label>
+              <input type="number" id="procoreTestProjectId" placeholder="e.g. 362778">
+              <label for="procoreTestVendorId" class="preview-edit-label2">Procore vendor ID</label>
+              <input type="number" id="procoreTestVendorId" placeholder="e.g. 3739183">
+              <div style="display:flex; gap:8px; margin-top:8px">
+                <button type="button" class="btn-secondary" id="procoreTestCancelBtn">Cancel</button>
+                <button type="button" class="btn-primary" id="procoreTestSendBtn">Send</button>
+              </div>
+              <p class="modal-error" id="procoreTestError"></p>
+              <p id="procoreTestSuccess" style="display:none; color:#2b6e4d; font-size:13px; margin-top:6px; font-weight:600"></p>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1837,6 +1858,9 @@
       // "Manage hints" shares the same edit privilege as Start/Pause (canControlAutomation_).
       document.getElementById('manageHintsBtn').style.display = state.canControl ? '' : 'none';
       document.getElementById('nexusSyncBtn').style.display = state.canControl ? '' : 'none';
+      // Procore smoke test: same privilege, AND the four Script Properties have to be set, or
+      // there's nothing for testProcoreSendDirectCost to try.
+      document.getElementById('procoreTestBlock').style.display = (state.canControl && state.procoreConfigured) ? '' : 'none';
     }
 
     function toggleAutomation() {
@@ -2675,6 +2699,7 @@
       previewDriveLink = record.driveLink;
       previewRowId = rowId;
       previewFileId = parsed.fileId;
+      closeProcoreTestForm(); // collapse a stale test form from whichever row was previewed last
       document.getElementById('previewSubtitle').textContent = record.vendor + ' — ' + formatMoney(record.amount, record.currency);
       document.getElementById('previewFrame').src = parsed.url;
       document.getElementById('previewLocation').textContent = 'Looking up file location…';
@@ -3101,6 +3126,64 @@
           errorEl.style.color = ''; errorEl.textContent = err && err.message ? err.message : 'Could not save — try again.';
         })
         .updateInvoiceRow(rowId, { projectNumber: projectNumber, subprojectNumber: subprojectNumber, status: status, invoiceNumber: invoiceNumber, amount: amount, currency: currency });
+    }
+
+    // --- Procore smoke test -----------------------------------------------------------------------
+    // Proves ProcoreClient.gs works end to end (auth, create, attach) against a real Procore company
+    // before the mapping tables (PR 2) or the real send feature (PR 3) exist. Manual project/vendor
+    // entry on purpose — see Setup.gs/testProcoreSendDirectCost. Last-used IDs are remembered in
+    // localStorage so testing several invoices against the same sandbox project doesn't mean
+    // retyping the same two numbers every time.
+
+    function openProcoreTestForm() {
+      document.getElementById('procoreTestError').textContent = '';
+      document.getElementById('procoreTestSuccess').style.display = 'none';
+      document.getElementById('procoreTestSuccess').textContent = '';
+      document.getElementById('procoreTestProjectId').value = localStorage.getItem('wcm_procore_test_project') || '';
+      document.getElementById('procoreTestVendorId').value = localStorage.getItem('wcm_procore_test_vendor') || '';
+      document.getElementById('procoreTestForm').style.display = '';
+      document.getElementById('procoreTestBtn').style.display = 'none';
+    }
+
+    function closeProcoreTestForm() {
+      document.getElementById('procoreTestForm').style.display = 'none';
+      document.getElementById('procoreTestBtn').style.display = '';
+    }
+
+    function sendProcoreTest() {
+      if (!previewRowId) return;
+      var projectId = document.getElementById('procoreTestProjectId').value.trim();
+      var vendorId = document.getElementById('procoreTestVendorId').value.trim();
+      var errorEl = document.getElementById('procoreTestError');
+      var successEl = document.getElementById('procoreTestSuccess');
+      errorEl.textContent = '';
+      successEl.style.display = 'none';
+      if (!projectId || !vendorId) { errorEl.textContent = 'Enter both a Procore project ID and vendor ID.'; return; }
+
+      localStorage.setItem('wcm_procore_test_project', projectId);
+      localStorage.setItem('wcm_procore_test_vendor', vendorId);
+
+      var btn = document.getElementById('procoreTestSendBtn');
+      btn.disabled = true;
+      btn.textContent = 'Sending…';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          btn.disabled = false;
+          btn.textContent = 'Send';
+          if (res && res.ok) {
+            successEl.style.display = '';
+            successEl.textContent = '✓ ' + res.message;
+          } else {
+            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
+          }
+        })
+        .withFailureHandler(function (err) {
+          btn.disabled = false;
+          btn.textContent = 'Send';
+          errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
+        })
+        .testProcoreSendDirectCost(previewRowId, Number(projectId), Number(vendorId));
     }
 
     // --- Duplicate merge ------------------------------------------------------------------------
@@ -4369,6 +4452,9 @@
       document.getElementById('previewSaveBtn').addEventListener('click', savePreviewEdit);
       document.getElementById('previewPrevBtn').addEventListener('click', function () { navigatePreview(-1); });
       document.getElementById('previewMergeBtn').addEventListener('click', openMergeModal);
+      document.getElementById('procoreTestBtn').addEventListener('click', openProcoreTestForm);
+      document.getElementById('procoreTestCancelBtn').addEventListener('click', closeProcoreTestForm);
+      document.getElementById('procoreTestSendBtn').addEventListener('click', sendProcoreTest);
       document.getElementById('mergeCancelBtn').addEventListener('click', closeMergeModal);
       document.getElementById('mergeConfirmBtn').addEventListener('click', doMerge);
       document.getElementById('mergeCanon').addEventListener('change', updateMergeSummary);

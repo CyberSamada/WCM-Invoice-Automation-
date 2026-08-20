@@ -278,6 +278,19 @@ the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P
   contains control chars is rejected by the Bash tool ("command contains control characters") — that
   strips bytes `<32` except tab/newline/CR and rewrites the offending line, then re-`node --check`
   and confirm `readFileSync(f).indexOf(0) === -1`.
+- **A same-named scratch script from an earlier point in the session can have a different, silently
+  destructive argument contract.** Nearly overwrote `Dashboard.html` with just its extracted JS this
+  session: an old `scratchpad/extract.js` (from before a context-compaction) hardcoded
+  `apps-script/Dashboard.html` as its INPUT and treated `argv[2]` as its OUTPUT path; called the way
+  the *current* extractor works — `node extract.js apps-script/Dashboard.html scratch/out.js` — its
+  `argv[2]` was the real source file, so it read Dashboard.html and wrote the extracted JS **back
+  over it**, deleting the entire HTML wrapper (4437 lines → 2781). Caught immediately only because
+  `git status`/`git diff --stat` was checked right after — that check is what makes this recoverable
+  instead of catastrophic. Lesson: never re-invoke a scratch helper by a remembered name/path without
+  either rereading it first or writing a fresh one with an unambiguous contract (require both paths as
+  explicit args, refuse to run if they're equal); after ANY script that touches a real repo file, check
+  `git status`/`git diff --stat` before doing anything else, and if a file shrank unexpectedly,
+  `git checkout -- <path>` immediately and re-apply only the intended edits.
 
 ## Batch download (dashboard)
 
