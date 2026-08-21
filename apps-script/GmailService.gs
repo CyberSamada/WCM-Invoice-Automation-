@@ -42,6 +42,34 @@ function processFromDate_() {
   return CONFIG.PROCESS_FROM_DATE ? parseYmdDate_(CONFIG.PROCESS_FROM_DATE) : null;
 }
 
+/**
+ * Runs `fn` against a thread and puts its read/unread state back exactly as it was.
+ *
+ * **Why this exists.** Reading a thread's messages through GmailApp marks the thread READ. That is a
+ * side effect of looking, not of deciding anything, and it destroys information the owner of the
+ * mailbox relies on: unread means "I have not dealt with this yet". Ahmed asked, 2026-08-21, that
+ * nothing here ever touch his read state.
+ *
+ * The test path already knew this and guarded against it — `testRun()` (Test.gs) captures `wasUnread`
+ * and restores it in a `finally`, and SETUP.md promises "Read/unread status is restored
+ * automatically". The REAL path never did. So every invoice thread `processInvoices()` looked at was
+ * silently marked read, and only the safe-looking test run cleaned up after itself. That asymmetry is
+ * the bug.
+ *
+ * Fixing it here rather than in Main.gs means every caller is covered — the real run, the test run,
+ * and anything added later — instead of one loop remembering and the next one forgetting.
+ */
+function withReadStateRestored_(thread, fn) {
+  const wasUnread = thread.isUnread();
+  try {
+    return fn();
+  } finally {
+    // Only ever restore TOWARDS unread. If the thread was already read, leave it alone rather than
+    // calling markRead(), so this can never be the thing that marks something read.
+    if (wasUnread && !thread.isUnread()) thread.markUnread();
+  }
+}
+
 /** True if an attachment is a PDF — by content type OR a ".pdf" filename (see getPdfAttachments_). */
 function isPdfAttachment_(attachment) {
   return attachment.getContentType() === 'application/pdf' || /\.pdf$/i.test(attachment.getName() || '');
@@ -64,6 +92,10 @@ function isPdfAttachment_(attachment) {
  * non-PDF files.
  */
 function getPdfAttachments_(thread) {
+  return withReadStateRestored_(thread, () => getPdfAttachmentsInner_(thread));
+}
+
+function getPdfAttachmentsInner_(thread) {
   const attachments = [];
   const fromDate = processFromDate_();
   thread.getMessages().forEach(message => {
@@ -80,6 +112,10 @@ function getPdfAttachments_(thread) {
 /** True if the thread has ANY PDF attachment at all, ignoring the date cutoff — lets the caller tell
  *  a genuine "no PDF on this thread" miss from a thread whose only PDF(s) predate PROCESS_FROM_DATE. */
 function threadHasAnyPdf_(thread) {
+  return withReadStateRestored_(thread, () => threadHasAnyPdfInner_(thread));
+}
+
+function threadHasAnyPdfInner_(thread) {
   let found = false;
   thread.getMessages().forEach(message => {
     message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
@@ -95,6 +131,10 @@ function threadHasAnyPdf_(thread) {
  * recognize) is immediately diagnosable from the Errors tab instead of requiring a guess.
  */
 function describeThreadAttachments_(thread) {
+  return withReadStateRestored_(thread, () => describeThreadAttachmentsInner_(thread));
+}
+
+function describeThreadAttachmentsInner_(thread) {
   const found = [];
   thread.getMessages().forEach(message => {
     message.getAttachments({ includeInlineImages: false }).forEach(attachment => {
