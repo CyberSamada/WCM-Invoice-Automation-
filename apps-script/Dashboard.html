@@ -3492,49 +3492,6 @@
     // server call, now decides how many sends to fire.
     var PROCORE_BULK_SEND_MAX = 25;
 
-    // One row per selected invoice, each with its own Subcontractor Invoice / Direct Cost choice —
-    // defaults to Subcontractor Invoice (the more specific record when a commitment exists), switch
-    // individual rows to Direct Cost as needed before confirming. Built from ALL_RECORDS (already
-    // loaded client-side) rather than a round trip, since this is just display — the real per-invoice
-    // work happens server-side in sendInvoicesToProcoreBulk.
-    function renderProcoreBulkReview(ids) {
-      var listEl = document.getElementById('procoreBulkReview');
-      listEl.innerHTML = '';
-      ids.forEach(function (rowId) {
-        var rec = ALL_RECORDS.find(function (r) { return r.rowId === rowId; });
-        var row = document.createElement('div');
-        row.className = 'procore-bulk-row';
-        row.style.cssText = 'display:flex; align-items:center; justify-content:space-between; gap:10px; padding:6px 0; border-bottom:1px solid var(--border)';
-        var info = document.createElement('div');
-        info.style.cssText = 'min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:13px';
-        info.title = rec ? (rec.vendor + ' — Inv# ' + rec.invoiceNumber) : rowId;
-        info.textContent = rec
-          ? rec.vendor + ' — Inv# ' + rec.invoiceNumber + ' — ' + formatMoney(rec.amount, rec.currency)
-          : ('Row ' + rowId);
-        var select = document.createElement('select');
-        select.className = 'procore-bulk-kind';
-        select.setAttribute('data-rowid', rowId);
-        select.style.cssText = 'flex:0 0 auto; font-size:12.5px';
-        var optInvoice = document.createElement('option');
-        optInvoice.value = 'invoice';
-        optInvoice.textContent = 'Subcontractor Invoice';
-        var optDirect = document.createElement('option');
-        optDirect.value = 'direct_cost';
-        optDirect.textContent = 'Direct Cost';
-        select.appendChild(optInvoice);
-        select.appendChild(optDirect);
-        row.appendChild(info);
-        row.appendChild(select);
-        listEl.appendChild(row);
-      });
-    }
-
-    function procoreBulkReviewItems() {
-      return Array.prototype.map.call(document.querySelectorAll('#procoreBulkReview select.procore-bulk-kind'), function (sel) {
-        return { rowId: sel.getAttribute('data-rowid'), kind: sel.value };
-      });
-    }
-
     function openProcoreBulkModal() {
       var ids = selectedIds();
       if (!ids.length) return;
