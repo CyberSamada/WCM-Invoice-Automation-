@@ -864,6 +864,47 @@ function procoreRequisitionExists_(projectId, requisitionId) {
   }
 }
 
+/**
+ * Reads a requisition's payment state, for the Paid read-back (syncProcorePaidStatus, ProcoreSend.gs).
+ *
+ * **`invoice_paid_in_full` ALONE IS NOT ENOUGH, and trusting it is a real-money bug.** Confirmed live
+ * 2026-08-21 against sandbox requisition 181205: nothing had been billed on it
+ * (`total_completed_and_stored_to_date: "0.00"`) and Procore still reported
+ * `payment_summary.invoice_paid_in_full: true`. Nothing owing is vacuously paid in full. Marking that
+ * invoice Paid in WCM's log would be wrong, and Paid is a terminal lifecycle status.
+ *
+ * So paid means BOTH: Procore says paid in full, AND the requisition actually billed something. A
+ * requisition that has billed nothing is never reported as paid, whatever the flag says.
+ *
+ * Direct Costs deliberately have no equivalent here. Procore does not model payment on them at all —
+ * the record carries only a draft/approved workflow status, and every payment endpoint in the API
+ * (contract_payments, payment_applications, payment_readiness) belongs to requisitions or prime
+ * contracts. That is a Procore limitation, not a gap in this file. See HANDOFF.md.
+ *
+ * @return {{paid: boolean, paidInFull: boolean, billedToDate: number, amountDue: number,
+ *           paymentDate: (string|null)}}
+ */
+function procoreRequisitionPaymentStatus_(projectId, requisitionId) {
+  const response = procoreFetch_('get', 'requisitions', `requisitions/${requisitionId}?project_id=${projectId}`);
+  const body = JSON.parse(response.getContentText());
+  const record = Array.isArray(body) ? body[0] : (body.records ? body.records[0] : body);
+  if (!record || !record.id) {
+    throw new Error(`Procore returned no requisition for id ${requisitionId} while reading payment status.`);
+  }
+  const summary = record.payment_summary || {};
+  const totals = record.summary || {};
+  const billedToDate = Number(totals.total_completed_and_stored_to_date || 0) || 0;
+  const amountDue = Number(summary.invoiced_amount_due || 0) || 0;
+  const paidInFull = summary.invoice_paid_in_full === true;
+  return {
+    paid: paidInFull && billedToDate > 0,
+    paidInFull: paidInFull,
+    billedToDate: billedToDate,
+    amountDue: amountDue,
+    paymentDate: record.payment_date || null
+  };
+}
+
 function procoreDirectCostExists_(projectId, directCostId) {
   try {
     const response = procoreFetch_('get', 'direct_costs', `projects/${projectId}/direct_costs/${directCostId}`);

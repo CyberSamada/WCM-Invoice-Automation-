@@ -109,6 +109,29 @@ function createReconcileTrigger() {
 }
 
 /**
+ * Optional: reads payment status back from Procore once a day (ProcoreSend.gs/syncProcorePaidStatus),
+ * so an invoice Procore reports as paid in full is marked Paid here without anyone uploading anything.
+ * Run this ONCE to set it up. Idempotent — re-running replaces the existing trigger.
+ *
+ * Covers Subcontractor Invoices only. Procore does not model payment on Direct Costs, so an invoice
+ * sent that way, or never sent to Procore at all, still needs its Paid status from somewhere else.
+ * See HANDOFF.md before treating this as a complete replacement for another source of Paid.
+ */
+function createProcorePaidSyncTrigger() {
+  ScriptApp.getProjectTriggers()
+    .filter(t => t.getHandlerFunction() === 'syncProcorePaidStatus')
+    .forEach(t => ScriptApp.deleteTrigger(t));
+
+  ScriptApp.newTrigger('syncProcorePaidStatus')
+    .timeBased()
+    .everyDays(1)
+    .atHour(5)
+    .create();
+
+  Logger.log('Procore paid sync trigger created: syncProcorePaidStatus() runs daily, ~5am.');
+}
+
+/**
  * ONE-TIME, MANUAL: makes the Status column consistent again.
  *
  * A short-lived earlier version wrote "Processed" into the Status column for rows that were edited

@@ -437,6 +437,9 @@ const PROCORE_OUTCOME_SENT_ = 'Sent';
 const PROCORE_OUTCOME_FAILED_ = 'Failed';
 const PROCORE_OUTCOME_NEEDS_MATCH_ = 'Needs Match';
 const PROCORE_OUTCOME_SKIPPED_ = 'Skipped';
+/** Written by the Paid read-back (syncProcorePaidStatus), not by a send. Deliberately NOT a success
+ *  value for procoreSendLogRowIsSuccess_ — the original 'Sent' row is what proves the send happened. */
+const PROCORE_OUTCOME_PAID_ = 'Paid';
 
 /**
  * Whether a Procore Send Log row represents an invoice that ACTUALLY reached Procore.
@@ -876,4 +879,143 @@ function procoreLogSendAttempt_(invoice, kind, outcome, detail) {
   } catch (e) {
     Logger.log(`Could not write a "${outcome}" Procore Send Log row for ${invoice.rowId}: ${e.message}`);
   }
+}
+
+// --- Paid read-back (Procore -> the Invoice Log) -------------------------------------------------
+
+/** Statuses this job will never overwrite. Paid and Canceled are terminal; Duplicate points at
+ *  another row's record and must never be touched (CLAUDE.md). */
+const PROCORE_PAID_SKIP_STATUSES_ = ['Paid', 'Canceled', 'Duplicate', 'Not an Invoice'];
+/** Stops starting new lookups past this, so a long backlog cannot hit Apps Script's ~6 minute kill
+ *  mid-update. Re-running picks up exactly where it left off, since a row it already set to Paid is
+ *  skipped by PROCORE_PAID_SKIP_STATUSES_ on the next pass. */
+const PROCORE_PAID_TIME_BUDGET_MS_ = 4 * 60 * 1000;
+
+/**
+ * Marks invoices Paid when Procore says the Subcontractor Invoice they became has been paid.
+ *
+ * This is the read-back direction, the opposite of everything else in this file. Everything above
+ * pushes WCM -> Procore; this pulls a payment fact back the other way, so the sheet's Paid status can
+ * come from Procore instead of from a hand uploaded AP export.
+ *
+ * **Covers Subcontractor Invoices only, and that is a Procore limitation, not a shortcut.** Procore
+ * does not model payment on Direct Costs at all (see procoreRequisitionPaymentStatus_). An invoice sent
+ * as a Direct Cost, or never sent to Procore, has no payment fact to read and is left alone by this
+ * job. Anyone planning to retire another source of Paid needs to read that sentence twice: this job
+ * cannot replace a source that covers every invoice.
+ *
+ * Drives off the Procore Send Log, which already records the record id, project id, environment and
+ * outcome of every send, so nothing new has to be stored to make this work. Only rows that really
+ * reached Procore in the CURRENT environment are considered (procoreSendLogRowIsSuccess_), so a failed
+ * attempt never gets a payment lookup, and a sandbox send never drives a production status.
+ *
+ * Every change routes through updateInvoiceRow, the single write path, so the Override Log entry and
+ * file handling match a manual edit. Idempotent: a row already Paid is skipped, so re-running is free.
+ *
+ * @return {{checked: number, markedPaid: number, remaining: number, errors: Array}}
+ */
+function syncProcorePaidStatus() {
+  if (!procoreConfigured_()) {
+    Logger.log('Procore is not configured — nothing to read payment status from.');
+    return { checked: 0, markedPaid: 0, remaining: 0, errors: [] };
+  }
+
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) {
+    Logger.log('Another job holds the lock — skipping this paid sync, it will run again next time.');
+    return { checked: 0, markedPaid: 0, remaining: 0, errors: [] };
+  }
+
+  try {
+    const candidates = procoreCollectPaidCandidates_();
+    const startedAt = Date.now();
+    let checked = 0, markedPaid = 0, remaining = 0;
+    const errors = [];
+
+    for (let i = 0; i < candidates.length; i++) {
+      if (Date.now() - startedAt > PROCORE_PAID_TIME_BUDGET_MS_) { remaining = candidates.length - i; break; }
+      const c = candidates[i];
+      try {
+        checked++;
+        const payment = procoreRequisitionPaymentStatus_(c.projectId, c.recordId);
+        if (!payment.paid) continue;
+        updateInvoiceRow(c.rowId, { status: 'Paid' });
+        markedPaid++;
+        procoreLogSendRow_({
+          rowId: c.rowId, invoiceNumber: c.invoiceNumber, vendor: c.vendor,
+          amount: '', currency: '', recordType: 'Subcontractor Invoice',
+          projectId: c.projectId, projectName: '', commitmentId: '', commitmentNumber: '',
+          requisitionId: c.recordId, attached: false, environment: procoreEnv_(),
+          outcome: PROCORE_OUTCOME_PAID_,
+          detail: `Procore reports requisition ${c.recordId} paid in full, ${payment.billedToDate} billed to date.`
+        });
+      } catch (e) {
+        errors.push({ rowId: c.rowId, message: e.message });
+      }
+    }
+
+    Logger.log(`Procore paid sync: checked ${checked}, marked Paid ${markedPaid}, errors ${errors.length}.` +
+      (remaining ? ` ${remaining} not reached this run, re-run to continue.` : ' Done.'));
+    return { checked: checked, markedPaid: markedPaid, remaining: remaining, errors: errors };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * The rows worth asking Procore about: sent as a Subcontractor Invoice, in this environment, and not
+ * already at a status this job must not overwrite. Deduplicated by Row ID with the LAST send winning,
+ * matching how procoreFindExistingSend_ reads the same tab.
+ */
+function procoreCollectPaidCandidates_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sendSheet = ss.getSheetByName(CONFIG.SHEET_PROCORE_SEND_LOG_TAB);
+  if (!sendSheet) return [];
+  const rows = sendSheet.getDataRange().getValues();
+  if (rows.length < 2) return [];
+  const sh = rows[0];
+  const si = {};
+  ['Row ID', 'Procore Record ID', 'Record Type', 'Environment', 'Outcome', 'Procore Project ID', 'Invoice Number', 'Vendor']
+    .forEach(c => { si[c] = sh.indexOf(c); });
+  if (si['Row ID'] === -1 || si['Procore Record ID'] === -1) return [];
+
+  // Current Invoice Log status per Row ID, so a terminal row is never re-asked about.
+  const logSheet = ss.getSheetByName(CONFIG.SHEET_LOG_TAB);
+  const statusByRowId = {};
+  if (logSheet) {
+    const logRows = logSheet.getDataRange().getValues();
+    const lh = logRows[0] || [];
+    const idIdx = lh.indexOf('Row ID');
+    const stIdx = lh.indexOf('Status');
+    if (idIdx > -1 && stIdx > -1) {
+      for (let r = 1; r < logRows.length; r++) {
+        const id = String(logRows[r][idIdx] || '').trim();
+        if (id) statusByRowId[id] = String(logRows[r][stIdx] || '').trim();
+      }
+    }
+  }
+
+  const env = procoreEnv_();
+  const byRowId = {};
+  for (let r = 1; r < rows.length; r++) {
+    const row = rows[r];
+    const rowId = String(row[si['Row ID']] || '').trim();
+    if (!rowId) continue;
+    if (si['Environment'] > -1 && String(row[si['Environment']] || '').trim() !== env) continue;
+    if (si['Outcome'] > -1 && !procoreSendLogRowIsSuccess_(row[si['Outcome']])) continue;
+    // Direct Costs have no payment state in Procore, so asking about one is a wasted call.
+    if (si['Record Type'] > -1 && String(row[si['Record Type']] || '').trim() !== 'Subcontractor Invoice') continue;
+    const recordId = String(row[si['Procore Record ID']] || '').trim();
+    const projectId = si['Procore Project ID'] > -1 ? String(row[si['Procore Project ID']] || '').trim() : '';
+    if (!recordId || !projectId) continue;
+    if (PROCORE_PAID_SKIP_STATUSES_.indexOf(statusByRowId[rowId] || '') > -1) continue;
+    byRowId[rowId] = {
+      rowId: rowId,
+      recordId: recordId,
+      projectId: projectId,
+      invoiceNumber: si['Invoice Number'] > -1 ? String(row[si['Invoice Number']] || '') : '',
+      vendor: si['Vendor'] > -1 ? String(row[si['Vendor']] || '') : ''
+    };
+  }
+  return Object.keys(byRowId).map(k => byRowId[k]);
 }
