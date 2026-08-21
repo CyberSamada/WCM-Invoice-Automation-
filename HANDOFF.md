@@ -1050,6 +1050,101 @@ sized to match) sidesteps this; a real commitment with multiple cost-code lines 
 "always one line" rule or a way for the invoice to specify which cost code, and nobody has decided that
 yet. Still open — this file's job is to remember that it's open, not to pick an answer nobody asked for.
 
+### The division of labor, settled: Invoice Desk parses, Procore MCP computes and writes
+
+Ahmed pushed for a clearer split before more got built: *"Invoice desk should start parsing Retainage,
+line items, line item amount, SC, PO, or Change event / order number. And MCP builds the tools?"* — yes,
+exactly that split, and it resolved a design question from the earlier back-and-forth too (whether an
+AIA-formatted pay application changes what Gemini can usefully extract — it does; that invoice format
+already carries the sub's own claimed percentages and line breakdown, unlike a simple lump-sum bill).
+
+**Built here (Invoice Desk), this session — pure extraction, no computation:**
+- `GeminiService.gs`: six new extracted fields, all optional, all `nullable: true` where a single
+  value, empty/false where absent — the schema and prompt both say explicitly to leave them
+  unset/false/empty rather than infer or default, same discipline as every other extracted field
+  (project_number "UNKNOWN" over a forced guess, etc.):
+  - `commitment_number` / `po_number` / `change_order_number` — captured only when the invoice
+    itself prints one (e.g. "SC-1234-002", "PO# 88213", "CO #3").
+  - `is_sov_formatted` — true only for a genuine AIA-style Schedule of Values / continuation sheet
+    (Item No / Scheduled Value / % Complete / Retainage columns); false (the common case, especially
+    for small trades) for an ordinary lump-sum invoice.
+  - `stated_retainage_percent` / `stated_retainage_amount` — only what the invoice itself states
+    (e.g. "Less Retainage 10%"); never a default rate assumed on Invoice Desk's side, including the
+    "always 10%" Ahmed mentioned — that number belongs on the Procore side as a parameter the MCP
+    tool is TOLD, not something either side hardcodes.
+  - `line_items` — one entry per row of the invoice's own Schedule of Values (description, amount
+    this period, % this period / to date), ONLY when `is_sov_formatted` is true. Empty array, not an
+    invented single-line breakdown, for every ordinary invoice.
+- New Invoice Log columns (`Config.gs` `LOG_COLUMNS`, auto-added to the live sheet the same way every
+  prior column addition has been — no manual sheet edit): `Commitment Number`, `PO Number`,
+  `Change Order Number`, `SOV Formatted`, `Stated Retainage %`, `Stated Retainage Amount`,
+  `Line Items (JSON)` (the line-item array, serialized — Sheets has no native nested-array cell type;
+  parse defensively on read, a human could hand-edit the cell). The three number-shaped ones
+  (Commitment/PO/Change Order Number) are added to `LOG_TEXT_COLUMNS` — the same "06" → 6 /
+  "3050-4" → date coercion trap CLAUDE.md documents for every other ID-like column applies here too.
+  **Not yet surfaced in the dashboard table or preview panel** — deliberately out of scope this round
+  (the table's column widths are hand-tuned to its existing 13 columns, see CLAUDE.md); the data is
+  captured and queryable in the sheet, wiring it into the UI is a separate, smaller follow-up.
+- **`commitment_number` is already put to use, not just stored**: `procoreFindCommitmentForInvoiceRow_`
+  (`ProcoreClient.gs`) now tries a new `procoreFindCommitmentByNumber_` FIRST when the invoice stated
+  one, before falling back to vendor matching. This resolves a case vendor-only matching structurally
+  cannot: DGM Services Limited has two commitments on the sandbox project (an ambiguous case,
+  §8/HANDOFF's original matcher tests) — a DGM invoice that states "SC-1234-004" now resolves to that
+  SPECIFIC commitment with no picker involved, where vendor-only matching would (correctly) still ask a
+  human. A number that matches nothing on the project falls through to vendor matching unchanged; a
+  number matching MORE than one commitment (shouldn't normally happen — a data problem, not a code one)
+  is surfaced as ambiguous rather than silently falling back to a different strategy that might resolve
+  differently and mask it. `matchInvoiceToProcoreCommitment`'s return now carries `matchMethod`
+  (`'commitment_number'` or `'vendor'`) for whichever path actually resolved it.
+- PO Number and Change Order Number are captured but NOT yet wired into matching or the Direct Cost
+  path — Direct Cost sends resolve vendor directly today with no commitment lookup at all, so there's
+  nothing for a PO number to plug into yet. Left for whenever that need is concrete, not built ahead of it.
+
+Unit-tested (extended harness, 129 assertions total): a stated Commitment Number resolves DGM's
+otherwise-ambiguous two-commitment case to the exact one named (and the crosswalk cache remembers the
+number-resolved commitment same as any other match); a Commitment Number matching nothing on the
+project falls through to vendor matching unchanged (DGM is still reported ambiguous, same as before this
+feature existed); and no Commitment Number at all behaves identically to every pre-existing test —
+proof this is additive, not a change to the matcher's existing behavior.
+
+**Handoff to the Procore MCP side, tightened to match exactly what's now shipping** (superseding the
+earlier, more speculative draft — the field names/shapes below are real, not proposed):
+
+> WCM's Invoice Desk now extracts, per invoice, whenever the document itself states them (never
+> inferred): `commitment_number`, `po_number`, `change_order_number`, `is_sov_formatted` (bool),
+> `stated_retainage_percent`/`stated_retainage_amount`, and — only when `is_sov_formatted` is true — a
+> `line_items` array of `{description, amount_this_period, percent_this_period, percent_complete_to_date}`.
+> `commitment_number` already strengthens our own commitment matching (resolves ambiguous-vendor cases
+> a stated SC# disambiguates). The rest is captured and sitting in the Invoice Log, unused past that,
+> waiting on a Procore-side capability to consume it.
+>
+> What we need built, in two paths — please don't try to cover both with one function:
+>
+> **Path 1 — single-line commitment (expected to be the common case for WCM's small-trade volume).**
+> Given a commitment id + an amount for this period + a retainage rate (a parameter you're told,
+> never a default you assume — including 10%, don't hardcode it): fill Work Completed This Period %/$
+> against that one SOV line, Total Completed & Stored to Date %/$ as that plus every PRIOR
+> requisition's billed amount on the commitment (pull it from Procore's own history — don't trust
+> anything we tell you about prior periods), and retainage this period = amount × rate. Fully
+> automatic, no human review needed — there's only one place the money can go.
+>
+> **Path 2 — multi-line commitment, with our `line_items` breakdown available** (i.e. `is_sov_formatted`
+> was true). Match each extracted line to the corresponding commitment SOV line by cost code/description.
+> If a line doesn't map cleanly, don't guess — return it as unresolved, the same "never auto-pick an
+> ambiguous match" rule our own commitment matcher already follows. A wrong line assignment on a real
+> financial document is worse than asking.
+>
+> **Path 3 — multi-line commitment, `is_sov_formatted` false (a lump-sum invoice against a detailed
+> SOV).** No safe automatic answer exists. Don't apply the amount to "the first line" or any other
+> guess — this needs manual entry, same as today.
+>
+> Endpoints that already exist for the actual write (`search_procore_api` confirmed these, no dedicated
+> tool wraps either yet): `PATCH requisitions/{requisition_id}/contract_detail_items/{id}` (one line) or
+> `PATCH requisitions/{requisition_id}/bulk_item_update` (all lines at once).
+>
+> Start with Path 1 — it's fully specified, has no open design questions, and is probably most of
+> WCM's actual invoice volume. Paths 2/3 can wait; nothing on our side depends on them yet.
+
 ### The UX rework: no more frozen "Sending…", a movable side panel, and a decoupled status confirmation
 
 Ahmed, using the dashboard for real: *"sending to procore takes a bit too long and the page is frozen to

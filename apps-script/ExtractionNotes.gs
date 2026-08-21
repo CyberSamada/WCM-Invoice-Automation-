@@ -18,7 +18,8 @@ const SEED_EXTRACTION_NOTES = [
   'Vendors\' own job/PO references (formats like "24-146" or "6.1-4") are NOT WCM project numbers. Match projects only against the reference list and aliases provided.',
   'The email subject or an invoice "Subject:/Re:/Project" line often names the job-site address — weigh it heavily when matching the project.',
   'Hyland Centre (project 43) has two subprojects for the same unit 2D: 43.7 "2F (2D - TBC)" is the base/vacant unit and 43.14 "2F (2D - MAC)" is the MAC tenant fit-out. Use 43.14 when the tenant MAC is named; "MAC" alone is not enough, because 43.10 is "RHC - MAC Unit (Dollarama)".',
-  'Progress billings with holdback lines (e.g. "LESS 10% HOLDBACK") are normal construction invoices; the amount due is the total AFTER holdback, including taxes.'
+  'Progress billings with holdback lines (e.g. "LESS 10% HOLDBACK") are normal construction invoices; the amount due is the total AFTER holdback, including taxes.',
+  'Some invoices reference their own Subcontract/PO/Change Order number directly (e.g. "SC-1234-002", "PO# 88213", "CO #3") — extract these (commitment_number/po_number/change_order_number) whenever explicitly printed; a stated commitment number resolves the Procore match unambiguously even when the vendor has several commitments on one project. Most invoices are a simple lump-sum bill with just a total due, NOT a formatted AIA-style Schedule of Values (Item No / Scheduled Value / % Complete / Retainage columns) — only mark is_sov_formatted true when that continuation-sheet structure is genuinely present, and never invent a retainage rate the invoice itself doesn\'t state.'
 ];
 
 let EXTRACTION_NOTES_CACHE_ = null; // per-execution cache — the sheet is read at most once per run

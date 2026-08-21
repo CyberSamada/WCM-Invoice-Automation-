@@ -110,13 +110,23 @@ const CONFIG = {
   LOG_COLUMNS: [
     'Date Processed', 'Date Received', 'Invoice Date', 'Invoice Number', 'Due Date', 'Vendor', 'Project Number', 'Project Name',
     'Subproject Number', 'Subproject Name', 'Amount', 'Currency', 'Status', 'Confidence',
-    'Drive Link', 'Gmail Link', 'Match Note', 'Review Note', 'Row ID', 'Drive File ID'
+    'Drive Link', 'Gmail Link', 'Match Note', 'Review Note', 'Row ID', 'Drive File ID',
+    // Captured when explicitly printed on the invoice (Gemini, GeminiService.gs) — never inferred or
+    // defaulted. Feeds the Procore commitment matcher (a stated Commitment Number resolves unambiguously
+    // even when a vendor has several commitments on one project) and is held here, unconsumed otherwise,
+    // for whenever a Procore-side capability exists to use PO Number / Change Order Number / the
+    // retainage and line-item fields — see HANDOFF.md for why that has to be built on the Procore side.
+    'Commitment Number', 'PO Number', 'Change Order Number', 'SOV Formatted',
+    'Stated Retainage %', 'Stated Retainage Amount', 'Line Items (JSON)'
   ],
   // Columns that must stay LITERAL TEXT so Google Sheets never coerces an ID/code into a date or
   // number — e.g. invoice "3050-4" -> April 3050, or project "06" -> 6. Their whole-column number
   // format is forced to "@" (see SheetService.gs/ensureLogTextFormats_). NEVER add a date column
   // (Invoice Date, Due Date, Date Processed/Received) or Amount here — those are meant to be typed.
-  LOG_TEXT_COLUMNS: ['Invoice Number', 'Project Number', 'Subproject Number', 'Row ID', 'Drive File ID'],
+  LOG_TEXT_COLUMNS: [
+    'Invoice Number', 'Project Number', 'Subproject Number', 'Row ID', 'Drive File ID',
+    'Commitment Number', 'PO Number', 'Change Order Number'
+  ],
 
   // "Feedback" tab — a free-text box on the dashboard, open to any viewer, for reporting issues or
   // suggestions without needing Sheet/Apps Script access. See DashboardServer.gs/submitFeedback.

@@ -44,6 +44,9 @@ function procoreLoadInvoiceRowForMatch_(rowId) {
   const projectNumberIdx = header.indexOf('Project Number');
   const subprojectNumberIdx = header.indexOf('Subproject Number');
   const invoiceNumberIdx = header.indexOf('Invoice Number');
+  // Gemini-extracted, only when the invoice itself states its own subcontract number — see
+  // procoreFindCommitmentForInvoiceRow_ (ProcoreClient.gs) for how this strengthens matching.
+  const commitmentNumberIdx = header.indexOf('Commitment Number');
   if (idIdx === -1) throw new Error('No "Row ID" column in the Invoice Log.');
 
   for (let r = 1; r < values.length; r++) {
@@ -54,7 +57,8 @@ function procoreLoadInvoiceRowForMatch_(rowId) {
         vendor: vendorIdx > -1 ? String(row[vendorIdx] || '').trim() : '',
         projectNumber: projectNumberIdx > -1 ? row[projectNumberIdx] : '',
         subprojectNumber: subprojectNumberIdx > -1 ? row[subprojectNumberIdx] : '',
-        invoiceNumber: invoiceNumberIdx > -1 ? String(row[invoiceNumberIdx] || '').trim() : ''
+        invoiceNumber: invoiceNumberIdx > -1 ? String(row[invoiceNumberIdx] || '').trim() : '',
+        commitmentNumber: commitmentNumberIdx > -1 ? String(row[commitmentNumberIdx] || '').trim() : ''
       };
     }
   }
@@ -198,11 +202,14 @@ function procoreSaveCommitmentMatch_(entry) {
 
 /**
  * Dashboard entry point for the invoice-to-commitment matcher. Given a Row ID, resolves the Procore
- * project from the row's own WCM Project Number, then the commitment from its Vendor. Checks the
- * Procore Commitment Map FIRST — a previously confirmed vendor+project pairing resolves instantly
- * with no Procore call at all. On a fresh (uncached) match with exactly ONE candidate, the pairing is
- * saved immediately (Ahmed, 2026-08-20: "if only 1, assign directly" — nothing to pick, so nothing to
- * wait on); more than one candidate is left unsaved for confirmProcoreCommitmentPick to decide.
+ * project from the row's own WCM Project Number, then the commitment — from a stated Commitment
+ * Number when the invoice printed one (procoreFindCommitmentForInvoiceRow_ tries this first; it
+ * resolves unambiguously even when the vendor has several commitments on the project), falling back
+ * to Vendor when no number was given or none matched. Checks the Procore Commitment Map FIRST — a
+ * previously confirmed vendor+project pairing resolves instantly with no Procore call at all. On a
+ * fresh (uncached) match with exactly ONE candidate, the pairing is saved immediately (Ahmed,
+ * 2026-08-20: "if only 1, assign directly" — nothing to pick, so nothing to wait on); more than one
+ * candidate is left unsaved for confirmProcoreCommitmentPick to decide.
  *
  * READ-ONLY with respect to Procore and the Invoice Log — the only write this can ever make is
  * appending to the Procore Commitment Map, which is the point of the whole crosswalk. Gated the same
@@ -247,7 +254,7 @@ function matchInvoiceToProcoreCommitment(rowId) {
   }
 
   const result = procoreFindCommitmentForInvoiceRow_(
-    { vendor: invoice.vendor, projectNumber: matchProjectNumber },
+    { vendor: invoice.vendor, projectNumber: matchProjectNumber, commitmentNumber: invoice.commitmentNumber },
     'all'
   );
 
