@@ -1020,13 +1020,35 @@ still has the record (no duplicate POST); the same fix proven on the Direct Cost
 `procoreConfirmExistingSendStillExists_` fails safe to "still exists" when the logged row is missing a
 Project ID, a Requisition ID, or carries an unrecognized Record Type.
 
-**Also flagged, not yet acted on:** a real created Subcontractor Invoice's billing fields (Work
-Completed This Period %, Total Completed & Stored to Date %, Work Retainage This Period %, Retainage
-Released %, Total Materials Retainage %) come back empty — Ahmed noted "Retainage always typical 10%."
-The other session's `create_subcontractor_invoice_draft` tool documents these as deliberately
-human-filled, "because getting them wrong produces an invoice with wrong numbers" — so before this repo
-automates any of them, that's a decision for Ahmed to make explicitly (auto-fill 10% retainage vs. leave
-every one of these fields manual), not something to default silently. Still open.
+**Billing % fields, revisited 2026-08-21 — confirmed this repo genuinely cannot fill them, an MCP-side
+handoff was drafted.** A real created Subcontractor Invoice's billing fields (Work Completed This Period
+%, Total Completed & Stored to Date %, Work Retainage This Period %, Retainage Released %, Total
+Materials Retainage %) still come back empty. Root cause, confirmed by reading our own create call:
+`procoreCreateSubcontractorInvoice_` (`ProcoreClient.gs`) sends `{project_id, commitment_id, requisition:
+{status, invoice_number, billing_date}}` — no dollar amount, no line item, nothing for Procore to base a
+percentage on. Procore auto-generates the requisition's detail lines from the commitment's SOV and
+leaves every $/% field at zero.
+
+Ahmed asked whether Gemini (our own PDF extraction) or the Procore MCP side should be the one to decide
+these. **It has to be the MCP side — not a preference, a hard constraint**: the percentage math needs
+(a) the SOV line item's total scheduled value and (b) the SUM already billed on every PRIOR requisition
+against that same commitment. Neither exists anywhere in the invoice PDF or in this repo's own data —
+both live only in Procore. Gemini's only possible contribution is "amount billed this period," which
+this repo already extracts and already has (the Amount column) — there's nothing further for it to read
+off the PDF that would help, which matches what Ahmed already suspected ("the invoice format is not
+suitable to read as percentage").
+
+A concrete handoff was drafted (delivered to Ahmed to relay, per the standing "draft a handoff, don't
+build for the MCP" rule) pointing at endpoints `search_procore_api` confirms exist for exactly this:
+`PATCH requisitions/{requisition_id}/contract_detail_items/{id}` (one line) or
+`PATCH requisitions/{requisition_id}/bulk_item_update` (all lines at once) — neither currently has a
+dedicated MCP tool. Retainage rate (10%, per Ahmed) should be a parameter the tool takes, not something
+hardcoded on either side. **Open question the handoff explicitly does NOT resolve — flagged back to
+Ahmed instead of guessed at**: when a commitment has more than one SOV line item, which line does a
+single lump invoice amount apply to? The current sandbox's dummy SOV setup (one line per commitment,
+sized to match) sidesteps this; a real commitment with multiple cost-code lines would need either an
+"always one line" rule or a way for the invoice to specify which cost code, and nobody has decided that
+yet. Still open — this file's job is to remember that it's open, not to pick an answer nobody asked for.
 
 ### The UX rework: no more frozen "Sending…", a movable side panel, and a decoupled status confirmation
 
