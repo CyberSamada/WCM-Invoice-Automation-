@@ -490,6 +490,63 @@ function procoreFindCommitmentForInvoice_(projectId, vendorName, kind) {
   };
 }
 
+/** Normalizes a commitment/PO number for comparison — trim + collapse internal whitespace + uppercase
+ *  — so "sc-1234-002", " SC-1234-002 ", and "SC-1234-002" all resolve to the same commitment. */
+function procoreCommitmentNumberKey_(value) {
+  return String(value == null ? '' : value).trim().replace(/\s+/g, ' ').toUpperCase();
+}
+
+/**
+ * Finds the commitment(s) on a project whose OWN number matches an identifier the invoice itself
+ * printed (its subcontract/PO number, extracted by Gemini — see GeminiService.gs's commitment_number
+ * field). A much stronger signal than vendor-name matching when the sub bothers to reference it: it
+ * resolves unambiguously even when the vendor has several commitments on the same project, which is
+ * exactly the case procoreFindCommitmentForInvoice_ has to punt to a human on. Same "never guess on
+ * ambiguity" shape as that function.
+ *
+ * @param {number} projectId
+ * @param {string} commitmentNumber
+ * @param {string} [kind] - 'all' (default), 'subcontracts', or 'purchase_orders'.
+ * @return {{matched: true, commitmentId: number, commitmentTitle: string, commitmentNumber: string,
+ *           commitmentKind: string, vendorName: string}
+ *          | {matched: false, reason: string, candidates: (Array|undefined)}}
+ */
+function procoreFindCommitmentByNumber_(projectId, commitmentNumber, kind) {
+  const wantKey = procoreCommitmentNumberKey_(commitmentNumber);
+  if (!wantKey) {
+    return { matched: false, reason: 'No commitment number was given.' };
+  }
+
+  const commitments = procoreListProjectCommitments_(projectId, kind || 'all');
+  const hits = commitments.filter(c => procoreCommitmentNumberKey_(c.number) === wantKey);
+
+  if (hits.length === 0) {
+    return { matched: false, reason: `No commitment numbered "${commitmentNumber}" on Procore project ${projectId}.` };
+  }
+  if (hits.length > 1) {
+    const list = hits.map(h => `${h.title} (${h.kind} ${h.number}, id ${h.id})`).join(', ');
+    return {
+      matched: false,
+      reason: `${hits.length} commitments on Procore project ${projectId} share the number "${commitmentNumber}": ${list}. Ambiguous — resolve which one before sending.`,
+      candidates: hits.map(h => ({
+        commitmentId: h.id,
+        commitmentTitle: h.title,
+        commitmentNumber: h.number,
+        commitmentKind: h.kind,
+        vendorName: h.vendorName
+      }))
+    };
+  }
+  return {
+    matched: true,
+    commitmentId: hits[0].id,
+    commitmentTitle: hits[0].title,
+    commitmentNumber: hits[0].number,
+    commitmentKind: hits[0].kind,
+    vendorName: hits[0].vendorName
+  };
+}
+
 /**
  * All projects in the configured Procore company — GET projects?company_id=..., walked with
  * page/per_page like procoreListProjectVendors_. `company_id` is a required query param on this
@@ -562,25 +619,68 @@ function procoreFindProjectByNumber_(wcmProjectNumber) {
  * show the right fix ("this project isn't in Procore yet" reads very differently from "this vendor
  * has no commitment on a project Procore does know about").
  *
- * @param {{vendor: string, projectNumber: (string|number)}} invoice - shape matches what
- *   listInvoicesByStatus (Setup.gs) already returns per row (vendor, projectNumber, ...).
- * @param {string} [kind] - forwarded to procoreFindCommitmentForInvoice_; 'all' (default),
- *   'subcontracts', or 'purchase_orders'.
- * @return {{matched: true, projectId: number, projectName: string, commitmentId: number,
- *           commitmentTitle: string, commitmentNumber: string, commitmentKind: string, vendorName: string}
+ * @param {{vendor: string, projectNumber: (string|number), commitmentNumber: (string|undefined)}} invoice
+ *   - shape matches what listInvoicesByStatus (Setup.gs) already returns per row (vendor,
+ *   projectNumber, ...), extended with the optional commitmentNumber Gemini extracts when the invoice
+ *   states its own subcontract/PO number (GeminiService.gs's commitment_number field). When present,
+ *   tried FIRST via procoreFindCommitmentByNumber_ — a stated number resolves unambiguously even when
+ *   the vendor has several commitments on this project; vendor matching is the fallback, not the
+ *   primary path, whenever a number was given and actually found something (matched OR ambiguous).
+ * @param {string} [kind] - forwarded to procoreFindCommitmentForInvoice_/procoreFindCommitmentByNumber_;
+ *   'all' (default), 'subcontracts', or 'purchase_orders'.
+ * @return {{matched: true, matchMethod: ('commitment_number'|'vendor'), projectId: number, projectName: string,
+ *           commitmentId: number, commitmentTitle: string, commitmentNumber: string, commitmentKind: string,
+ *           vendorName: string}
  *          | {matched: false, stage: 'project'|'commitment', reason: string, candidates: (Array|undefined),
  *             projectId: (number|undefined), projectName: (string|undefined)}}
- *   `candidates` is only present when stage is 'commitment' and the vendor matched more than one —
- *   see procoreFindCommitmentForInvoice_. Absent (not an empty array) on every other failure, so a
- *   caller can tell "ambiguous, here's the list" apart from "no match at all" with one truthy check.
- *   `projectId`/`projectName` are present whenever the project stage succeeded (i.e. always, on a
- *   `stage: 'commitment'` failure) — so a caller resolving an ambiguous pick doesn't have to re-run
- *   the project lookup just to confirm which project the chosen commitment is on.
+ *   `candidates` is only present when stage is 'commitment' and the match was ambiguous — either
+ *   several commitments shared the stated commitment number, or (no number given, or none matched)
+ *   the vendor matched more than one — see procoreFindCommitmentByNumber_/procoreFindCommitmentForInvoice_.
+ *   Absent (not an empty array) on every other failure, so a caller can tell "ambiguous, here's the
+ *   list" apart from "no match at all" with one truthy check. `projectId`/`projectName` are present
+ *   whenever the project stage succeeded (i.e. always, on a `stage: 'commitment'` failure) — so a
+ *   caller resolving an ambiguous pick doesn't have to re-run the project lookup just to confirm which
+ *   project the chosen commitment is on.
  */
 function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
   const projectResult = procoreFindProjectByNumber_(invoice.projectNumber);
   if (!projectResult.matched) {
     return { matched: false, stage: 'project', reason: projectResult.reason };
+  }
+
+  // A commitment/subcontract number printed on the invoice itself (Gemini's commitment_number field)
+  // is a stronger signal than vendor matching — it resolves unambiguously even when the vendor has
+  // several commitments on this project, which is exactly the case vendor-only matching has to punt
+  // to a human on. Tried first when present; a clean match OR a genuine ambiguity among commitments
+  // sharing that number is returned as-is rather than silently falling back to a DIFFERENT strategy
+  // (vendor) that might resolve differently and mask a real data problem. Only a clean "not found" (no
+  // candidates at all) falls through to vendor matching below.
+  if (invoice.commitmentNumber) {
+    const byNumber = procoreFindCommitmentByNumber_(projectResult.projectId, invoice.commitmentNumber, kind);
+    if (byNumber.matched) {
+      return {
+        matched: true,
+        matchMethod: 'commitment_number',
+        projectId: projectResult.projectId,
+        projectName: projectResult.projectName,
+        commitmentId: byNumber.commitmentId,
+        commitmentTitle: byNumber.commitmentTitle,
+        commitmentNumber: byNumber.commitmentNumber,
+        commitmentKind: byNumber.commitmentKind,
+        vendorName: byNumber.vendorName
+      };
+    }
+    if (byNumber.candidates) {
+      return {
+        matched: false,
+        stage: 'commitment',
+        reason: byNumber.reason,
+        projectId: projectResult.projectId,
+        projectName: projectResult.projectName,
+        candidates: byNumber.candidates
+      };
+    }
+    // else: no commitment carries that number at all — fall through to vendor matching.
   }
 
   const commitmentResult = procoreFindCommitmentForInvoice_(projectResult.projectId, invoice.vendor, kind);
@@ -598,6 +698,7 @@ function procoreFindCommitmentForInvoiceRow_(invoice, kind) {
 
   return {
     matched: true,
+    matchMethod: 'vendor',
     projectId: projectResult.projectId,
     projectName: projectResult.projectName,
     commitmentId: commitmentResult.commitmentId,

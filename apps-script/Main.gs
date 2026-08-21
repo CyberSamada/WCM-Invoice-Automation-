@@ -225,7 +225,14 @@ function processOneInvoice_(pdfBlob, emailDate, referenceRows, aliasRows, thread
     'Drive Link': driveLink,
     'Gmail Link': threadLink,
     'Match Note': extracted.match_reasoning || '',
-    'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon }), memoryNote)
+    'Review Note': appendNote_(buildReviewNote_(status, extracted, { passesRuleCheck, isHighConfidence, overDollarThreshold, dueSoon }), memoryNote),
+    'Commitment Number': extracted.commitment_number || '',
+    'PO Number': extracted.po_number || '',
+    'Change Order Number': extracted.change_order_number || '',
+    'SOV Formatted': extracted.is_sov_formatted ? 'Yes' : 'No',
+    'Stated Retainage %': extracted.stated_retainage_percent === '' ? '' : extracted.stated_retainage_percent,
+    'Stated Retainage Amount': extracted.stated_retainage_amount === '' ? '' : extracted.stated_retainage_amount,
+    'Line Items (JSON)': (extracted.line_items && extracted.line_items.length) ? JSON.stringify(extracted.line_items) : ''
   });
 
   // Register this now-filed invoice so a later copy (this run or a future one) is recognized as a
@@ -276,7 +283,14 @@ function logDuplicateRow_(extracted, emailDate, originalEntry, threadLink) {
     'Drive Link': originalEntry.driveLink || '',   // points at the ORIGINAL filed copy, not a new file
     'Drive File ID': originalEntry.driveFileId || '',
     'Gmail Link': threadLink,
-    'Review Note': `Received again${receivedStr ? ' on ' + receivedStr : ''} — already filed previously; not re-filed. The file link points to the original copy in Drive.`
+    'Review Note': `Received again${receivedStr ? ' on ' + receivedStr : ''} — already filed previously; not re-filed. The file link points to the original copy in Drive.`,
+    'Commitment Number': extracted.commitment_number || '',
+    'PO Number': extracted.po_number || '',
+    'Change Order Number': extracted.change_order_number || '',
+    'SOV Formatted': extracted.is_sov_formatted ? 'Yes' : 'No',
+    'Stated Retainage %': extracted.stated_retainage_percent === '' ? '' : extracted.stated_retainage_percent,
+    'Stated Retainage Amount': extracted.stated_retainage_amount === '' ? '' : extracted.stated_retainage_amount,
+    'Line Items (JSON)': (extracted.line_items && extracted.line_items.length) ? JSON.stringify(extracted.line_items) : ''
   });
 }
 

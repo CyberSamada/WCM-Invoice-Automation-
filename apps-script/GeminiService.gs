@@ -101,6 +101,34 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
       confidence: {
         type: 'number', minimum: 0, maximum: 1,
         description: 'Confidence (0-1) the project/subproject match is correct, using the evidence-based rubric given in the prompt (0.9+ explicit match, 0.75-0.89 strong inference, 0.5-0.74 moderate/ambiguous, below 0.5 weak, 0 when project_number is "UNKNOWN"). Base it on the strength of the evidence found, not general confidence in the answer.'
+      },
+      // Procore-billing fields — captured only when EXPLICITLY printed on the invoice, never inferred
+      // or defaulted (see the prompt section on these). Not used for project/subproject matching;
+      // consumed downstream by the Procore commitment matcher (commitment_number) and held for later
+      // Procore-side billing automation (everything else) — see HANDOFF.md.
+      commitment_number: { type: 'string', nullable: true, description: 'The subcontract/commitment number the vendor references on the invoice (e.g. "SC-1234-002", "Subcontract #4471"), if explicitly printed. Null when not stated — never guess or invent one.' },
+      po_number: { type: 'string', nullable: true, description: 'The purchase order number referenced on the invoice (e.g. "PO# 88213", "P.O. 4471"), if explicitly printed. Null when not stated.' },
+      change_order_number: { type: 'string', nullable: true, description: 'The change order / change event number the invoice bills against (e.g. "CO #3", "Change Order 12"), if explicitly printed. Null when not stated — most invoices bill the base contract and have none.' },
+      is_sov_formatted: {
+        type: 'boolean',
+        description: 'True ONLY when the invoice itself is a formatted AIA-style progress billing with a Schedule of Values / Continuation Sheet — columns like Item No, Description, Scheduled Value, Work Completed This Period, % Complete, Materials Stored, Retainage. An ordinary invoice with just a total due (the common case) is NOT SOV-formatted — default to false; do not set true just because the invoice mentions a percentage or a retainage line in passing.'
+      },
+      stated_retainage_percent: { type: 'number', nullable: true, description: 'The retainage percentage EXPLICITLY printed on the invoice (e.g. "Less Retainage 10%" -> 10), if present. Null when the invoice does not state one — never assume a default rate.' },
+      stated_retainage_amount: { type: 'number', nullable: true, description: 'The retainage dollar amount explicitly stated/withheld on the invoice, if present. Null when not stated.' },
+      line_items: {
+        type: 'array',
+        nullable: true,
+        description: 'ONLY when is_sov_formatted is true: one entry per row of the invoice\'s own Schedule of Values / continuation sheet. Leave this an empty array for an ordinary invoice — never invent a single-line breakdown for one that has no itemized schedule.',
+        items: {
+          type: 'object',
+          properties: {
+            description: { type: 'string', description: 'The line item description/scope as printed.' },
+            amount_this_period: { type: 'number', description: 'Dollar amount billed this period for this line.' },
+            percent_this_period: { type: 'number', nullable: true, description: 'Percent complete this period for this line, if stated.' },
+            percent_complete_to_date: { type: 'number', nullable: true, description: 'Cumulative percent complete to date for this line, if stated.' }
+          },
+          required: ['description', 'amount_this_period']
+        }
       }
     },
     required: ['document_type', 'vendor_name', 'invoice_date', 'amount', 'currency', 'project_number', 'subproject_number', 'match_reasoning', 'confidence']
@@ -156,6 +184,24 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
     `- "statement": an account statement summarizing multiple past transactions or an aging balance, not one ` +
     `specific new bill.\n` +
     `- "other": anything else — banking/payment info updates, paid receipts, marketing or informational emails, etc.\n\n` +
+    `Also extract, ONLY when explicitly present on the invoice — never invent or infer any of these:\n` +
+    `- commitment_number: a subcontract/commitment number the vendor references (e.g. "SC-1234-002", ` +
+    `"Subcontract #4471").\n` +
+    `- po_number: a purchase order number referenced (e.g. "PO# 88213", "P.O. 4471").\n` +
+    `- change_order_number: a change order / change event number the invoice bills against (e.g. ` +
+    `"CO #3", "Change Order 12") — most invoices bill the base contract and have none.\n` +
+    `- is_sov_formatted: true ONLY when the invoice itself is a formatted AIA-style progress billing ` +
+    `with a Schedule of Values / Continuation Sheet — columns like Item No, Description, Scheduled ` +
+    `Value, Work Completed This Period, % Complete, Materials Stored, Retainage. An ordinary invoice ` +
+    `with just a total due (the common case, especially for small trades) is NOT SOV-formatted — ` +
+    `default to false, don't set true just because a percentage or retainage line appears somewhere.\n` +
+    `- stated_retainage_percent / stated_retainage_amount: the retainage percentage/dollar amount ` +
+    `EXPLICITLY printed on the invoice (e.g. "Less Retainage 10%"). Leave both null when the invoice ` +
+    `doesn't state one — never assume a default rate.\n` +
+    `- line_items: ONLY when is_sov_formatted is true, one entry per row of the actual Schedule of ` +
+    `Values / continuation sheet (description, amount billed this period, and percent this period / ` +
+    `percent complete to date when shown). Leave this an empty array for every other invoice — never ` +
+    `invent a single-line breakdown to fill it.\n\n` +
     `Then read the document and extract the requested fields regardless of document_type ` +
     `(make your best guess for fields that don't clearly apply when it isn't an invoice). ` +
     ((CONFIG.OWN_BILLING_IDENTIFIERS && CONFIG.OWN_BILLING_IDENTIFIERS.length)
@@ -254,6 +300,16 @@ function extractAndMatchInvoice_(pdfBlob, referenceRows, aliasRows, emailDate) {
   // Safety net on top of the prompt rule: never leave currency blank/garbage as USD by accident.
   // A missing or unrecognizable value defaults to CAD; a real USD stays USD. See normalizeCurrency_.
   parsed.currency = normalizeCurrency_(parsed.currency);
+  // Normalize the new Procore-billing fields to consistent types regardless of whether Gemini omitted
+  // a non-required key entirely or returned it as null — downstream code (Main.gs, ProcoreSend.gs)
+  // should never have to check for both shapes.
+  parsed.commitment_number = String(parsed.commitment_number || '').trim();
+  parsed.po_number = String(parsed.po_number || '').trim();
+  parsed.change_order_number = String(parsed.change_order_number || '').trim();
+  parsed.is_sov_formatted = !!parsed.is_sov_formatted;
+  parsed.stated_retainage_percent = (parsed.stated_retainage_percent == null) ? '' : parsed.stated_retainage_percent;
+  parsed.stated_retainage_amount = (parsed.stated_retainage_amount == null) ? '' : parsed.stated_retainage_amount;
+  parsed.line_items = Array.isArray(parsed.line_items) ? parsed.line_items : [];
   return parsed;
 }
 
