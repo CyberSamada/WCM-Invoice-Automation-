@@ -391,6 +391,17 @@
     .icon-btn:hover { color: var(--wcm-blue-dark); }
     .modal-overlay { position: fixed; inset: 0; background: rgba(17, 24, 39, 0.45); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 16px; }
     .modal-box { background: var(--surface); border-radius: 10px; padding: 20px 24px; width: 420px; max-width: 100%; box-shadow: 0 10px 40px rgba(0,0,0,0.25); }
+
+    /* Send to Procore side panel — deliberately NOT a blocking modal-overlay. A send is a real
+       background task (one Procore call per invoice) that can take a while; a coordinator should be
+       able to keep filtering/scrolling/opening other invoices while it runs, not stare at a frozen
+       backdrop. No full-screen scrim and pointer-events:none on the wrapper so clicks pass through to
+       the page everywhere except the panel itself. */
+    .side-panel-overlay { position: fixed; inset: 0; z-index: 1000; display: flex; justify-content: flex-end; pointer-events: none; }
+    .side-panel-overlay.active { display: flex; }
+    .side-panel { pointer-events: auto; width: 420px; max-width: 92vw; height: 100%; background: var(--surface); box-shadow: -6px 0 24px rgba(0,0,0,0.2); overflow-y: auto; padding: 20px 22px; display: flex; flex-direction: column; box-sizing: border-box; transform: translateX(100%); transition: transform 0.2s ease-out; }
+    .side-panel-overlay.active .side-panel { transform: translateX(0); }
+    .side-panel h3 { margin: 0 0 4px; font-size: 15px; }
     .modal-box h3 { margin: 0 0 4px; font-size: 15px; }
     .modal-subtitle { font-size: 12px; color: var(--text-muted); margin: 0 0 14px; }
     .modal-field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
@@ -1537,6 +1548,17 @@
                 <p class="modal-error" id="procoreSendError"></p>
                 <p id="procoreSendSuccess" style="display:none; color:#2b6e4d; font-size:13px; margin-top:6px; font-weight:600"></p>
               </div>
+              <!-- Second confirmation, same "sending and marking are two separate yeses" reasoning as
+                   the bulk panel (see procoreBulkMarkWrap) — shown once a real, non-alreadySent send
+                   succeeds. -->
+              <div id="procoreMarkSentWrap" style="display:none; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
+                <p style="font-size:13px; margin:0 0 6px" id="procoreMarkSentText"></p>
+                <div style="display:flex; gap:8px">
+                  <button type="button" class="btn-primary" id="procoreMarkSentYesBtn">Yes, mark as In Procore</button>
+                  <button type="button" class="btn-secondary" id="procoreMarkSentNoBtn">Not yet</button>
+                </div>
+                <p class="modal-error" id="procoreMarkSentError"></p>
+              </div>
               <div style="display:flex; gap:8px; margin-top:8px">
                 <button type="button" class="btn-secondary" id="procoreMatchCloseBtn">Close</button>
               </div>
@@ -1735,19 +1757,38 @@
   <!-- Bulk "Send to Procore": a review list first, one row per selected invoice with its OWN
        Subcontractor Invoice / Direct Cost choice (Ahmed, 2026-08-20: "I selected 3, 2 goes into
        invoice, 1 should go into direct cost") — not a single choice for the whole batch. Confirming
-       sends each per its own choice; a Subcontractor Invoice row is still matched first (cached
-       instantly if this vendor+project pair was confirmed before) and an ambiguous vendor is reported
-       under "needs a manual pick" rather than blocking the rest — see sendInvoicesToProcoreBulk
-       (ProcoreSend.gs). A Direct Cost row skips matching entirely; it only needs the vendor to exist
-       in Procore's directory. -->
-  <div class="modal-overlay" id="procoreBulkModalOverlay" style="display:none">
-    <div class="modal-box" style="max-width:560px">
+       sends each per its own choice, one invoice at a time (see doProcoreBulkSend in the script block)
+       — a Subcontractor Invoice row is still matched first (cached instantly if this vendor+project
+       pair was confirmed before) and an ambiguous vendor is reported under "needs a manual pick" rather
+       than blocking the rest. A Direct Cost row skips matching entirely; it only needs the vendor to
+       exist in Procore's directory.
+       A SIDE PANEL, not a blocking modal-overlay (Ahmed, 2026-08-21: "when sent, the panel moves to the
+       side, and the user can still scroll around") — sending a batch is real per-invoice network work
+       that can take a while, and a coordinator should be able to keep working the dashboard while it
+       runs rather than stare at a frozen backdrop. See the .side-panel-overlay rule (near .modal-box)
+       for why the backdrop itself doesn't block clicks. -->
+  <div class="side-panel-overlay" id="procoreBulkModalOverlay" style="display:none">
+    <div class="side-panel">
       <h3>Send to Procore</h3>
       <p class="modal-subtitle" id="procoreBulkModalSubtitle"></p>
       <div id="procoreBulkReview" style="max-height:320px; overflow-y:auto; margin-top:4px"></div>
       <p class="modal-error" id="procoreBulkModalError"></p>
       <p class="bulk-progress-text" id="procoreBulkStatus" style="min-height:16px"></p>
       <div id="procoreBulkResults" style="display:none; max-height:260px; overflow-y:auto; margin-top:8px; font-size:13px"></div>
+      <!-- The second confirmation (Ahmed, 2026-08-21: "give a yes no option, mark invoices
+           successfully sent as in Procore") — shown only once the send loop finishes and only when at
+           least one invoice actually went through (not for alreadySent/skipped/failed rows). Kept
+           separate from the send itself so a create that succeeded but didn't attach its PDF (a live,
+           confirmed Procore bug — see HANDOFF.md) is something a coordinator sees and can act on before
+           the row is marked done, not something the send silently decides for them. -->
+      <div id="procoreBulkMarkWrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
+        <p style="font-size:13px; margin:0 0 8px" id="procoreBulkMarkText"></p>
+        <div style="display:flex; gap:8px">
+          <button type="button" class="btn-primary" id="procoreBulkMarkYesBtn">Yes, mark as In Procore</button>
+          <button type="button" class="btn-secondary" id="procoreBulkMarkNoBtn">Not yet</button>
+        </div>
+        <p class="modal-error" id="procoreBulkMarkError"></p>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn-secondary" id="procoreBulkCloseBtn">Close</button>
         <button type="button" class="btn-primary" id="procoreBulkConfirmBtn">Send to Procore</button>
@@ -3286,6 +3327,7 @@
 
     function hideProcoreSend() {
       document.getElementById('procoreSendWrap').style.display = 'none';
+      document.getElementById('procoreMarkSentWrap').style.display = 'none';
     }
 
     function sendProcoreInvoice() {
@@ -3295,6 +3337,7 @@
       var successEl = document.getElementById('procoreSendSuccess');
       errorEl.textContent = '';
       successEl.style.display = 'none';
+      document.getElementById('procoreMarkSentWrap').style.display = 'none';
       btn.disabled = true;
       btn.textContent = 'Sending…';
 
@@ -3306,6 +3349,7 @@
             successEl.style.display = '';
             successEl.textContent = '✓ ' + res.message;
             btn.style.display = 'none'; // sent — nothing left to do from this panel
+            if (!res.alreadySent) showProcoreMarkSentPrompt('single', [previewRowId]);
           } else {
             errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
           }
@@ -3318,16 +3362,94 @@
         .sendInvoiceToProcore(previewRowId);
     }
 
+    // The "mark as In Procore?" confirmation shared by the single-invoice and bulk send flows — same
+    // question, two different panels (procoreMatchBlock's inline wrap vs. the bulk side panel's own),
+    // so this is parameterized by `scope` rather than copy-pasted twice. PROCORE_MARK_EL maps each
+    // scope to its element ids; PROCORE_PENDING_MARK holds the row IDs a Yes click for that scope
+    // should flip, set right before the prompt is shown.
+    var PROCORE_MARK_EL = {
+      single: { wrap: 'procoreMarkSentWrap', text: 'procoreMarkSentText', yes: 'procoreMarkSentYesBtn', no: 'procoreMarkSentNoBtn', error: 'procoreMarkSentError' },
+      bulk: { wrap: 'procoreBulkMarkWrap', text: 'procoreBulkMarkText', yes: 'procoreBulkMarkYesBtn', no: 'procoreBulkMarkNoBtn', error: 'procoreBulkMarkError' }
+    };
+    var PROCORE_PENDING_MARK = {};
+
+    function showProcoreMarkSentPrompt(scope, rowIds) {
+      var ids = PROCORE_MARK_EL[scope];
+      PROCORE_PENDING_MARK[scope] = rowIds;
+      document.getElementById(ids.text).textContent =
+        'Mark ' + (rowIds.length === 1 ? 'this invoice' : rowIds.length + ' invoices') + ' as In Procore in the log?';
+      document.getElementById(ids.error).textContent = '';
+      var yesBtn = document.getElementById(ids.yes);
+      var noBtn = document.getElementById(ids.no);
+      yesBtn.disabled = false;
+      noBtn.disabled = false;
+      yesBtn.textContent = 'Yes, mark as In Procore';
+      document.getElementById(ids.wrap).style.display = '';
+    }
+
+    function dismissProcoreMarkSent(scope) {
+      document.getElementById(PROCORE_MARK_EL[scope].wrap).style.display = 'none';
+    }
+
+    // Patches ALL_RECORDS from markProcoreSentInvoices' own return value — never guesses a display
+    // status string client-side (CLAUDE.md's stored-vs-displayed trap) — then refreshes the table.
+    function applyProcoreMarkResult_(res) {
+      (res.updated || []).forEach(function (u) {
+        var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === u.rowId; });
+        if (idx > -1 && u.row) Object.assign(ALL_RECORDS[idx], u.row);
+      });
+      applyFilters({ keepPage: true });
+    }
+
+    function doMarkProcoreSent(scope) {
+      var ids = PROCORE_MARK_EL[scope];
+      var rowIds = PROCORE_PENDING_MARK[scope] || [];
+      if (!rowIds.length) return;
+      var yesBtn = document.getElementById(ids.yes);
+      var noBtn = document.getElementById(ids.no);
+      var errorEl = document.getElementById(ids.error);
+      errorEl.textContent = '';
+      yesBtn.disabled = true;
+      noBtn.disabled = true;
+      yesBtn.textContent = 'Marking…';
+
+      google.script.run
+        .withSuccessHandler(function (res) {
+          yesBtn.disabled = false;
+          noBtn.disabled = false;
+          yesBtn.textContent = 'Yes, mark as In Procore';
+          if (!res || !res.ok) {
+            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong marking these as sent.';
+            return;
+          }
+          applyProcoreMarkResult_(res);
+          if (res.errors && res.errors.length) {
+            errorEl.textContent = res.errors.length + ' row' + (res.errors.length === 1 ? '' : 's') + ' could not be marked — see the Apps Script execution log.';
+            return;
+          }
+          document.getElementById(ids.wrap).style.display = 'none';
+        })
+        .withFailureHandler(function (err) {
+          yesBtn.disabled = false;
+          noBtn.disabled = false;
+          yesBtn.textContent = 'Yes, mark as In Procore';
+          errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
+        })
+        .markProcoreSentInvoices(rowIds);
+    }
+
     // --- Bulk send to Procore (multi-select bar) --------------------------------------------------
-    // Matches + sends every selected invoice in one call (sendInvoicesToProcoreBulk, ProcoreSend.gs).
-    // Ambiguous vendors are reported, not auto-picked — resolve those individually from their own
-    // preview panel's "Send to Procore…" button, then re-run the bulk send to pick up the rest.
+    // Matches + sends every selected invoice ONE AT A TIME (sendProcoreInvoiceItem, ProcoreSend.gs —
+    // see doProcoreBulkSend below), not one big server call, so the panel can show live per-item
+    // progress and never has to freeze the page for the whole batch. Ambiguous vendors are reported,
+    // not auto-picked — resolve those individually from their own preview panel's "Send to Procore…"
+    // button, then re-run the bulk send to pick up the rest.
 
     // One row per selected invoice, each with its own Subcontractor Invoice / Direct Cost choice —
     // defaults to Subcontractor Invoice (the more specific record when a commitment exists), switch
     // individual rows to Direct Cost as needed before confirming. Built from ALL_RECORDS (already
     // loaded client-side) rather than a round trip, since this is just display — the real per-invoice
-    // work happens server-side in sendInvoicesToProcoreBulk.
+    // work happens server-side in sendProcoreInvoiceItem, one call per row.
     function renderProcoreBulkReview(ids) {
       var listEl = document.getElementById('procoreBulkReview');
       listEl.innerHTML = '';
@@ -3366,6 +3488,10 @@
       });
     }
 
+    // Mirrors PROCORE_SEND_BULK_MAX_ (ProcoreSend.gs) — checked here since the client, not one big
+    // server call, now decides how many sends to fire.
+    var PROCORE_BULK_SEND_MAX = 25;
+
     function openProcoreBulkModal() {
       var ids = selectedIds();
       if (!ids.length) return;
@@ -3378,18 +3504,22 @@
       var resultsEl = document.getElementById('procoreBulkResults');
       resultsEl.style.display = 'none';
       resultsEl.innerHTML = '';
+      document.getElementById('procoreBulkMarkWrap').style.display = 'none';
       document.getElementById('procoreBulkReview').style.display = '';
       var btn = document.getElementById('procoreBulkConfirmBtn');
       btn.disabled = false;
       btn.style.display = '';
       btn.textContent = 'Send to Procore';
+      document.getElementById('procoreBulkModalOverlay').classList.add('active');
       document.getElementById('procoreBulkModalOverlay').style.display = 'flex';
     }
 
     function closeProcoreBulkModal() {
+      document.getElementById('procoreBulkModalOverlay').classList.remove('active');
       document.getElementById('procoreBulkModalOverlay').style.display = 'none';
-      // A send may have flipped some rows' Status — refresh so the table reflects it without a
-      // full reload, same pattern markDownloadedCaptured already uses.
+      // A mark-as-sent confirmation may have flipped some rows' Status — refresh so the table reflects
+      // it without a full reload, same pattern markDownloadedCaptured already uses. Harmless if nothing
+      // changed (applyFilters is cheap and idempotent).
       applyFilters({ keepPage: true });
     }
 
@@ -3401,71 +3531,98 @@
       return '<div style="margin-top:8px"><strong style="color:' + color + '">' + label + ' (' + entries.length + ')</strong>' + rows + '</div>';
     }
 
+    // Sends every reviewed item ONE AT A TIME (sendProcoreInvoiceItem, ProcoreSend.gs) instead of one
+    // big server call — each round trip is fast, so the status line can update between invoices
+    // ("Sending 3 of 12…") and the panel never has to freeze the page for the whole batch. The panel
+    // is a non-blocking side panel (see .side-panel-overlay), so a coordinator can keep scrolling the
+    // table while this runs.
     function doProcoreBulkSend() {
       var items = procoreBulkReviewItems();
       if (!items.length) return;
+      if (items.length > PROCORE_BULK_SEND_MAX) {
+        document.getElementById('procoreBulkModalError').textContent =
+          items.length + ' invoices selected — Send to Procore is capped at ' + PROCORE_BULK_SEND_MAX + ' per batch. Select fewer, or send in two batches.';
+        return;
+      }
       var btn = document.getElementById('procoreBulkConfirmBtn');
       var errorEl = document.getElementById('procoreBulkModalError');
       var statusEl = document.getElementById('procoreBulkStatus');
       errorEl.textContent = '';
       btn.disabled = true;
       btn.textContent = 'Sending…';
-      statusEl.textContent = 'Matching and sending ' + items.length + ' invoice' + (items.length === 1 ? '' : 's') + '… this can take a while — one real Procore call per invoice.';
       document.getElementById('procoreBulkReview').style.display = 'none'; // choice is locked in once sending starts
 
-      google.script.run
-        .withSuccessHandler(function (res) {
-          statusEl.textContent = '';
-          if (!res || !res.ok) {
-            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
-            btn.disabled = false;
-            btn.textContent = 'Send to Procore';
-            document.getElementById('procoreBulkReview').style.display = ''; // let them adjust and retry
-            return;
-          }
-          btn.style.display = 'none'; // done — Close is the only way out now
-          var html = '';
-          html += procoreBulkResultLine('Sent', '#059669', res.sent, function (e) {
-            var label = e.kind === 'direct_cost' ? 'direct cost' : 'requisition';
-            return '✓ ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' → ' + label + ' ' + e.requisitionId + (e.attached ? '' : ' (PDF not attached — attach by hand)');
-          });
-          html += procoreBulkResultLine('Already sent', '#6b7280', res.alreadySent, function (e) {
-            return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — record ' + e.requisitionId + ' already exists, skipped.';
-          });
-          html += procoreBulkResultLine('Needs a manual pick', '#b45309', res.needsMatch, function (e) {
-            return (e.ambiguous ? '⚠ ' : '✗ ') + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
-          });
-          html += procoreBulkResultLine('Skipped (not eligible)', '#6b7280', res.skipped, function (e) {
-            return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
-          });
-          html += procoreBulkResultLine('Failed', '#b91c1c', res.errors, function (e) {
-            return '✗ ' + (e.vendor || 'Row ' + e.rowId) + (e.invoiceNumber ? ' — Inv# ' + e.invoiceNumber : '') + ' — ' + e.message;
-          });
-          if (res.remaining && res.remaining.length) {
-            html += '<div style="margin-top:8px"><strong style="color:#b45309">Not attempted (' + res.remaining.length + ')</strong>' +
-              '<div style="padding:2px 0">Ran out of time this batch — re-select and send again to pick these up.</div></div>';
-          }
-          var resultsEl = document.getElementById('procoreBulkResults');
-          resultsEl.innerHTML = html || '<div>Nothing to report.</div>';
-          resultsEl.style.display = '';
-          // Patch local records from the server's own updateInvoiceRow return value — same pattern
-          // markDownloadedCaptured uses — never guess a display-status string client-side (CLAUDE.md's
-          // stored-vs-displayed trap). alreadySent rows have no `row` (nothing was re-updated) and are
-          // left as-is; their Status was already correct from whichever send actually flipped it.
-          res.sent.forEach(function (e) {
-            if (!e.row) return;
-            var idx = ALL_RECORDS.findIndex(function (r) { return r.rowId === e.row.rowId; });
-            if (idx > -1) Object.assign(ALL_RECORDS[idx], e.row);
-          });
-        })
-        .withFailureHandler(function (err) {
-          statusEl.textContent = '';
-          btn.disabled = false;
-          btn.textContent = 'Send to Procore';
-          document.getElementById('procoreBulkReview').style.display = '';
-          errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
-        })
-        .sendInvoicesToProcoreBulk(items);
+      var results = { sent: [], alreadySent: [], needsMatch: [], skipped: [], errors: [] };
+      var i = 0;
+
+      function sendNext() {
+        if (i >= items.length) { finishBulkSend(results); return; }
+        var item = items[i];
+        var rec = ALL_RECORDS.find(function (r) { return r.rowId === item.rowId; });
+        statusEl.textContent = 'Sending ' + (i + 1) + ' of ' + items.length + '… (' + (rec ? rec.vendor + ' — Inv# ' + rec.invoiceNumber : 'row ' + item.rowId) + ')';
+        google.script.run
+          .withSuccessHandler(function (res) {
+            classifyProcoreBulkResult_(results, res, item);
+            i++;
+            sendNext();
+          })
+          .withFailureHandler(function (err) {
+            results.errors.push({ rowId: item.rowId, vendor: rec && rec.vendor, invoiceNumber: rec && rec.invoiceNumber, message: (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.' });
+            i++;
+            sendNext();
+          })
+          .sendProcoreInvoiceItem(item.rowId, item.kind);
+      }
+      sendNext();
+    }
+
+    // sendProcoreInvoiceItem returns one discriminated `outcome`; this sorts it into the same buckets
+    // the results panel renders. A missing/malformed response (res falsy) is treated as an error rather
+    // than silently dropped — every attempted item ends up in exactly one bucket.
+    function classifyProcoreBulkResult_(results, res, item) {
+      if (!res || !res.outcome) {
+        results.errors.push({ rowId: item.rowId, message: 'No response — see the Apps Script execution log for detail.' });
+        return;
+      }
+      if (res.outcome === 'sent') results.sent.push(res);
+      else if (res.outcome === 'alreadySent') results.alreadySent.push(res);
+      else if (res.outcome === 'needsMatch') results.needsMatch.push(res);
+      else if (res.outcome === 'skipped') results.skipped.push(res);
+      else results.errors.push(res);
+    }
+
+    function finishBulkSend(results) {
+      var btn = document.getElementById('procoreBulkConfirmBtn');
+      var statusEl = document.getElementById('procoreBulkStatus');
+      statusEl.textContent = '';
+      btn.style.display = 'none'; // done — Close is the only way out of the send step now
+
+      var html = '';
+      html += procoreBulkResultLine('Sent', '#059669', results.sent, function (e) {
+        var label = e.kind === 'direct_cost' ? 'direct cost' : 'requisition';
+        return '✓ ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' → ' + label + ' ' + e.requisitionId + (e.attached ? '' : ' (PDF not attached — attach by hand)');
+      });
+      html += procoreBulkResultLine('Already sent', '#6b7280', results.alreadySent, function (e) {
+        return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — record ' + e.requisitionId + ' already exists, skipped.';
+      });
+      html += procoreBulkResultLine('Needs a manual pick', '#b45309', results.needsMatch, function (e) {
+        return (e.ambiguous ? '⚠ ' : '✗ ') + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
+      });
+      html += procoreBulkResultLine('Skipped (not eligible)', '#6b7280', results.skipped, function (e) {
+        return '• ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' — ' + e.reason;
+      });
+      html += procoreBulkResultLine('Failed', '#b91c1c', results.errors, function (e) {
+        return '✗ ' + (e.vendor || 'Row ' + e.rowId) + (e.invoiceNumber ? ' — Inv# ' + e.invoiceNumber : '') + ' — ' + e.message;
+      });
+      var resultsEl = document.getElementById('procoreBulkResults');
+      resultsEl.innerHTML = html || '<div>Nothing to report.</div>';
+      resultsEl.style.display = '';
+
+      // Second confirmation — only for rows a real send just created (not alreadySent, which never
+      // touched Status here; not needsMatch/skipped/errors, which were never sent at all).
+      if (results.sent.length) {
+        showProcoreMarkSentPrompt('bulk', results.sent.map(function (e) { return e.rowId; }));
+      }
     }
 
     // --- Duplicate merge ------------------------------------------------------------------------
@@ -4730,6 +4887,8 @@
       document.getElementById('procoreBulkCloseBtn').addEventListener('click', closeProcoreBulkModal);
       document.getElementById('procoreBulkConfirmBtn').addEventListener('click', doProcoreBulkSend);
       document.getElementById('procoreBulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeProcoreBulkModal(); });
+      document.getElementById('procoreBulkMarkYesBtn').addEventListener('click', function () { doMarkProcoreSent('bulk'); });
+      document.getElementById('procoreBulkMarkNoBtn').addEventListener('click', function () { dismissProcoreMarkSent('bulk'); });
       document.getElementById('bulkCancelBtn').addEventListener('click', closeBulkModal);
       document.getElementById('bulkApplyBtn').addEventListener('click', applyBulkEdit);
       document.getElementById('bulkModalOverlay').addEventListener('click', function (e) { if (e.target === this) closeBulkModal(); });
@@ -4742,6 +4901,8 @@
       document.getElementById('procoreMatchBtn').addEventListener('click', openProcoreMatchForm);
       document.getElementById('procoreMatchCloseBtn').addEventListener('click', closeProcoreMatchForm);
       document.getElementById('procoreSendBtn').addEventListener('click', sendProcoreInvoice);
+      document.getElementById('procoreMarkSentYesBtn').addEventListener('click', function () { doMarkProcoreSent('single'); });
+      document.getElementById('procoreMarkSentNoBtn').addEventListener('click', function () { dismissProcoreMarkSent('single'); });
       document.getElementById('mergeCancelBtn').addEventListener('click', closeMergeModal);
       document.getElementById('mergeConfirmBtn').addEventListener('click', doMerge);
       document.getElementById('mergeCanon').addEventListener('change', updateMergeSummary);

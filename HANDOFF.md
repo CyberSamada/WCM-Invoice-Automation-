@@ -934,3 +934,158 @@ call, each logged with its own Record Type.
   gaps already documented above. `procore_get` is explicitly read-only and cannot be used to work around
   this. **Needs either a Procore admin adding line items by hand (Commitments → contract → Schedule of
   Values → add line item) or a widened tool surface** — not something to attempt via workarounds.
+
+---
+
+## 12. Live sends unblocked; a confirmed attachment bug; the "Sending…" freeze fixed with a decoupled
+## status confirmation
+
+Standing instruction from this point on, confirmed explicitly by Ahmed: **this Claude session never
+builds or patches the Procore MCP connector's own tools.** When a capability gap needs MCP-side work
+(a new tool, a fix to an existing one), the move is to draft a handoff prompt for Ahmed to relay to
+that other session — not to attempt it here. Several items below followed that pattern.
+
+**§11's open items got resolved, mostly outside this repo:**
+- The **open-billing-period** blocker (§11) — Ahmed opened one on the sandbox project himself.
+- The **SOV-must-be-approved** blocker (discovered live, not previously documented) — the other
+  session shipped `set_subcontractor_sov_status` in response to a drafted handoff; Ahmed approved all
+  five commitments.
+- **Dummy SOV line items** (§11's last item, "confirmed gap, not fixed") — now fixed: the other
+  session shipped `add_commitment_line_item`/`find_cost_codes`, used here to add a line item per
+  commitment matching each real invoice's dollar amount, resolved via `procoreProjectMatchKey_`'s same
+  Subproject-Number-first rule everything else here uses. (One cosmetic side-effect: every commitment's
+  `grand_total` briefly read 2x expected — traced to the OTHER session adding its own verification line
+  item while testing/deploying `set_subcontractor_sov_status`; harmless, not a bug in this repo's work.)
+- **CROSSROADS C & I duplicate vendor** — two company-directory records existed for the same vendor,
+  which is exactly the ambiguity `procoreFindVendorByName_` is supposed to refuse rather than guess.
+  Ahmed fixed it by hand in Procore's UI (Directory → Companies).
+
+**Confirmed, live, real bug — code fixed, but NOT YET RE-VERIFIED LIVE:
+`procoreAttachFileToRequisition_` did not actually attach the PDF.** The `PATCH requisitions/{id}?project_id={id}`
+call with `{"requisition":{"prostore_file_ids":[uuid]}}` returned success, and `sendInvoiceToProcore`
+recorded `attached: true` — but a live check (`GET requisitions/181185`) came back `"attachments": []`.
+The doc comment on that function had said "genuinely unconfirmed against a live requisition" since it
+was written; that live check was the confirmation, and it was negative. No generic write tool existed on
+the Procore MCP surface at the time to experimentally probe the correct request shape (only
+`procore_get`/`search_procore_api`, both read-only), so per the standing instruction above, a handoff was
+drafted for the other session to fix rather than attempted here.
+
+**The other session relayed a schema read back**: `prostore_file_ids` takes integers (existing Prostore
+File IDs), not the upload UUID `procoreUploadFile_`'s two-step upload actually produces — explaining the
+silent no-op exactly. The correct field is `upload_ids` (an array of upload UUID strings, the same UUIDs
+already in hand). One part of that relay didn't hold up when checked against this repo's own code,
+though: it said the old field "only exists on v1.0, which has no UUID field at all," implying the PATCH
+was hitting v1.0 — but `CONFIG.PROCORE_RESOURCE_VERSIONS` already routes `requisitions` to `/rest/v1.1/...`
+and always has; `search_procore_api` also confirms `/rest/v1.1/requisitions/{id}` has a `patch` verb.
+The version was never the problem, only the field name was — worth flagging since the rest of the relay
+was accurate. **Fixed** (`ProcoreClient.gs`): the payload is now `{requisition: {upload_ids: [uuid]}}`.
+Unit-tested (new assertion in the extended harness) that the outgoing PATCH body carries `upload_ids`,
+not `prostore_file_ids`. **Still not independently live-verified from this repo's side** — the sandbox
+project had zero requisitions to test against as of this fix (an earlier PR's test data appears to have
+been cleaned up). **Whoever sends the next real Subcontractor Invoice: check the requisition's
+`attachments` array directly (`GET requisitions/{id}`), don't just trust `attached: true`** from this
+repo's own return value until that's confirmed at least once. Direct Cost attachment
+(`procoreAttachFileToDirectCost_`, raw multipart) is a separate code path and was never implicated by
+this finding.
+
+### The idempotency guard now confirms live against Procore, not just our own log
+
+Ahmed, testing again: deleted the test requisitions/direct costs directly in Procore to re-run a send,
+and got refused with "already sent" anyway. His diagnosis was exactly right: *"I think it looks at a
+log and decides if the invoice is there or not, which is weak."* `procoreFindExistingSend_` only ever
+proved the **Procore Send Log** tab said a row was sent — it had no way to notice the record got deleted
+in Procore afterward, so a legitimate resend (very much a real scenario during sandbox testing, and
+plausible in production too if someone deletes a bad record in Procore directly) was blocked forever.
+
+**Fixed, not just documented — but deliberately NOT the vendor+amount+project search Ahmed proposed.**
+That would trade one weak check for another: NexusSync.gs's own hard-won findings in this same file
+document that vendor+amount matching without an id is genuinely non-unique in real data (11% of the
+time in the real 21k-row export). We already have the exact Procore record id our own prior send
+created, sitting right there in the log — confirming BY ID is simpler and actually authoritative, no
+fuzzy matching required. New: `procoreRequisitionExists_`/`procoreDirectCostExists_` (`ProcoreClient.gs`)
+— a single-item `GET` by id, dispatched from a new `procoreConfirmExistingSendStillExists_`
+(`ProcoreSend.gs`) based on the logged Record Type. `sendInvoiceToProcore`'s existing-send check now
+reads: found in the log AND still confirmed present in Procore → `alreadySent` as before; found in the
+log but Procore 404s → fall through and create a fresh record (the stale log row stays as history, the
+new send appends its own row, so the trail shows both). Fails SAFE toward "still exists" — blocking a
+resend — on anything inconclusive: a missing Project ID on an older log row, an unrecognized Record
+Type, or any Procore response other than a clean 200 or a clean 404 (a 403, a 401, an exhausted-retry
+5xx) is never silently read as "gone," because guessing wrong there risks a silently duplicated
+financial record, which is worse than blocking a resend for a moment.
+
+Unit-tested (extended harness, 120 assertions total): a row whose logged requisition Procore has since
+404'd is allowed to resend and creates a genuinely new record (exactly one live existence-check GET
+made, exactly on the resend); the same guard still correctly blocks a resend when Procore genuinely
+still has the record (no duplicate POST); the same fix proven on the Direct Cost side too; and
+`procoreConfirmExistingSendStillExists_` fails safe to "still exists" when the logged row is missing a
+Project ID, a Requisition ID, or carries an unrecognized Record Type.
+
+**Also flagged, not yet acted on:** a real created Subcontractor Invoice's billing fields (Work
+Completed This Period %, Total Completed & Stored to Date %, Work Retainage This Period %, Retainage
+Released %, Total Materials Retainage %) come back empty — Ahmed noted "Retainage always typical 10%."
+The other session's `create_subcontractor_invoice_draft` tool documents these as deliberately
+human-filled, "because getting them wrong produces an invoice with wrong numbers" — so before this repo
+automates any of them, that's a decision for Ahmed to make explicitly (auto-fill 10% retainage vs. leave
+every one of these fields manual), not something to default silently. Still open.
+
+### The UX rework: no more frozen "Sending…", a movable side panel, and a decoupled status confirmation
+
+Ahmed, using the dashboard for real: *"sending to procore takes a bit too long and the page is frozen to
+the Sending... notification"*, then *"maybe a UI change, when sent, the panel moves to the side, and the
+user can still scroll around. After send, give a yes no option, mark invoices successfully sent as in
+Procore?"* Three changes, all in `ProcoreSend.gs` + `Dashboard.html`:
+
+1. **`sendInvoicesToProcoreBulk` is retired, replaced by `sendProcoreInvoiceItem(rowId, kind)` — one
+   call per invoice instead of one call for the whole batch.** The old function did all the matching and
+   sending for every selected row inside a single `google.script.run` round trip, which is exactly why
+   the page looked frozen: `google.script.run` has no way to report progress mid-call, so nothing could
+   update until the entire batch finished. `sendProcoreInvoiceItem` does the same per-row work (match via
+   `matchInvoiceToProcoreCommitment` for `kind: 'invoice'`, skip matching for `kind: 'direct_cost'`, then
+   `sendInvoiceToProcore`) but for exactly one row, and never throws for an expected outcome — everything
+   folds into a discriminated `outcome` (`'sent' | 'alreadySent' | 'needsMatch' | 'skipped' | 'error'`) so
+   the client has one shape to classify. `doProcoreBulkSend` (`Dashboard.html`) now drives a small
+   client-side loop, calling `sendProcoreInvoiceItem` once per reviewed item and updating a status line
+   ("Sending 3 of 12… (vendor — Inv# ...)") between calls — the UI genuinely updates between invoices
+   because each round trip is short, not because of any new polling mechanism. `PROCORE_SEND_BULK_MAX_`
+   (25) moved conceptually to a client-side sanity check before the loop starts (mirrored as
+   `PROCORE_BULK_SEND_MAX` in `Dashboard.html`) — there's no longer a single long-running server call to
+   protect from Apps Script's ~6-minute execution limit, so the old time-budget/`remaining` mechanics
+   (`PROCORE_SEND_BULK_TIME_BUDGET_MS_`) were removed as dead weight, not replaced.
+
+2. **The bulk review window is a side panel, not a blocking modal.** New `.side-panel-overlay`/
+   `.side-panel` CSS classes (docked right, `pointer-events: none` on the backdrop so clicks pass through
+   to the page everywhere except the panel itself, a slide-in transform driven by an `.active` class
+   toggled alongside the existing `display` toggle). `#procoreBulkModalOverlay` now uses these instead of
+   `.modal-overlay`/`.modal-box`. A coordinator can keep filtering, scrolling, and opening other invoices
+   in the table while a batch send runs.
+
+3. **Sending to Procore and marking the WCM log "In Procore" are now two separate confirmations, not
+   one bundled action.** `sendInvoiceToProcore` no longer calls `updateInvoiceRow` itself — it only
+   creates the Procore record, attaches the PDF, and logs it; the return value no longer carries a `row`
+   field. A new function, **`markProcoreSentInvoices(rowIds)`** (`ProcoreSend.gs`), is the second step:
+   given a batch of Row IDs, it flips each one's Status to `STORED_PROCESSED_STATUS` via `updateInvoiceRow`
+   — the single write path, same as everywhere else in this codebase — collecting per-row errors instead
+   of failing the whole batch on one bad row. **Deliberately not a call to `markInvoicesProcessed`**
+   (`DashboardServer.gs`, the download-zip "mark as captured" checkbox's endpoint): that one gates on
+   `CAPTURABLE = {'Filed':1,'Needs Review':1}`, which would wrongly refuse a row already `Paid` (Nexus
+   sync got there first, or this is a re-send of a corrected Procore record) — a row legitimately sent to
+   Procore must still be markable "In Procore" regardless of its prior status. Both the single-invoice
+   flow (`procoreMatchBlock` in the preview panel) and the bulk flow now show a "Mark N invoice(s) as In
+   Procore in the log?" Yes/No prompt right after a real (non-`alreadySent`) send completes — shared
+   client-side logic (`showProcoreMarkSentPrompt`/`doMarkProcoreSent`/`dismissProcoreMarkSent`,
+   parameterized by a `scope` of `'single'` or `'bulk'` since the two flows have separate DOM elements)
+   rather than two copies. The reasoning for splitting the confirmation, not just a UI nicety: a send
+   whose PDF attach failed (see the confirmed attachment bug above) or whose result a coordinator wants to
+   double-check in Procore first should not be silently marked done just because the create call
+   succeeded.
+
+Unit-tested (extended harness, 102 assertions total, same extract-and-eval pattern): `sendInvoiceToProcore`
+no longer touches `updateInvoiceRow` under any outcome (sent, attach-failed, alreadySent);
+`sendProcoreInvoiceItem` routes an unambiguous vendor to `sent`, an ambiguous or unknown vendor to
+`needsMatch`, a `Duplicate` row to `skipped`, a re-sent row to `alreadySent`, and a row with no Vendor to
+`error` (never a thrown exception); `markProcoreSentInvoices` flips Status for every good row in a batch
+while isolating one bad row as an error rather than failing the whole call, and does so regardless of
+prior status (Paid included) unlike `markInvoicesProcessed`'s narrower gate; the permission gate is
+enforced on both new entry points the same as the existing three. The retired `sendInvoicesToProcoreBulk`
+tests were replaced with equivalent per-item coverage rather than deleted outright — same routing
+guarantees, proven at the new call shape.
