@@ -360,7 +360,12 @@ function confirmProcoreCommitmentPick(rowId, candidate, projectId, projectName) 
  * Procore record for one WCM invoice, REGARDLESS of which kind (Subcontractor Invoice or Direct
  * Cost) either send used — sending the same invoice as both would still double-count it in Procore,
  * so this blocks on ANY prior send, not just a same-kind one.
- * @return {{requisitionId:(number|string), recordType:string, timestamp:string, attached:boolean}|null}
+ *
+ * Only tells you what THIS repo's log recorded — the caller still has to confirm the record is
+ * actually still there via procoreConfirmExistingSendStillExists_ before trusting it. This sheet has
+ * no way to notice a requisition/direct cost that got deleted directly in Procore afterward.
+ * @return {{requisitionId:(number|string), recordType:string, timestamp:string, attached:boolean,
+ *           projectId:(number|string)}|null}
  */
 function procoreFindExistingSend_(rowId) {
   const sheet = SpreadsheetApp.getActiveSpreadsheet().getSheetByName(CONFIG.SHEET_PROCORE_SEND_LOG_TAB);
@@ -369,7 +374,7 @@ function procoreFindExistingSend_(rowId) {
   if (values.length < 2) return null;
   const header = values[0];
   const idx = {};
-  ['Row ID', 'Procore Record ID', 'Record Type', 'Timestamp', 'Attached', 'Environment'].forEach(c => { idx[c] = header.indexOf(c); });
+  ['Row ID', 'Procore Record ID', 'Record Type', 'Timestamp', 'Attached', 'Environment', 'Procore Project ID'].forEach(c => { idx[c] = header.indexOf(c); });
   if (idx['Row ID'] === -1) return null;
 
   const env = procoreEnv_();
@@ -382,10 +387,37 @@ function procoreFindExistingSend_(rowId) {
       requisitionId: idx['Procore Record ID'] > -1 ? row[idx['Procore Record ID']] : '',
       recordType: idx['Record Type'] > -1 ? String(row[idx['Record Type']] || '') : '',
       timestamp: idx['Timestamp'] > -1 ? String(row[idx['Timestamp']] || '') : '',
-      attached: idx['Attached'] > -1 && String(row[idx['Attached']] || '').trim() === 'Yes'
+      attached: idx['Attached'] > -1 && String(row[idx['Attached']] || '').trim() === 'Yes',
+      projectId: idx['Procore Project ID'] > -1 ? row[idx['Procore Project ID']] : ''
     };
   }
   return found;
+}
+
+/**
+ * The live half of the idempotency guard (Ahmed, 2026-08-21: deleted test invoices/direct costs
+ * directly in Procore to re-run a send, got refused anyway — "it should look in Procore to see if it
+ * exists... right now I think it looks at a log and decides, which is weak"). Correct, and fixed here:
+ * procoreFindExistingSend_ only proves our log SAYS something was sent, not that Procore still HAS it.
+ * This dispatches to the matching live existence check (procoreRequisitionExists_ /
+ * procoreDirectCostExists_, ProcoreClient.gs) by the logged Record Type and Project ID.
+ *
+ * Deliberately an ID lookup against Procore, NOT a vendor+amount+project search — this codebase
+ * already has hard-won evidence (NexusSync.gs's own findings) that vendor+amount matching without an
+ * id is genuinely non-unique in real data; reusing that approach here would trade one weak check for
+ * another. We already have the exact record id our own prior send created, so confirming it by id is
+ * both simpler and actually authoritative — no fuzzy matching involved.
+ *
+ * Fails SAFE toward "still exists" (blocks the resend) when the log itself doesn't have enough to
+ * check — a missing Project ID (shouldn't happen; procoreLogSendRow_ always writes one, but an older
+ * or hand-edited row might lack it) or a Record Type this function doesn't recognize. Silently
+ * assuming "gone" in that situation risks creating a duplicate; blocking is the recoverable failure.
+ */
+function procoreConfirmExistingSendStillExists_(existing) {
+  if (!existing.projectId || !existing.requisitionId) return true;
+  if (existing.recordType === 'Direct Cost') return procoreDirectCostExists_(existing.projectId, existing.requisitionId);
+  if (existing.recordType === 'Subcontractor Invoice') return procoreRequisitionExists_(existing.projectId, existing.requisitionId);
+  return true;
 }
 
 /**
@@ -489,7 +521,7 @@ function sendInvoiceToProcore(rowId, kind) {
   }
 
   const existing = procoreFindExistingSend_(rowId);
-  if (existing) {
+  if (existing && procoreConfirmExistingSendStillExists_(existing)) {
     return {
       ok: true,
       alreadySent: true,
@@ -498,6 +530,9 @@ function sendInvoiceToProcore(rowId, kind) {
       message: `Already sent — ${existing.recordType || 'a record'} ${existing.requisitionId} was created ${existing.timestamp} (${procoreEnv_()}). Not creating a second one.`
     };
   }
+  // existing was found in our log but Procore no longer has it (deleted directly in Procore, e.g.
+  // tearing down test data) — fall through and create a fresh record. The stale log row stays as a
+  // historical record; this send appends its own new row, so the trail shows both.
 
   const matchProjectNumber = procoreProjectMatchKey_(invoice.projectNumber, invoice.subprojectNumber);
 

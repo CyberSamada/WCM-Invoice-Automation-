@@ -733,3 +733,46 @@ function procoreAttachFileToDirectCost_(projectId, directCostId, blob) {
     payload: { 'attachments[]': blob }
   });
 }
+
+/**
+ * Live existence checks backing procoreConfirmExistingSendStillExists_ (ProcoreSend.gs) — the fix for
+ * a real gap Ahmed hit: our own Procore Send Log says a row was already sent, but the actual
+ * requisition/direct cost had been deleted directly in Procore (tearing down sandbox test data), so a
+ * legitimate resend was refused for no real reason. The log records what THIS repo did; it was never a
+ * live source of truth for what still exists in Procore, and these two calls are what makes that
+ * distinction actually checkable instead of assumed.
+ *
+ * Both fail SAFE toward "still exists" on anything other than a clean 404: a 200 with a real id is
+ * unambiguous "yes"; a 404 (procoreFetch_'s own thrown message format, `failed (404)`) is unambiguous
+ * "no, it's gone"; anything else — an unexpected 20x body shape, a network hiccup that exhausted
+ * procoreFetch_'s retries without a clean throw — re-throws rather than guessing, because guessing
+ * wrong here means either a silently blocked legitimate resend or a silently created duplicate
+ * financial record, and the second one is the worse failure mode.
+ */
+function procoreRequisitionExists_(projectId, requisitionId) {
+  try {
+    const response = procoreFetch_('get', 'requisitions', `requisitions/${requisitionId}?project_id=${projectId}`);
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`Procore GET requisitions/${requisitionId} returned ${response.getResponseCode()} while checking whether it still exists: ${response.getContentText().slice(0, 200)}`);
+    }
+    const body = JSON.parse(response.getContentText());
+    return !!(body && body.id);
+  } catch (e) {
+    if (/\(404\)/.test(e.message)) return false;
+    throw e;
+  }
+}
+
+function procoreDirectCostExists_(projectId, directCostId) {
+  try {
+    const response = procoreFetch_('get', 'direct_costs', `projects/${projectId}/direct_costs/${directCostId}`);
+    if (response.getResponseCode() !== 200) {
+      throw new Error(`Procore GET direct_costs/${directCostId} returned ${response.getResponseCode()} while checking whether it still exists: ${response.getContentText().slice(0, 200)}`);
+    }
+    const body = JSON.parse(response.getContentText());
+    return !!(body && body.id);
+  } catch (e) {
+    if (/\(404\)/.test(e.message)) return false;
+    throw e;
+  }
+}

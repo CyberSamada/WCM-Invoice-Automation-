@@ -988,6 +988,38 @@ repo's own return value until that's confirmed at least once. Direct Cost attach
 (`procoreAttachFileToDirectCost_`, raw multipart) is a separate code path and was never implicated by
 this finding.
 
+### The idempotency guard now confirms live against Procore, not just our own log
+
+Ahmed, testing again: deleted the test requisitions/direct costs directly in Procore to re-run a send,
+and got refused with "already sent" anyway. His diagnosis was exactly right: *"I think it looks at a
+log and decides if the invoice is there or not, which is weak."* `procoreFindExistingSend_` only ever
+proved the **Procore Send Log** tab said a row was sent — it had no way to notice the record got deleted
+in Procore afterward, so a legitimate resend (very much a real scenario during sandbox testing, and
+plausible in production too if someone deletes a bad record in Procore directly) was blocked forever.
+
+**Fixed, not just documented — but deliberately NOT the vendor+amount+project search Ahmed proposed.**
+That would trade one weak check for another: NexusSync.gs's own hard-won findings in this same file
+document that vendor+amount matching without an id is genuinely non-unique in real data (11% of the
+time in the real 21k-row export). We already have the exact Procore record id our own prior send
+created, sitting right there in the log — confirming BY ID is simpler and actually authoritative, no
+fuzzy matching required. New: `procoreRequisitionExists_`/`procoreDirectCostExists_` (`ProcoreClient.gs`)
+— a single-item `GET` by id, dispatched from a new `procoreConfirmExistingSendStillExists_`
+(`ProcoreSend.gs`) based on the logged Record Type. `sendInvoiceToProcore`'s existing-send check now
+reads: found in the log AND still confirmed present in Procore → `alreadySent` as before; found in the
+log but Procore 404s → fall through and create a fresh record (the stale log row stays as history, the
+new send appends its own row, so the trail shows both). Fails SAFE toward "still exists" — blocking a
+resend — on anything inconclusive: a missing Project ID on an older log row, an unrecognized Record
+Type, or any Procore response other than a clean 200 or a clean 404 (a 403, a 401, an exhausted-retry
+5xx) is never silently read as "gone," because guessing wrong there risks a silently duplicated
+financial record, which is worse than blocking a resend for a moment.
+
+Unit-tested (extended harness, 120 assertions total): a row whose logged requisition Procore has since
+404'd is allowed to resend and creates a genuinely new record (exactly one live existence-check GET
+made, exactly on the resend); the same guard still correctly blocks a resend when Procore genuinely
+still has the record (no duplicate POST); the same fix proven on the Direct Cost side too; and
+`procoreConfirmExistingSendStillExists_` fails safe to "still exists" when the logged row is missing a
+Project ID, a Requisition ID, or carries an unrecognized Record Type.
+
 **Also flagged, not yet acted on:** a real created Subcontractor Invoice's billing fields (Work
 Completed This Period %, Total Completed & Stored to Date %, Work Retainage This Period %, Retainage
 Released %, Total Materials Retainage %) come back empty — Ahmed noted "Retainage always typical 10%."
