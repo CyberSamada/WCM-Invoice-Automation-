@@ -7,13 +7,19 @@
  * vendor+project -> commitment pairing (the "Procore Commitment Map" tab), and actually creates the
  * Procore record.
  *
- * Three entry points, in the order a dashboard flow calls them:
+ * Four entry points, in the order a dashboard flow calls them:
  *   1. matchInvoiceToProcoreCommitment(rowId) — resolve (cached or live), auto-save when there's
  *      exactly one candidate.
  *   2. confirmProcoreCommitmentPick(rowId, candidate) — save a human's pick when there was more than
  *      one candidate.
- *   3. sendInvoiceToProcore(rowId) — create the real Subcontractor Invoice (requisition) against the
- *      now-confirmed commitment, attach the PDF, log it, flip Status.
+ *   3. sendInvoiceToProcore(rowId, kind) — create the real Subcontractor Invoice (requisition) or
+ *      Direct Cost against the now-confirmed commitment/vendor, attach the PDF, log it. Deliberately
+ *      does NOT flip Status — Ahmed, 2026-08-21: sending to Procore and marking the WCM log "In
+ *      Procore" are shown to the dashboard as two separate confirmations (create can succeed while an
+ *      attach silently fails, per HANDOFF.md's attachment-bug note — a human should see that before
+ *      the row is marked done), not one bundled step.
+ *   4. markProcoreSentInvoices(rowIds) — the second confirmation: flips Status to
+ *      STORED_PROCESSED_STATUS for rows the dashboard just sent, once the coordinator says yes.
  *
  * Genuinely unverified against a live Procore create call as of this writing — see the doc comments
  * on procoreCreateSubcontractorInvoice_/procoreAttachFileToRequisition_ (ProcoreClient.gs) and
@@ -431,9 +437,14 @@ function procoreMarkSendRowAttached_(sheetRow) {
  * THE REAL SEND. Creates a Procore record for one invoice — either a Subcontractor Invoice
  * (`requisitions`, against the commitment the Procore Commitment Map already has confirmed for this
  * row's vendor+project) or a Direct Cost (`direct_costs`, matched by vendor+project only, no
- * commitment needed) — attaches the invoice PDF, logs it to the Procore Send Log, and flips the
- * Invoice Log Status to STORED_PROCESSED_STATUS through updateInvoiceRow — the single write path
- * (CLAUDE.md), never the literal 'Captured' typed here.
+ * commitment needed) — attaches the invoice PDF and logs it to the Procore Send Log.
+ *
+ * Deliberately does NOT touch the Invoice Log Status — that used to happen here automatically, but
+ * Ahmed, 2026-08-21 wanted the two treated as separate confirmations: the dashboard now asks
+ * "mark as In Procore?" after showing the send result (see markProcoreSentInvoices below), so a send
+ * whose PDF attach failed, or that a coordinator wants to double check in Procore first, doesn't get
+ * silently marked done. Callers that want the old bundled behavior should call
+ * markProcoreSentInvoices([rowId]) themselves right after a successful, non-alreadySent send.
  *
  * Which kind depends entirely on `kind`; nothing here infers or defaults based on whether a commitment
  * happens to exist. Ahmed, 2026-08-20: real invoices split across both — some bill against a
@@ -444,19 +455,17 @@ function procoreMarkSendRowAttached_(sheetRow) {
  * confirmed); `kind: 'direct_cost'` resolves project + vendor live on every call (both cheap, no
  * "pick one" ambiguity to persist the way a commitment has), no prior matching step required.
  *
- * Create -> log -> attach -> status, in that order (HANDOFF.md §4's design point): the ledger row is
- * written immediately after a successful create, before the attach is even attempted, so a mid-run
- * failure still leaves a findable record of what was created in Procore — a duplicate create on retry
- * is the recoverable failure mode; a created-but-unlogged record is not.
+ * Create -> log -> attach, in that order (HANDOFF.md §4's design point): the ledger row is written
+ * immediately after a successful create, before the attach is even attempted, so a mid-run failure
+ * still leaves a findable record of what was created in Procore — a duplicate create on retry is the
+ * recoverable failure mode; a created-but-unlogged record is not.
  *
  * @param {string} rowId
  * @param {string} [kind] - 'invoice' (default, Subcontractor Invoice against a commitment) or
  *   'direct_cost' (Direct Cost, vendor-matched only).
  * @return {{ok: true, requisitionId: number, attached: boolean, message: string,
- *           row: (Object|undefined), alreadySent: (boolean|undefined)}
+ *           alreadySent: (boolean|undefined)}
  *          | {ok: false, message: string}}
- *   `row` is updateInvoiceRow's own return value (display-translated Status included) — present on
- *   every real send, absent on the alreadySent short-circuit (nothing was updated that time).
  */
 function sendInvoiceToProcore(rowId, kind) {
   kind = (kind === 'direct_cost') ? 'direct_cost' : 'invoice';
@@ -557,20 +566,13 @@ function sendInvoiceToProcore(rowId, kind) {
     try { procoreMarkSendRowAttached_(logRow); } catch (e) { /* logged, not fatal */ }
   }
 
-  // Capture and return the updated row (not just flip it) — updateInvoiceRow already returns the
-  // display-translated Status (displayStatus_) as CLAUDE.md requires; a caller patching its own local
-  // record cache (the dashboard's bulk send results) should use THIS, never retype 'In Procore' by
-  // hand — that's exactly the stored-vs-displayed mixup CLAUDE.md calls out as the bug to watch for.
-  const updatedRow = updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS });
-
   const commitmentClause = kind === 'invoice' ? ` against commitment ${commitmentNumber}` : '';
   if (!attached) {
     return {
       ok: true,
       requisitionId: recordId,
       attached: false,
-      row: updatedRow,
-      message: `Created ${recordTypeLabel} ${recordId} in Procore project ${projectId}${commitmentClause}, but the PDF didn't attach: ${attachError || 'no Drive file found on this row'}. Status updated anyway — the record exists in Procore, attach it by hand.`
+      message: `Created ${recordTypeLabel} ${recordId} in Procore project ${projectId}${commitmentClause}, but the PDF didn't attach: ${attachError || 'no Drive file found on this row'}. The record exists in Procore — attach the PDF by hand, then mark this row In Procore.`
     };
   }
 
@@ -578,141 +580,141 @@ function sendInvoiceToProcore(rowId, kind) {
     ok: true,
     requisitionId: recordId,
     attached: true,
-    row: updatedRow,
-    message: `Sent — ${recordTypeLabel} ${recordId} created in Procore project ${projectId}${commitmentClause}, PDF attached, status updated.`
+    message: `Sent — ${recordTypeLabel} ${recordId} created in Procore project ${projectId}${commitmentClause}, PDF attached.`
   };
+}
+
+/**
+ * The second confirmation (see sendInvoiceToProcore's doc comment): flips the Invoice Log Status to
+ * STORED_PROCESSED_STATUS for a batch of rows the dashboard just sent to Procore, once a coordinator
+ * says yes. Always routes through updateInvoiceRow — the single write path (CLAUDE.md) — never types
+ * the literal 'Captured' here.
+ *
+ * Deliberately its own function rather than reusing markInvoicesProcessed (DashboardServer.gs): that
+ * one gates on CAPTURABLE = {'Filed':1,'Needs Review':1} because it backs the download-zip "mark as
+ * captured" checkbox, where only those two statuses make sense to bump. A row sent to Procore can
+ * legitimately already be Paid (Nexus sync ran first, or it's a re-send after a rejected/corrected
+ * Procore record) and should still be markable "In Procore" — this function doesn't filter by prior
+ * status at all, it just does what the coordinator just confirmed.
+ *
+ * One row failing (e.g. it was deleted between send and confirm) doesn't stop the rest — collected
+ * into `errors` instead, same no-silent-partial-failure shape as the other bulk endpoints here.
+ *
+ * @param {Array<string>} rowIds
+ * @return {{ok: true, updated: Array<{rowId: string, row: Object}>, errors: Array<{rowId: string, message: string}>}}
+ */
+function markProcoreSentInvoices(rowIds) {
+  if (!canControlAutomation_()) {
+    throw new Error('You are not allowed to update invoice status. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
+  }
+  const updated = [];
+  const errors = [];
+  (rowIds || []).forEach(rowId => {
+    try {
+      const row = updateInvoiceRow(rowId, { status: STORED_PROCESSED_STATUS });
+      updated.push({ rowId: rowId, row: row });
+    } catch (e) {
+      errors.push({ rowId: rowId, message: e.message });
+    }
+  });
+  return { ok: true, updated: updated, errors: errors };
 }
 
 // --- Bulk send (multi-select bar) -------------------------------------------------------------
 
 // Real network calls per row (match/list, create, upload, attach) unlike downloadInvoicesZip's cheap
-// per-file base64 reads — capped well under DOWNLOAD_MAX_FILES (100) so one call comfortably fits the
-// ~6-minute execution limit even with a couple of retries per row. No resumable/multi-call design yet
-// (see PROCORE_SEND_BULK_TIME_BUDGET_MS_ below for the same reasoning applied as a time cutoff too) —
-// a future need to send more than this at once should build that rather than raise this number blind.
+// per-file base64 reads. The dashboard sends one at a time (see sendProcoreInvoiceItem below) so there
+// is no per-call execution-time budget to manage anymore, but a batch this size is still a lot of real
+// Procore calls to fire from one review window — kept as a sanity cap on the client, checked before the
+// send loop even starts, same shape as DOWNLOAD_MAX_FILES. A future need to send more than this at once
+// should build a resumable design rather than raise this number blind.
 const PROCORE_SEND_BULK_MAX_ = 25;
-// Stops starting new rows once elapsed time passes this, leaving the rest in `remaining` rather than
-// risking Apps Script's own kill cutting a send off mid-create. Apps Script gives ~6 minutes; this
-// stops with real margin for the last row's own retries to finish inside the limit.
-const PROCORE_SEND_BULK_TIME_BUDGET_MS_ = 4.5 * 60 * 1000;
 
 /**
- * Bulk "Send to Procore" for the dashboard's multi-select bar. Each item carries its OWN kind — Ahmed,
- * 2026-08-20: "I selected 3, 2 goes into invoice, 1 should go into direct cost" — this is deliberately
- * a per-invoice choice made in the review window before sending, never inferred here.
+ * One row of the bulk "Send to Procore" flow — called ONCE PER INVOICE, sequentially, by the
+ * dashboard's client-side send loop (Dashboard.html), not as one big server call. That split is what
+ * lets the UI show live per-item progress ("Sending 3 of 12…") and stay a non-blocking side panel
+ * instead of the single frozen `sendInvoicesToProcoreBulk` call this replaced: a dashboard round trip
+ * can update the DOM between calls, a single multi-minute server call cannot.
  *
- * Per item: skip the same statuses sendInvoiceToProcore itself refuses (Duplicate, Not an Invoice).
- * For `kind: 'invoice'`: resolve a commitment via matchInvoiceToProcoreCommitment (cached instantly if
- * this vendor+project pair was ever confirmed before, live otherwise) and only actually send when that
- * resolves WITHOUT asking a human — an ambiguous vendor (more than one commitment) is never auto-picked
- * here, same "let user pick" rule as the single-invoice flow; it just means picking it happens later
- * from that invoice's own preview panel instead of blocking the whole batch. For `kind: 'direct_cost'`:
- * no commitment matching step at all — sendInvoiceToProcore resolves project + vendor live and sends
- * directly; a vendor-matching failure there (not found, or ambiguous) lands in `errors`, since there is
- * no picker UI for that case in this flow. sendInvoiceToProcore's own idempotency guard
- * (procoreFindExistingSend_) makes re-selecting an already-sent row a safe no-op, not a duplicate,
- * regardless of which kind either send used.
+ * Mirrors what the single-invoice flow does across two steps (match, then send) but folded into one
+ * call for the bulk reviewer, which doesn't have a picker UI mid-batch: for `kind: 'invoice'`, resolves
+ * a commitment via matchInvoiceToProcoreCommitment (cached instantly if this vendor+project pair was
+ * ever confirmed before, live otherwise) and only actually sends when that resolves WITHOUT asking a
+ * human — an ambiguous vendor (more than one commitment) is never auto-picked here, same "let user
+ * pick" rule as the single-invoice flow; it just means picking it happens later from that invoice's own
+ * preview panel instead of blocking the rest of the batch. For `kind: 'direct_cost'`: no commitment
+ * matching step at all — sendInvoiceToProcore resolves project + vendor live and sends directly.
+ * sendInvoiceToProcore's own idempotency guard (procoreFindExistingSend_) makes re-selecting an
+ * already-sent row a safe no-op, not a duplicate, regardless of which kind either send used.
  *
- * NO SILENT CAPS: exceeding PROCORE_SEND_BULK_MAX_ refuses the whole call up front (same shape as
- * DOWNLOAD_MAX_FILES) rather than silently sending only the first N; running out of time budget mid-
- * batch reports exactly which Row IDs were never attempted in `remaining`, not just how many.
+ * Never throws for an expected/skippable outcome — everything is folded into `outcome` so the client's
+ * classification logic has one shape to switch on, the same categories `sendInvoicesToProcoreBulk` used
+ * to bucket a whole batch into: 'sent', 'alreadySent', 'needsMatch', 'skipped', 'error'.
  *
- * @param {Array<{rowId: string, kind: string}>} items - `kind` is 'invoice' (default if omitted) or
- *   'direct_cost'.
- * @return {{ok: true, sent: Array, alreadySent: Array, needsMatch: Array, skipped: Array,
- *           errors: Array, remaining: Array<string>}
- *          | {ok: false, message: string}}
+ * @param {string} rowId
+ * @param {string} kind - 'invoice' (default if omitted) or 'direct_cost'.
+ * @return {{outcome: string, rowId: string, invoiceNumber: (string|undefined), vendor: (string|undefined),
+ *           kind: (string|undefined), requisitionId: (number|string|undefined), attached: (boolean|undefined),
+ *           message: (string|undefined), ambiguous: (boolean|undefined), reason: (string|undefined)}}
  */
-function sendInvoicesToProcoreBulk(items) {
+function sendProcoreInvoiceItem(rowId, kind) {
+  kind = (kind === 'direct_cost') ? 'direct_cost' : 'invoice';
   if (!canControlAutomation_()) {
     throw new Error('You are not allowed to send invoices to Procore. Ask the automation owner to add your email to DASHBOARD_CONTROL_EMAILS in Config.gs.');
   }
   if (!procoreConfigured_()) {
     throw new Error('Procore is not configured — set the Script Properties and run setupProcore() first.');
   }
-  if (!items || !items.length) {
-    return { ok: true, sent: [], alreadySent: [], needsMatch: [], skipped: [], errors: [], remaining: [] };
+
+  let invoice;
+  try {
+    invoice = procoreLoadInvoiceRowForMatch_(rowId);
+  } catch (e) {
+    return { outcome: 'error', rowId: rowId, message: e.message };
   }
-  if (items.length > PROCORE_SEND_BULK_MAX_) {
-    return {
-      ok: false,
-      message: `${items.length} invoices selected — Send to Procore is capped at ${PROCORE_SEND_BULK_MAX_} per batch (each one is a real Procore API call, not a cheap file copy). Select fewer, or send in two batches.`
-    };
+  if (!invoice.vendor) {
+    return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, message: 'No Vendor on this row.' };
   }
 
-  const startedAt = Date.now();
-  const sent = [];
-  const alreadySent = [];
-  const needsMatch = [];
-  const skipped = [];
-  const errors = [];
-  const remaining = [];
-
-  for (let i = 0; i < items.length; i++) {
-    const rowId = items[i].rowId;
-    const kind = items[i].kind === 'direct_cost' ? 'direct_cost' : 'invoice';
-    if (Date.now() - startedAt > PROCORE_SEND_BULK_TIME_BUDGET_MS_) {
-      remaining.push(rowId);
-      continue;
-    }
-
-    let invoice;
+  if (kind === 'invoice') {
+    let matchResult;
     try {
-      invoice = procoreLoadInvoiceRowForMatch_(rowId);
+      matchResult = matchInvoiceToProcoreCommitment(rowId);
     } catch (e) {
-      errors.push({ rowId: rowId, message: e.message });
-      continue;
+      return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message };
     }
-    if (!invoice.vendor) {
-      errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, message: 'No Vendor on this row.' });
-      continue;
-    }
-
-    if (kind === 'invoice') {
-      let matchResult;
-      try {
-        matchResult = matchInvoiceToProcoreCommitment(rowId);
-      } catch (e) {
-        errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
-        continue;
-      }
-      if (!matchResult.ok) {
-        needsMatch.push({
-          rowId: rowId,
-          invoiceNumber: invoice.invoiceNumber,
-          vendor: invoice.vendor,
-          ambiguous: !!matchResult.ambiguous,
-          reason: matchResult.reason
-        });
-        continue;
-      }
-    }
-
-    try {
-      const sendResult = sendInvoiceToProcore(rowId, kind);
-      const record = {
+    if (!matchResult.ok) {
+      return {
+        outcome: 'needsMatch',
         rowId: rowId,
         invoiceNumber: invoice.invoiceNumber,
         vendor: invoice.vendor,
-        kind: kind,
-        requisitionId: sendResult.requisitionId,
-        attached: sendResult.attached,
-        message: sendResult.message,
-        row: sendResult.row || null // the dashboard patches its local cache from this — never guesses a status string
+        ambiguous: !!matchResult.ambiguous,
+        reason: matchResult.reason
       };
-      if (sendResult.alreadySent) alreadySent.push(record);
-      else sent.push(record);
-    } catch (e) {
-      // The status guards inside sendInvoiceToProcore (Duplicate / Not an Invoice) throw — read them
-      // back out as skips rather than errors, since they're expected outcomes of a filtered selection
-      // containing rows that were never eligible, not failures.
-      if (invoice && (/Duplicate/.test(e.message) || /Not an Invoice/.test(e.message))) {
-        skipped.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, reason: e.message });
-      } else {
-        errors.push({ rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message });
-      }
     }
   }
 
-  return { ok: true, sent: sent, alreadySent: alreadySent, needsMatch: needsMatch, skipped: skipped, errors: errors, remaining: remaining };
+  try {
+    const sendResult = sendInvoiceToProcore(rowId, kind);
+    return {
+      outcome: sendResult.alreadySent ? 'alreadySent' : 'sent',
+      rowId: rowId,
+      invoiceNumber: invoice.invoiceNumber,
+      vendor: invoice.vendor,
+      kind: kind,
+      requisitionId: sendResult.requisitionId,
+      attached: sendResult.attached,
+      message: sendResult.message
+    };
+  } catch (e) {
+    // The status guards inside sendInvoiceToProcore (Duplicate / Not an Invoice) throw — read them
+    // back out as a skip rather than an error, since they're an expected outcome of a filtered
+    // selection containing rows that were never eligible, not a failure.
+    if (/Duplicate/.test(e.message) || /Not an Invoice/.test(e.message)) {
+      return { outcome: 'skipped', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, reason: e.message };
+    }
+    return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message };
+  }
 }
