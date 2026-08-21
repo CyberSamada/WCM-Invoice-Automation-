@@ -315,7 +315,7 @@ const PROCORE_MAX_UPLOAD_BYTES_ = 20 * 1024 * 1024; // our cap; Procore's own st
 
 /**
  * Puts a file into Procore's storage and returns its upload UUID, for attaching to a record
- * afterward (e.g. { prostore_file_ids: [uuid] } on a direct cost or requisition).
+ * afterward (e.g. { upload_ids: [uuid] } on a requisition — see procoreAttachFileToRequisition_).
  *
  * Two steps, checked against the Procore integration repo's working implementation:
  *   1. POST projects/{id}/uploads asking Procore how to upload — it hands back a UUID, a URL, and
@@ -657,14 +657,20 @@ function procoreCreateSubcontractorInvoice_(projectId, commitmentId, invoiceNumb
 }
 
 /**
- * Attaches an already-uploaded file (see procoreUploadFile_) to a requisition, by UUID reference —
- * the two-step signed-upload pattern finding 4 confirmed for `direct_costs`' create path, extended
- * here to `requisitions` on the strength of procoreUploadFile_'s own original doc comment
- * ("e.g. `{ prostore_file_ids: [uuid] }` on a direct cost or requisition"). **Genuinely unconfirmed
- * against a live requisition** — finding 4 explicitly says this resource's attachment shape was never
- * checked, unlike direct_costs (which turned out to want raw multipart instead, the opposite
- * mechanism). If this 4xxs citing the field name or shape, that is the thing to check first, not a
- * retry.
+ * Attaches an already-uploaded file (see procoreUploadFile_) to a requisition, by UUID reference.
+ *
+ * **The `prostore_file_ids` shape this originally shipped with is CONFIRMED WRONG, live**
+ * (HANDOFF.md §12): the PATCH returned success and `sendInvoiceToProcore` recorded `attached: true`,
+ * but a live `GET requisitions/{id}` came back `"attachments": []` — nothing actually attached.
+ * `prostore_file_ids` takes integers (existing Prostore File IDs already on the record), not the UUID
+ * `procoreUploadFile_`'s two-step upload produces, which is presumably why it silently accepted and
+ * did nothing. Changed to `upload_ids` (an array of upload UUID strings, matching what the two-step
+ * upload actually returns) per a relayed schema read from the Procore MCP session — **this specific
+ * field name is NOT YET independently live-verified from this repo's side** (the sandbox had zero
+ * requisitions to test against as of this fix; re-check `attachments` on the next live send before
+ * trusting `attached: true` again). `requisitions` was already resolving to `/rest/v1.1/...`
+ * (`CONFIG.PROCORE_RESOURCE_VERSIONS`) before this fix, contrary to the relayed claim that the old
+ * field only worked on v1.0 — the version was never the problem, only the field name was.
  *
  * @param {number} projectId
  * @param {number} requisitionId
@@ -673,7 +679,7 @@ function procoreCreateSubcontractorInvoice_(projectId, commitmentId, invoiceNumb
 function procoreAttachFileToRequisition_(projectId, requisitionId, fileUuid) {
   procoreFetch_('patch', 'requisitions', `requisitions/${requisitionId}?project_id=${projectId}`, {
     payload: JSON.stringify({
-      requisition: { prostore_file_ids: [fileUuid] }
+      requisition: { upload_ids: [fileUuid] }
     }),
     contentType: 'application/json'
   });

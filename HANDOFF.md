@@ -960,19 +960,33 @@ that other session — not to attempt it here. Several items below followed that
   which is exactly the ambiguity `procoreFindVendorByName_` is supposed to refuse rather than guess.
   Ahmed fixed it by hand in Procore's UI (Directory → Companies).
 
-**Confirmed, live, real bug — not yet fixed: `procoreAttachFileToRequisition_` does not actually attach
-the PDF.** The `PATCH requisitions/{id}?project_id={id}` call with
-`{"requisition":{"prostore_file_ids":[uuid]}}` returns success, and `sendInvoiceToProcore` records
-`attached: true` — but a live check (`GET requisitions/181185`) came back `"attachments": []`. The doc
-comment on that function has said "genuinely unconfirmed against a live requisition" since it was
-written; this is that confirmation, and it's negative. No generic write tool exists on the current
-Procore MCP surface to experimentally probe the correct request shape (only `procore_get` and
-`search_procore_api`, both read-only), so per the standing instruction above, a handoff was drafted for
-the other session to fix rather than attempted here. **Whoever picks this up next: don't trust
-`attached: true` from a Subcontractor Invoice send until this is actually re-verified live — check the
-requisition's `attachments` array, not just the boolean this repo returns.** Direct Cost attachment
-(`procoreAttachFileToDirectCost_`, raw multipart) is a separate code path and was NOT implicated by this
-finding.
+**Confirmed, live, real bug — code fixed, but NOT YET RE-VERIFIED LIVE:
+`procoreAttachFileToRequisition_` did not actually attach the PDF.** The `PATCH requisitions/{id}?project_id={id}`
+call with `{"requisition":{"prostore_file_ids":[uuid]}}` returned success, and `sendInvoiceToProcore`
+recorded `attached: true` — but a live check (`GET requisitions/181185`) came back `"attachments": []`.
+The doc comment on that function had said "genuinely unconfirmed against a live requisition" since it
+was written; that live check was the confirmation, and it was negative. No generic write tool existed on
+the Procore MCP surface at the time to experimentally probe the correct request shape (only
+`procore_get`/`search_procore_api`, both read-only), so per the standing instruction above, a handoff was
+drafted for the other session to fix rather than attempted here.
+
+**The other session relayed a schema read back**: `prostore_file_ids` takes integers (existing Prostore
+File IDs), not the upload UUID `procoreUploadFile_`'s two-step upload actually produces — explaining the
+silent no-op exactly. The correct field is `upload_ids` (an array of upload UUID strings, the same UUIDs
+already in hand). One part of that relay didn't hold up when checked against this repo's own code,
+though: it said the old field "only exists on v1.0, which has no UUID field at all," implying the PATCH
+was hitting v1.0 — but `CONFIG.PROCORE_RESOURCE_VERSIONS` already routes `requisitions` to `/rest/v1.1/...`
+and always has; `search_procore_api` also confirms `/rest/v1.1/requisitions/{id}` has a `patch` verb.
+The version was never the problem, only the field name was — worth flagging since the rest of the relay
+was accurate. **Fixed** (`ProcoreClient.gs`): the payload is now `{requisition: {upload_ids: [uuid]}}`.
+Unit-tested (new assertion in the extended harness) that the outgoing PATCH body carries `upload_ids`,
+not `prostore_file_ids`. **Still not independently live-verified from this repo's side** — the sandbox
+project had zero requisitions to test against as of this fix (an earlier PR's test data appears to have
+been cleaned up). **Whoever sends the next real Subcontractor Invoice: check the requisition's
+`attachments` array directly (`GET requisitions/{id}`), don't just trust `attached: true`** from this
+repo's own return value until that's confirmed at least once. Direct Cost attachment
+(`procoreAttachFileToDirectCost_`, raw multipart) is a separate code path and was never implicated by
+this finding.
 
 **Also flagged, not yet acted on:** a real created Subcontractor Invoice's billing fields (Work
 Completed This Period %, Total Completed & Stored to Date %, Work Retainage This Period %, Retainage
