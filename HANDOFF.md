@@ -1132,6 +1132,48 @@ Let the unambiguous majority auto-process, and route genuine ambiguity to a fast
 than a computed guess. The fix for messy small-trade invoices is classifying them into the right lane
 (Direct Cost / single-line), not parsing them harder.
 
+### Paid status read back from Procore, and why it cannot replace Nexus on its own
+
+Ahmed, 2026-08-21: *"Nexus feature can be removed, invoices marked paid by procore from now on."*
+The read-back half of that is now built. The removal half should not happen yet, for a reason that
+only turned up by checking the live API, and that anyone revisiting this needs to see first.
+
+**Built**: `syncProcorePaidStatus()` (`ProcoreSend.gs`), plus `procoreRequisitionPaymentStatus_`
+(`ProcoreClient.gs`) and an optional daily trigger (`createProcorePaidSyncTrigger`, Setup.gs). It walks
+the Procore Send Log, which already records every send's record id, project id, environment and
+outcome, asks Procore about each Subcontractor Invoice that really went through in the current
+environment, and marks the WCM row Paid when Procore says it is paid. Every change routes through
+`updateInvoiceRow`, the single write path. Terminal statuses (Paid, Canceled) and rows that must never
+be touched (Duplicate, Not an Invoice) are skipped without even a lookup, so the job is idempotent and
+re-running it is free.
+
+**THE TRAP, confirmed live: `invoice_paid_in_full` is TRUE on a requisition that has billed nothing.**
+Sandbox requisition 181205 came back `payment_summary.invoice_paid_in_full: true` with
+`summary.total_completed_and_stored_to_date: "0.00"`. Nothing owing is vacuously paid in full. A job
+that trusted that flag alone would have marked a never billed invoice Paid, which is a TERMINAL status
+in this system. So paid here means paid in full AND something actually billed. Do not "simplify" that
+condition back to the flag; there is a test locking it down against both real sandbox shapes.
+
+**WHY NEXUS CANNOT BE REMOVED ON THIS ALONE. Procore does not model payment on Direct Costs at all.**
+A direct cost record carries only a draft/approved workflow status, with no payment date, no paid flag
+and no payment summary, and the entire payments surface of the API (`contract_payments`,
+`payment_applications`, `payment_readiness`, the payments group) belongs to requisitions and prime
+contracts. This was checked directly against the live record and the endpoint index, not assumed. So:
+- An invoice sent as a **Direct Cost** can never be marked Paid from Procore. Ever.
+- An invoice **never sent to Procore** has no payment fact there either.
+- Both of those are covered by the Nexus sync today, which matches the AP export against the log
+  regardless of whether or how an invoice reached Procore.
+
+That matters more than it first sounds, because of the routing rule this file already records: small
+and simple invoices are *supposed* to go as Direct Costs. The lane the Procore read-back cannot cover
+is the same lane WCM's own volume is heaviest in. Removing Nexus now would leave those invoices with
+no automatic Paid source at all, only the dashboard's manual status dropdown.
+
+**So the honest position**: the Procore read-back is a genuine improvement for commitment billed work
+and should run. It is not a replacement for a source that covers every invoice. Retiring Nexus needs
+either a decision that manual Paid is acceptable for direct cost invoices, or a different source for
+them. That decision is Ahmed's and has not been made.
+
 ### The division of labor, settled: Invoice Desk parses, Procore MCP computes and writes
 
 Ahmed pushed for a clearer split before more got built: *"Invoice desk should start parsing Retainage,
