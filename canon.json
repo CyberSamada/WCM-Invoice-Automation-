@@ -18,7 +18,7 @@
       "remote_path": "context/procore-facts.json",
       "local_path": "canon/procore-facts.json",
       "why": "How Procore's API actually behaves. That repo runs tools against live Procore; this one does not. Read it before you change ProcoreClient.gs or ProcoreSend.gs.",
-      "imported_sha": "388bde3a253b52972016c3ce594b4b40e54e5aa9",
+      "imported_sha": "cf62025c8eed58ea2b15b48a4fe4f3ea2c1b810e",
       "imported_at": "2026-08-21"
     }
   }
