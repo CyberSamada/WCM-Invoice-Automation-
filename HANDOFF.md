@@ -1233,6 +1233,66 @@ earlier, more speculative draft — the field names/shapes below are real, not p
 > Start with Path 1 — it's fully specified, has no open design questions, and is probably most of
 > WCM's actual invoice volume. Paths 2/3 can wait; nothing on our side depends on them yet.
 
+### Every send attempt is now logged, not just the successful ones
+
+Ahmed asked to confirm whether the Send to Procore dialogues log what they do. Checking honestly turned
+up a real gap: **`procoreLogSendRow_` was only ever called after a SUCCESSFUL create.** A failed or
+refused send existed only in the dashboard panel that reported it — close the panel and there was no
+record the attempt had ever happened. Successes had a durable trail; failures did not, which is exactly
+backwards, since failures are what someone has to come back to.
+
+**Fixed**: the Procore Send Log gained an **`Outcome`** column (`Sent` / `Failed` / `Needs Match` /
+`Skipped`) and a **`Detail`** column carrying the reason, and `sendProcoreInvoiceItem` now writes a row
+for every outcome, not just the happy path (via `procoreLogSendAttempt_`, best-effort so a sheet hiccup
+can never replace a real error message with a logging one).
+
+**The trap this creates, and the guard against it — do not undo this.** `procoreFindExistingSend_` (the
+idempotency guard) scans this same tab for a prior send of the row. Once failures live in that tab, a
+naive scan reads a FAILED attempt as "already sent" and blocks that invoice's retry **permanently** —
+one Procore outage would strand an invoice forever. So the guard now skips any row whose Outcome isn't
+a success, via `procoreSendLogRowIsSuccess_`. That helper treats a **blank Outcome as SENT** on purpose:
+rows written before the column existed are all successes, because failures weren't logged then. Both
+directions of getting this wrong are real-money bugs — reading a failure as sent blocks a legitimate
+retry; reading an old success as a failure invites a duplicate Procore record. There is a dedicated test
+for the whole loop (fail a create, confirm the failure is logged, confirm the retry actually sends,
+confirm a real send still blocks the next attempt).
+
+**Errors are humanized on the way out** (`procoreHumanizeSendError_`). `procoreFetch_` throws messages
+shaped like `Procore POST requisitions?project_id=362778 failed (400): {"errors":"The project must have
+an open billing period ..."}` — accurate, but it leads with an HTTP verb and a URL and buries the one
+sentence saying what to do. The two causes that actually bit during this build (no open billing period,
+unapproved SOV) plus 401/403 now get a plain-language lead sentence, **with the original text still
+appended** so nothing is lost and the Detail column stays diagnosable. An unrecognized error passes
+through verbatim rather than being paraphrased into something vaguer.
+
+**Dialogue polish, same pass:**
+- The bulk results now open with a **one-line tally** ("3 sent · 1 needs a manual pick · 1 failed"),
+  green when clean, amber when something needs a person — so a batch is readable without parsing every
+  row.
+- The **"Mark as In Procore?" prompt is a tinted, bordered block** rather than a dashed rule, and calls
+  `scrollIntoView` when shown. A long results list can push it below the fold of the panel's own
+  scroll container, and an unanswered question nobody can see is precisely the complaint that got the
+  Send button moved in the first place.
+- A batch with failures ends with **what to do next** rather than just a red list: fix the cause and
+  re-select them, re-sending is safe because a real send is remembered, and every attempt is in the
+  Procore Send Log tab.
+- **"Close" becomes "Done"** once the work is finished (it reads as "cancel" while a send is pending).
+- **The single-invoice preview panel now routes through `sendProcoreInvoiceItem` too**, the same server
+  entry point the bulk flow uses, instead of calling `sendInvoiceToProcore` directly. That is what makes
+  its failures logged and its errors humanized identically — one send path, one trail. The commitment
+  match it runs first is a crosswalk cache hit there (the panel only shows Send once a match is
+  confirmed), so it costs nothing.
+
+**What is logged where, in full** — the answer to Ahmed's question:
+| Event | Where it lands |
+| --- | --- |
+| Send succeeded | Procore Send Log, `Outcome: Sent` (+ `Attached` Yes/No) |
+| Send failed | Procore Send Log, `Outcome: Failed`, reason in `Detail` |
+| Refused, needs a manual commitment pick | Procore Send Log, `Outcome: Needs Match` |
+| Skipped (Duplicate / Not an Invoice) | Procore Send Log, `Outcome: Skipped` |
+| "Mark as In Procore" confirmed | Invoice Log Status + an Override Log row (via `updateInvoiceRow`) |
+| "Not yet" (mark declined) | Nothing — no change was made, so there is nothing to record |
+
 ### The UX rework: no more frozen "Sending…", a movable side panel, and a decoupled status confirmation
 
 Ahmed, using the dashboard for real: *"sending to procore takes a bit too long and the page is frozen to

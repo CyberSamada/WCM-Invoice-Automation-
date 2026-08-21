@@ -1551,8 +1551,8 @@
               <!-- Second confirmation, same "sending and marking are two separate yeses" reasoning as
                    the bulk panel (see procoreBulkMarkWrap) — shown once a real, non-alreadySent send
                    succeeds. -->
-              <div id="procoreMarkSentWrap" style="display:none; margin-top:8px; padding-top:8px; border-top:1px dashed var(--border)">
-                <p style="font-size:13px; margin:0 0 6px" id="procoreMarkSentText"></p>
+              <div id="procoreMarkSentWrap" style="display:none; margin-top:10px; padding:12px 14px; border-radius:8px; background:var(--surface-alt); box-shadow:inset 0 0 0 1px var(--border)">
+                <p style="font-size:13px; font-weight:600; margin:0 0 8px" id="procoreMarkSentText"></p>
                 <div style="display:flex; gap:8px">
                   <button type="button" class="btn-primary" id="procoreMarkSentYesBtn">Yes, mark as In Procore</button>
                   <button type="button" class="btn-secondary" id="procoreMarkSentNoBtn">Not yet</button>
@@ -1781,8 +1781,8 @@
            separate from the send itself so a create that succeeded but didn't attach its PDF (a live,
            confirmed Procore bug — see HANDOFF.md) is something a coordinator sees and can act on before
            the row is marked done, not something the send silently decides for them. -->
-      <div id="procoreBulkMarkWrap" style="display:none; margin-top:10px; padding-top:10px; border-top:1px dashed var(--border)">
-        <p style="font-size:13px; margin:0 0 8px" id="procoreBulkMarkText"></p>
+      <div id="procoreBulkMarkWrap" style="display:none; margin-top:12px; padding:12px 14px; border-radius:8px; background:var(--surface-alt); box-shadow:inset 0 0 0 1px var(--border)">
+        <p style="font-size:13px; font-weight:600; margin:0 0 8px" id="procoreBulkMarkText"></p>
         <div style="display:flex; gap:8px">
           <button type="button" class="btn-primary" id="procoreBulkMarkYesBtn">Yes, mark as In Procore</button>
           <button type="button" class="btn-secondary" id="procoreBulkMarkNoBtn">Not yet</button>
@@ -3341,25 +3341,37 @@
       btn.disabled = true;
       btn.textContent = 'Sending…';
 
+      // Routed through sendProcoreInvoiceItem, the SAME server entry point the bulk flow uses, rather
+      // than calling sendInvoiceToProcore directly. That's deliberate: it's the path that records a
+      // failed or refused attempt in the Procore Send Log and humanizes the raw Procore error, so a
+      // send from this panel leaves the same trail as one from a batch. The commitment match it runs
+      // first is a crosswalk cache hit here (this panel only shows Send once a match is confirmed), so
+      // it costs nothing. Always 'invoice' — the Direct Cost choice lives in the bulk review panel.
       google.script.run
         .withSuccessHandler(function (res) {
           btn.disabled = false;
           btn.textContent = 'Send to Procore';
-          if (res && res.ok) {
+          if (!res || !res.outcome) {
+            errorEl.textContent = 'No response — see the Apps Script execution log for detail.';
+            return;
+          }
+          if (res.outcome === 'sent' || res.outcome === 'alreadySent') {
             successEl.style.display = '';
             successEl.textContent = '✓ ' + res.message;
             btn.style.display = 'none'; // sent — nothing left to do from this panel
-            if (!res.alreadySent) showProcoreMarkSentPrompt('single', [previewRowId]);
-          } else {
-            errorEl.textContent = (res && res.message) ? res.message : 'Something went wrong — no further detail returned.';
+            if (res.outcome === 'sent') showProcoreMarkSentPrompt('single', [previewRowId]);
+            return;
           }
+          // needsMatch / skipped / error all carry their own explanation; show it as-is rather than
+          // flattening them into one generic "failed" line.
+          errorEl.textContent = res.message || res.reason || 'Something went wrong — no further detail returned.';
         })
         .withFailureHandler(function (err) {
           btn.disabled = false;
           btn.textContent = 'Send to Procore';
           errorEl.textContent = (err && err.message) ? err.message : 'The request failed — see the Apps Script execution log for detail.';
         })
-        .sendInvoiceToProcore(previewRowId);
+        .sendProcoreInvoiceItem(previewRowId, 'invoice');
     }
 
     // The "mark as In Procore?" confirmation shared by the single-invoice and bulk send flows — same
@@ -3384,7 +3396,14 @@
       yesBtn.disabled = false;
       noBtn.disabled = false;
       yesBtn.textContent = 'Yes, mark as In Procore';
-      document.getElementById(ids.wrap).style.display = '';
+      var wrap = document.getElementById(ids.wrap);
+      wrap.style.display = '';
+      // A long results list (or a long note history, in the preview panel) can push this question below
+      // the fold of its own scroll container — and an unanswered question nobody can see is the exact
+      // complaint that got the Send button moved in the first place. Scroll it into view rather than
+      // trusting it to be visible. Guarded: scrollIntoView with options is unsupported in some
+      // embedded webviews, and this must never break the prompt itself.
+      try { wrap.scrollIntoView({ block: 'nearest' }); } catch (e) { /* visible enough without it */ }
     }
 
     function dismissProcoreMarkSent(scope) {
@@ -3506,6 +3525,7 @@
       resultsEl.innerHTML = '';
       document.getElementById('procoreBulkMarkWrap').style.display = 'none';
       document.getElementById('procoreBulkReview').style.display = '';
+      document.getElementById('procoreBulkCloseBtn').textContent = 'Close'; // reset from "Done" (see finishBulkSend)
       var btn = document.getElementById('procoreBulkConfirmBtn');
       btn.disabled = false;
       btn.style.display = '';
@@ -3591,13 +3611,30 @@
       else results.errors.push(res);
     }
 
+    // One-line tally across the buckets, so "what happened?" is answerable without reading every row.
+    // Only non-empty buckets appear; the whole point is that a clean run says "3 sent." and nothing else.
+    function procoreBulkSummaryLine(results) {
+      var parts = [];
+      if (results.sent.length) parts.push(results.sent.length + ' sent');
+      if (results.alreadySent.length) parts.push(results.alreadySent.length + ' already sent');
+      if (results.needsMatch.length) parts.push(results.needsMatch.length + ' need a manual pick');
+      if (results.skipped.length) parts.push(results.skipped.length + ' skipped');
+      if (results.errors.length) parts.push(results.errors.length + ' failed');
+      if (!parts.length) return '';
+      var needsAttention = results.needsMatch.length || results.errors.length;
+      return '<div style="font-weight:600; font-size:13px; margin-bottom:6px; color:' +
+        (needsAttention ? '#b45309' : '#059669') + '">' + escapeHtml(parts.join(' · ')) + '</div>';
+    }
+
     function finishBulkSend(results) {
       var btn = document.getElementById('procoreBulkConfirmBtn');
       var statusEl = document.getElementById('procoreBulkStatus');
       statusEl.textContent = '';
       btn.style.display = 'none'; // done — Close is the only way out of the send step now
+      // "Close" reads as "cancel" once the work is finished and there's nothing left to abandon.
+      document.getElementById('procoreBulkCloseBtn').textContent = 'Done';
 
-      var html = '';
+      var html = procoreBulkSummaryLine(results);
       html += procoreBulkResultLine('Sent', '#059669', results.sent, function (e) {
         var label = e.kind === 'direct_cost' ? 'direct cost' : 'requisition';
         return '✓ ' + e.vendor + ' — Inv# ' + e.invoiceNumber + ' → ' + label + ' ' + e.requisitionId + (e.attached ? '' : ' (PDF not attached — attach by hand)');
@@ -3614,6 +3651,14 @@
       html += procoreBulkResultLine('Failed', '#b91c1c', results.errors, function (e) {
         return '✗ ' + (e.vendor || 'Row ' + e.rowId) + (e.invoiceNumber ? ' — Inv# ' + e.invoiceNumber : '') + ' — ' + e.message;
       });
+      // What to do next, when anything needs a person. The send button is gone by now, so without this
+      // a batch with failures just ends on a red list and no indication of the way forward.
+      if (results.needsMatch.length || results.errors.length) {
+        html += '<div style="margin-top:10px; padding-top:8px; border-top:1px solid var(--border); font-size:12.5px; color:var(--text-muted)">' +
+          'Nothing was sent for those. Fix the cause, then re-select them and send again — an invoice that did go through is remembered, so re-sending a batch never doubles it up. ' +
+          'Every attempt above, successful or not, is recorded in the Procore Send Log tab.</div>';
+      }
+
       var resultsEl = document.getElementById('procoreBulkResults');
       resultsEl.innerHTML = html || '<div>Nothing to report.</div>';
       resultsEl.style.display = '';

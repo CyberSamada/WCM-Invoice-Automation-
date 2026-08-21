@@ -234,10 +234,17 @@ const CONFIG = {
   // real row in it — no data to migrate) holds a requisition id for one Record Type and a direct
   // cost id for the other; the column name no longer assumes which.
   SHEET_PROCORE_SEND_LOG_TAB: 'Procore Send Log',
+  // 'Outcome' records what actually happened — 'Sent', 'Failed', 'Needs Match' or 'Skipped' — so a
+  // refused or errored attempt leaves a durable trail instead of vanishing with the dashboard panel
+  // that showed it. 'Detail' carries the reason/error for the non-Sent outcomes.
+  // CRITICAL: procoreFindExistingSend_ (the idempotency guard) counts only SUCCESSFUL rows, or it
+  // would read a failed attempt as "already sent" and refuse the retry forever. Rows written before
+  // this column existed have a blank Outcome and are all successes (only successes were logged then),
+  // so blank must keep counting as sent — see procoreSendLogRowIsSuccess_.
   PROCORE_SEND_LOG_COLUMNS: [
     'Timestamp', 'Sent By', 'Row ID', 'Invoice Number', 'Vendor', 'Amount', 'Currency', 'Record Type',
     'Procore Project ID', 'Procore Project Name', 'Commitment ID', 'Commitment Number',
-    'Procore Record ID', 'Attached', 'Environment'
+    'Procore Record ID', 'Attached', 'Environment', 'Outcome', 'Detail'
   ],
 
   // Project Reference columns expected in the sheet (matches project_reference.csv + one extra column)
