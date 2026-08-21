@@ -82,6 +82,16 @@ Decisions already taken with Ahmed, do not relitigate:
 
 ## 3. Endpoint findings — and what their epistemic status actually is
 
+> **Superseded, 2026-08-21.** The `[SPEC]`/`[OBSERVED]` tags below are a
+> hand-made snapshot taken 2026-08-20. One day later the Procore MCP verified
+> **32 of its 62 tools** against live Procore and recorded six new API rules.
+> So these tags now understate what is proven and miss every new trap.
+>
+> The current version of this knowledge is **`canon/procore-facts.json`**,
+> imported with `python3 canon.py pull`. Read that first. Keep this section
+> for the reasoning it records, not for its epistemic tags, and **do not add
+> new Procore findings here** — they belong at the owner. See `canon/README.md`.
+
 Read out of `procore_claude_intergration`. **Correction, 2026-08-20:** that repo's own session has
 since told us it had **never run against a real Procore company** until the night of 2026-08-19 — it
 was verified against the OpenAPI document and a test suite. So most of what follows is *spec-derived,

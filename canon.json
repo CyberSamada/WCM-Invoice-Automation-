@@ -1,0 +1,25 @@
+{
+  "repo": "CyberSamada/WCM-Invoice-Automation-",
+  "note": "See canon.py. Every fact has exactly one owner. A consumer never edits its copy.",
+  "owns": {
+    "project-register": {
+      "path": "project_reference.csv",
+      "build": null,
+      "what": "WCM's own project and subproject numbering. This repo owns it because the numbering is enforced by money here.",
+      "consumers": [
+        "CyberSamada/WCM-Mission-Control"
+      ]
+    }
+  },
+  "imports": {
+    "procore-facts": {
+      "repo": "CyberSamada/Procore_Claude_Intergration",
+      "ref": "claude/procore-mcp-availability-4ch83r",
+      "remote_path": "context/procore-facts.json",
+      "local_path": "canon/procore-facts.json",
+      "why": "How Procore's API actually behaves. That repo runs tools against live Procore; this one does not. Read it before you change ProcoreClient.gs or ProcoreSend.gs.",
+      "imported_sha": "388bde3a253b52972016c3ce594b4b40e54e5aa9",
+      "imported_at": "2026-08-21"
+    }
+  }
+}
