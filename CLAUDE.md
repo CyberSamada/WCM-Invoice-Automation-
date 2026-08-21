@@ -577,33 +577,6 @@ In the **preview panel** the note is COLLAPSED by default (`renderPreviewNote` b
 line carries the entry count plus the newest event clipped to one line, so "what happened last?"
 needs no expanding — 34px collapsed vs ~171px open on a 4-entry note.
 
-## Never touch the mailbox's read state
-
-**Ahmed, 2026-08-21: he marks his own email as read.** Nothing here may do it for him.
-
-Unread is not decoration. It is his queue. Marking a thread read destroys the
-only record of what he has not dealt with yet, and Gmail keeps no history to
-restore it from — once `UNREAD` is removed there is nothing to undo.
-
-Two rules:
-
-- **Never remove the `UNREAD` label**, and never call `markRead()`. Not on a thread,
-  not on a message, not in a cleanup step, not "just for the ones we processed".
-- **Reading through `GmailApp` marks a thread READ as a side effect of looking.**
-  That is why `withReadStateRestored_` (GmailService.gs) exists: it captures
-  `isUnread()` before, and restores it after. Every helper that calls
-  `thread.getMessages()` must go through it. It only ever restores *towards*
-  unread, so it can never itself be the thing that marks something read.
-
-This was a real defect, not a hypothetical. `testRun()` captured `wasUnread` and
-restored it in a `finally`, and SETUP.md promised "Read/unread status is restored
-automatically" — but `processInvoices()`, the path that actually runs on a
-trigger, never did. So the safe-looking test cleaned up after itself while the
-real run quietly marked every invoice thread it looked at as read.
-
-If a new code path needs to read a thread, route it through
-`withReadStateRestored_`. Do not add a second place that remembers.
-
 ## Docs to keep in sync when behavior changes
 
 - `README.md` — construction-audience main page (plain outcomes, no back-end mechanics; folder tree
