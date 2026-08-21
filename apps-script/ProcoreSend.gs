@@ -381,7 +381,7 @@ function procoreFindExistingSend_(rowId) {
   if (values.length < 2) return null;
   const header = values[0];
   const idx = {};
-  ['Row ID', 'Procore Record ID', 'Record Type', 'Timestamp', 'Attached', 'Environment', 'Procore Project ID'].forEach(c => { idx[c] = header.indexOf(c); });
+  ['Row ID', 'Procore Record ID', 'Record Type', 'Timestamp', 'Attached', 'Environment', 'Procore Project ID', 'Outcome'].forEach(c => { idx[c] = header.indexOf(c); });
   if (idx['Row ID'] === -1) return null;
 
   const env = procoreEnv_();
@@ -390,6 +390,10 @@ function procoreFindExistingSend_(rowId) {
     const row = values[r];
     if (String(row[idx['Row ID']] || '').trim() !== String(rowId)) continue;
     if (idx['Environment'] > -1 && String(row[idx['Environment']] || '').trim() !== env) continue;
+    // Failed/refused attempts are logged to this same tab now — they must NEVER read as "already
+    // sent", or one Procore outage would block that invoice's retry permanently. Blank counts as
+    // sent (legacy rows) — see procoreSendLogRowIsSuccess_.
+    if (idx['Outcome'] > -1 && !procoreSendLogRowIsSuccess_(row[idx['Outcome']])) continue;
     found = {
       requisitionId: idx['Procore Record ID'] > -1 ? row[idx['Procore Record ID']] : '',
       recordType: idx['Record Type'] > -1 ? String(row[idx['Record Type']] || '') : '',
@@ -427,10 +431,67 @@ function procoreConfirmExistingSendStillExists_(existing) {
   return true;
 }
 
+/** The Outcome values the Procore Send Log records. Only PROCORE_OUTCOME_SENT_ counts as a real send
+ *  for the idempotency guard — see procoreSendLogRowIsSuccess_. */
+const PROCORE_OUTCOME_SENT_ = 'Sent';
+const PROCORE_OUTCOME_FAILED_ = 'Failed';
+const PROCORE_OUTCOME_NEEDS_MATCH_ = 'Needs Match';
+const PROCORE_OUTCOME_SKIPPED_ = 'Skipped';
+
+/**
+ * Whether a Procore Send Log row represents an invoice that ACTUALLY reached Procore.
+ *
+ * A blank Outcome counts as sent, deliberately: rows written before the Outcome column existed are
+ * all successes, because failures weren't logged at all back then. Getting this backwards in either
+ * direction is a real-money bug — treating a failure as sent blocks a legitimate retry forever;
+ * treating an old success as a failure invites a duplicate Procore record.
+ */
+function procoreSendLogRowIsSuccess_(outcomeValue) {
+  const outcome = String(outcomeValue == null ? '' : outcomeValue).trim();
+  return !outcome || outcome === PROCORE_OUTCOME_SENT_;
+}
+
+/**
+ * Turns a raw Procore/Apps Script error into something a coordinator can act on, without throwing the
+ * original away. procoreFetch_ throws messages shaped like
+ * `Procore POST requisitions?project_id=362778 failed (400): {"errors":"The project must have an open
+ * billing period ..."}` — accurate, but it leads with an HTTP verb and a URL and buries the one
+ * sentence that says what to DO, which is the opposite of what someone triaging a failed batch needs.
+ *
+ * Known causes (both hit for real during this build — see HANDOFF.md §11/§12) get a plain-language
+ * lead sentence; everything else falls back to the raw message rather than being swallowed or
+ * paraphrased into something less precise. The original text is always appended, so nothing is lost
+ * and the Send Log's Detail column stays diagnosable.
+ */
+function procoreHumanizeSendError_(message) {
+  const raw = String(message == null ? '' : message).trim();
+  if (!raw) return 'The send failed with no error message — see the Apps Script execution log.';
+
+  if (/billing period/i.test(raw)) {
+    return 'Procore needs an open billing period on this project before a Subcontractor Invoice can be created. Open one in Procore (or send this as a Direct Cost instead), then try again. — ' + raw;
+  }
+  if (/schedule of values/i.test(raw) && /approved/i.test(raw)) {
+    return "The commitment's Schedule of Values has to be approved in Procore before it can be invoiced against. Approve it, then try again. — " + raw;
+  }
+  if (/\(403\)/.test(raw)) {
+    return 'Procore refused this as not permitted — usually the project is missing from the app\'s permitted-projects list. Not a credentials problem. — ' + raw;
+  }
+  if (/\(401\)/.test(raw)) {
+    return 'Procore rejected the credentials for this call — the app may not be installed on the company. — ' + raw;
+  }
+  if (/is not in Procore/i.test(raw) || /No commitment/i.test(raw)) {
+    return raw; // already written for a person by procoreFindVendorByName_/procoreFindCommitmentForInvoice_
+  }
+  return raw;
+}
+
 /**
  * Appends one row to the Procore Send Log — the audit trail for what was actually sent (see file
  * header). Returns the sheet row number it wrote to, so sendInvoiceToProcore can flip just the
  * 'Attached' cell in place afterward instead of appending a second, near-duplicate row.
+ *
+ * `entry.outcome` defaults to 'Sent' so every pre-existing caller keeps its meaning unchanged; the
+ * failure/refusal paths pass their own (see procoreLogSendAttempt_).
  */
 function procoreLogSendRow_(entry) {
   const sheet = getOrCreateSheet_(CONFIG.SHEET_PROCORE_SEND_LOG_TAB, CONFIG.PROCORE_SEND_LOG_COLUMNS);
@@ -452,7 +513,9 @@ function procoreLogSendRow_(entry) {
     'Commitment Number': entry.commitmentNumber || '',
     'Procore Record ID': entry.requisitionId,
     'Attached': entry.attached ? 'Yes' : 'No',
-    'Environment': entry.environment
+    'Environment': entry.environment,
+    'Outcome': entry.outcome || PROCORE_OUTCOME_SENT_,
+    'Detail': entry.detail || ''
   };
   sheet.appendRow(header.map(col => (filled[col] !== undefined ? filled[col] : '')));
   const lastRow = sheet.getLastRow();
@@ -713,10 +776,11 @@ function sendProcoreInvoiceItem(rowId, kind) {
   try {
     invoice = procoreLoadInvoiceRowForMatch_(rowId);
   } catch (e) {
-    return { outcome: 'error', rowId: rowId, message: e.message };
+    // No invoice context to log against beyond the Row ID itself — still worth a trail row.
+    return procoreFailedItem_({ rowId: rowId }, kind, e.message);
   }
   if (!invoice.vendor) {
-    return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, message: 'No Vendor on this row.' };
+    return procoreFailedItem_(invoice, kind, 'No Vendor on this row.');
   }
 
   if (kind === 'invoice') {
@@ -724,9 +788,10 @@ function sendProcoreInvoiceItem(rowId, kind) {
     try {
       matchResult = matchInvoiceToProcoreCommitment(rowId);
     } catch (e) {
-      return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message };
+      return procoreFailedItem_(invoice, kind, e.message);
     }
     if (!matchResult.ok) {
+      procoreLogSendAttempt_(invoice, kind, PROCORE_OUTCOME_NEEDS_MATCH_, matchResult.reason);
       return {
         outcome: 'needsMatch',
         rowId: rowId,
@@ -755,8 +820,60 @@ function sendProcoreInvoiceItem(rowId, kind) {
     // back out as a skip rather than an error, since they're an expected outcome of a filtered
     // selection containing rows that were never eligible, not a failure.
     if (/Duplicate/.test(e.message) || /Not an Invoice/.test(e.message)) {
+      procoreLogSendAttempt_(invoice, kind, PROCORE_OUTCOME_SKIPPED_, e.message);
       return { outcome: 'skipped', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, reason: e.message };
     }
-    return { outcome: 'error', rowId: rowId, invoiceNumber: invoice.invoiceNumber, vendor: invoice.vendor, message: e.message };
+    return procoreFailedItem_(invoice, kind, e.message);
+  }
+}
+
+/**
+ * Records a non-successful attempt in the Procore Send Log and returns the client's `error` shape,
+ * with the message run through procoreHumanizeSendError_ first.
+ *
+ * Why failures are logged at all: before this, a failed or refused send existed ONLY in the dashboard
+ * panel that reported it — close the panel and there was no record that the attempt ever happened, so
+ * "did anyone try to send this?" and "why did it not go?" were unanswerable a day later. Successes had
+ * a durable trail; failures did not, which is backwards — the failures are the ones somebody has to
+ * come back to.
+ */
+function procoreFailedItem_(invoice, kind, rawMessage) {
+  const message = procoreHumanizeSendError_(rawMessage);
+  procoreLogSendAttempt_(invoice, kind, PROCORE_OUTCOME_FAILED_, message);
+  return {
+    outcome: 'error',
+    rowId: invoice.rowId,
+    invoiceNumber: invoice.invoiceNumber,
+    vendor: invoice.vendor,
+    message: message
+  };
+}
+
+/**
+ * Appends a non-Sent Procore Send Log row (Failed / Needs Match / Skipped). Best-effort by design:
+ * a sheet write that fails here must never turn a reported outcome into an exception the coordinator
+ * sees instead of the real reason — same reasoning as logNexusSyncRows_ being best-effort.
+ */
+function procoreLogSendAttempt_(invoice, kind, outcome, detail) {
+  try {
+    procoreLogSendRow_({
+      rowId: invoice.rowId || '',
+      invoiceNumber: invoice.invoiceNumber || '',
+      vendor: invoice.vendor || '',
+      amount: '',
+      currency: '',
+      recordType: kind === 'direct_cost' ? 'Direct Cost' : 'Subcontractor Invoice',
+      projectId: '',
+      projectName: '',
+      commitmentId: '',
+      commitmentNumber: '',
+      requisitionId: '',
+      attached: false,
+      environment: procoreEnv_(),
+      outcome: outcome,
+      detail: detail || ''
+    });
+  } catch (e) {
+    Logger.log(`Could not write a "${outcome}" Procore Send Log row for ${invoice.rowId}: ${e.message}`);
   }
 }
