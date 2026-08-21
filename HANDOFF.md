@@ -960,7 +960,7 @@ that other session — not to attempt it here. Several items below followed that
   which is exactly the ambiguity `procoreFindVendorByName_` is supposed to refuse rather than guess.
   Ahmed fixed it by hand in Procore's UI (Directory → Companies).
 
-**Confirmed, live, real bug — code fixed, but NOT YET RE-VERIFIED LIVE:
+**Confirmed, live, real bug — FIXED AND NOW VERIFIED LIVE (2026-08-21):
 `procoreAttachFileToRequisition_` did not actually attach the PDF.** The `PATCH requisitions/{id}?project_id={id}`
 call with `{"requisition":{"prostore_file_ids":[uuid]}}` returned success, and `sendInvoiceToProcore`
 recorded `attached: true` — but a live check (`GET requisitions/181185`) came back `"attachments": []`.
@@ -980,11 +980,15 @@ and always has; `search_procore_api` also confirms `/rest/v1.1/requisitions/{id}
 The version was never the problem, only the field name was — worth flagging since the rest of the relay
 was accurate. **Fixed** (`ProcoreClient.gs`): the payload is now `{requisition: {upload_ids: [uuid]}}`.
 Unit-tested (new assertion in the extended harness) that the outgoing PATCH body carries `upload_ids`,
-not `prostore_file_ids`. **Still not independently live-verified from this repo's side** — the sandbox
-project had zero requisitions to test against as of this fix (an earlier PR's test data appears to have
-been cleaned up). **Whoever sends the next real Subcontractor Invoice: check the requisition's
-`attachments` array directly (`GET requisitions/{id}`), don't just trust `attached: true`** from this
-repo's own return value until that's confirmed at least once. Direct Cost attachment
+not `prostore_file_ids`.
+
+**VERIFIED LIVE, same day.** Ahmed sent real invoices through after the fix deployed; `GET
+requisitions/181205` and `181206` (project 362778) both come back with a populated `attachments` array —
+and the attached filenames (`260721 - 1163 REV - OUTER CONSTRUCTION.pdf`,
+`260721 - 1176 - OUTER CONSTRUCTION.pdf`) are this system's own `YYMMDD - Inv# - Vendor.pdf` naming
+format, so they are unambiguously our uploads and not something attached by hand in the UI. `upload_ids`
+is therefore the correct field, confirmed end to end: two-step upload → UUID → PATCH → real attachment.
+The earlier "don't trust `attached: true`" warning is retired; it is now backed by evidence. Direct Cost attachment
 (`procoreAttachFileToDirectCost_`, raw multipart) is a separate code path and was never implicated by
 this finding.
 
@@ -1019,6 +1023,23 @@ made, exactly on the resend); the same guard still correctly blocks a resend whe
 still has the record (no duplicate POST); the same fix proven on the Direct Cost side too; and
 `procoreConfirmExistingSendStillExists_` fails safe to "still exists" when the logged row is missing a
 Project ID, a Requisition ID, or carries an unrecognized Record Type.
+
+**Three incidental findings from reading those two live requisitions, worth knowing before the next
+round of Procore work:**
+- **Retainage is still 0.00 on both** (`completed_work_retainage_percent`/`amount`) — as expected, since
+  nothing fills it yet; this is the open MCP-side work below, not a regression.
+- **Requisition 181206 DOES carry real billing figures** — `percent_complete: 7.50%`,
+  `total_completed_and_stored_to_date: 3980.25` against `original_contract_sum: 53078.40`. Filled by a
+  person or the MCP session, not by this repo. Useful as a worked example of the arithmetic the Path 1
+  tool has to reproduce, on real data.
+- **Procore chains requisitions on a commitment via `previous_requisition_id`** (181206 points back at
+  181205). That is the cumulative-billing mechanism the domain-reasoning section above describes, visible
+  in the API: it is why "sum every prior requisition on this commitment" is a real lookup the MCP side can
+  perform, and why one SOV line billed repeatedly stays unambiguous.
+- **The sandbox project's currency is USD** (`currency_configuration.currency_iso_code`) while WCM's
+  invoices are CAD. Harmless in a generic Procore demo project, but worth checking on the first REAL
+  production project: this repo sends bare amounts with no currency field, so a project configured in the
+  wrong currency would silently reinterpret every figure. Not a bug found, a trap to check for.
 
 **Billing % fields, revisited 2026-08-21 — confirmed this repo genuinely cannot fill them, an MCP-side
 handoff was drafted.** A real created Subcontractor Invoice's billing fields (Work Completed This Period
