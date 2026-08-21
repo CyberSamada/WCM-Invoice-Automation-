@@ -2,7 +2,7 @@
 """canon.py -- move a fact between repositories without a person in the middle.
 
     python3 canon.py status      what this repo owns, and what it imports
-    python3 canon.py check       exit 1 if an import is behind its owner
+    python3 canon.py check       exit 1 if an imported fact is out of date
     python3 canon.py pull        re-import everything, and stamp it
 
 Why this exists. Three repositories act on the same world: the Procore MCP
@@ -197,14 +197,41 @@ def cmd_status(config: dict) -> int:
 def cmd_check(config: dict) -> int:
     behind: list[str] = []
     unreachable: list[str] = []
+    moved: list[str] = []
     for name, spec in config.get("imports", {}).items():
         try:
             current = head_sha(spec["repo"], spec["ref"])
         except CanonError:
             unreachable.append(name)
             continue
-        if spec.get("imported_sha") != current:
+        if spec.get("imported_sha") == current:
+            continue
+
+        # The owner's branch moved. That is not the same as the fact
+        # changing: an owner commits for its own reasons, and most of those
+        # commits do not touch the file we import. Comparing only the commit
+        # would report "behind" every time, which trains a person to ignore
+        # it, and an alarm that is always on is not an alarm. So confirm
+        # against the bytes before failing. One extra fetch, and only when
+        # the owner actually moved.
+        local = ROOT / spec["local_path"]
+        try:
+            theirs = read_remote_file(spec["repo"], spec["ref"], spec["remote_path"])
+        except CanonError:
+            unreachable.append(name)
+            continue
+        mine = local.read_text(encoding="utf-8") if local.exists() else None
+        if mine == theirs:
+            moved.append(name)
+        else:
             behind.append(name)
+
+    for name in moved:
+        spec = config["imports"][name]
+        print(
+            f"{DIM}~{OFF} {name}: {spec['repo']} moved, the fact did not change. "
+            f"{DIM}Run pull to re-stamp.{OFF}"
+        )
 
     drift = protocol_drift()
     if drift:
