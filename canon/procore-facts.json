@@ -1,0 +1,491 @@
+{
+  "canon": "procore-facts",
+  "source_repo": "CyberSamada/Procore_Claude_Intergration",
+  "generated_by": "spec/build_facts.py",
+  "updated": "2026-08-21",
+  "read_me_first": "How Procore's API actually behaves, and what this software refuses to do. Generated from rules.md, gotchas.md and state.json in the source repo. Do not hand-edit a copy of this file. Re-import it with canon.py.",
+  "deployment": {
+    "url": "https://procore-mcp.ahmed-samhanbz.workers.dev",
+    "default_branch": "claude/procore-mcp-availability-4ch83r",
+    "latest_merge": "974d737",
+    "company_id": 4288787,
+    "environment": "sandbox",
+    "write_mode": "create",
+    "test_count": 129
+  },
+  "boundaries": [
+    {
+      "id": "no-approval-human-approval-only",
+      "section": "Hard boundaries",
+      "rule": "No approval. Human approval only.",
+      "detail": "Set by Ahmed, 2026-08-21, asked directly and answered unambiguously: *\"NO APPROVAL. HUMAN APPROVAL ONLY.\"* No tool may set a Subcontractor SOV — or any financial document — to `approved`. `set_subcontractor_sov_status` accepts exactly `draft`, `under_review`, `revise_and_resubmit`, and `tests/test_safety.py` fails the build if that enum widens. This came under real pressure: WCM Invoice Automation is blocked by Procore's *\"subcontractor schedule of values must have a status of approved\"* error and asked for an `approve_commitment_sov` tool to unblock their send flow. The answer was no. A future session under the same pressure does not get to decide differently. What this software can do is get a SOV to `under_review`; a person opens Procore and clicks Approve."
+    },
+    {
+      "id": "nothing-deletes",
+      "section": "Hard boundaries",
+      "rule": "Nothing deletes.",
+      "detail": "No tool in this repo deletes any Procore record, and none should be added. Test records accumulate instead — see `state.md` → cleanup owed. A person deletes them in Procore. This is why every write is careful: it cannot be taken back from here."
+    },
+    {
+      "id": "nothing-reaches-outside-procore",
+      "section": "Hard boundaries",
+      "rule": "Nothing reaches outside Procore.",
+      "detail": "No tool sends, invites, distributes, publishes or emails. Procore has real endpoints for all of it — `punch_items/{id}/send_email`, `observations/items/send_unsent`, `users/{id}/invite`, `email_communications`, `drawing_revisions/publish` — and they sit in areas this repo already builds into, so this is a live hazard, not a hypothetical one. `tests/test_safety.py` bans the write verbs against those endpoints and bans send-shaped parameters on every write tool. The honest limit: Procore may email someone on its own when a user is created or added to a project, and no parameter exists to stop it. Directory writes return `may_have_been_notified: true` for that reason. This boundary means we never *ask* for a notification. It cannot promise none was sent — claiming otherwise would repeat the `send_invitation` mistake, a guarantee resting on a field Procore ignores."
+    },
+    {
+      "id": "why-this-is-a-rule-and-not-a-company-preference",
+      "section": "Hard boundaries",
+      "rule": "Why this is a rule and not a company preference.",
+      "detail": "Asked directly by Ahmed, 2026-08-21. A preference is a default a person overrides routinely; this is never overridable. A preference is scoped to one company; sending a subcontractor an unintended email is bad at every company. A preference is loaded only for operational work, so it would be absent exactly when someone is editing code. And `procore_mcp/` cannot read preferences at all, by design and by test — so a boundary living there would be unenforceable. Boundaries are system side and executable. Preferences are advisory and company-scoped. Approval is the same answer for the same reasons."
+    },
+    {
+      "id": "writes-create-drafts-only",
+      "section": "Hard boundaries",
+      "rule": "Writes create drafts only.",
+      "detail": "`WRITE_MODE=create` in `wrangler.jsonc`. No tool issues a commitment, sends an RFI, or submits an invoice."
+    },
+    {
+      "id": "sandbox-only",
+      "section": "Hard boundaries",
+      "rule": "Sandbox only.",
+      "detail": "Company 4288787, `PROCORE_BASE_URL=https://sandbox.procore.com`. Procore Marketplace approved Ahmed's account for production installs on 2026-08-21; his instruction was to document the capability and take no action. Do not install anywhere else, and do not change `WRITE_MODE`, without him saying so in the session where it happens."
+    },
+    {
+      "id": "patch-is-limited-to-three-tools",
+      "section": "Hard boundaries",
+      "rule": "PATCH is limited to three tools.",
+      "detail": "`update_contact`, `set_subcontractor_sov_status` and `set_invoice_line_progress`. All three were deliberate, individually approved exceptions to what was once a blanket ban. `tests/test_safety.py` asserts PATCH appears in exactly those places and locks their parameter sets. A fourth PATCH tool needs Ahmed's explicit sign-off, the same way these three did — and it needs a deliberate edit to that test, never a drive-by addition. The third was approved by Ahmed on 2026-08-21, asked directly and answered *\"Ofcourse\"*: a tool that fills the percentage and retainage on subcontractor invoice line items, for the Invoice Desk workflow. He also narrowed what the objection was worth — the sandbox data itself is disposable and is not what this gate protects. What it protects is the capability, which outlives the sandbox: sandbox-only is `PROCORE_BASE_URL` and `WRITE_MODE`, both config, and the Marketplace account is approved for production installs. A standing lesson from how this one went. The rule kept this tool out of two broad build batches and nobody told Ahmed it was being kept out."
+    },
+    {
+      "id": "when-this-rule-blocks-a-tool-say-so-and-ask-never-silently-d",
+      "section": "Hard boundaries",
+      "rule": "When this rule blocks a tool, say so and ask — never silently drop it from a build.",
+      "detail": "A boundary that removes capability without surfacing the choice is not doing its job; it is just losing work quietly."
+    },
+    {
+      "id": "sub-sov-must-match-main-sov-exactly",
+      "section": "Standing operating rules",
+      "rule": "Sub SOV must match Main SOV, exactly.",
+      "detail": "Ahmed, 2026-08-21: *\"add sub sov, matching sov value otherwise can't approve and requires manual editing. So always match Sub SOV to the Main SOV when asked to do this task.\"* Every `add_ssov_detail_line_item` call must fully allocate its SOV line item — Procore's \"Remaining To Allocate\" goes to $0.00. This is not housekeeping. It is load-bearing, and it was confirmed mechanically on 2026-08-21: `set_subcontractor_sov_status` returned `400` with an empty body on all five test commitments while their lines were partially allocated, and succeeded on all five afterward with no permission change. Ahmed confirmed he never granted Commitments `Admin`. Allocation is what gates the status transition. See `gotchas.md`."
+    },
+    {
+      "id": "procores-behavior-comes-from-procores-own-docs",
+      "section": "Standing operating rules",
+      "rule": "Procore's behavior comes from Procore's own docs.",
+      "detail": "`CLAUDE.md` names the two authoritative pages, mirrored in `docs/procore-developer-docs.md`. Not this repo's OAS subset, not an old write-up, not memory."
+    },
+    {
+      "id": "not-found-is-not-does-not-exist",
+      "section": "Standing operating rules",
+      "rule": "\"Not found\" is not \"does not exist\".",
+      "detail": "`search_procore_api` and `procore_get` are GET-only by design. Asking them whether a write endpoint exists gets silence, and silence is not an answer. To settle whether Procore supports something, pull the live full OAS and grep every verb on the path — `spec/README.md` documents the procedure. This repo has been wrong the other way every time it has guessed, most recently by claiming there was no way to write a Subcontractor SOV when there were three endpoints for it."
+    }
+  ],
+  "api_rules": [
+    {
+      "id": "403-401",
+      "section": "Procore",
+      "rule": "403 ≠ 401.",
+      "detail": "A permissions gap is `403`. `client.py` handles `401`, which means something different: app not installed, or no Data Connector component. Never drop the cached token on a `403` — it is not a credential problem."
+    },
+    {
+      "id": "permitted-projects",
+      "section": "Procore",
+      "rule": "Permitted projects.",
+      "detail": "A DMSA runs only in projects added to its permitted-projects list (Company Admin → App Management → app → Permissions). Until a project is on that list, every project-level call `403`s **including reads**, and nothing in the error names a project list. Adding the project flipped every project read to `200` on the same cached token, so permissions are evaluated per request. Evidence table in `docs/permissions.md`."
+    },
+    {
+      "id": "app-manifest-permissions-do-not-transfer",
+      "section": "Procore",
+      "rule": "App manifest permissions do not transfer",
+      "detail": "to the installed permission template when the app is updated. Reconcile by hand."
+    },
+    {
+      "id": "an-ssov-must-be-fully-allocated-before-its-status-will-move",
+      "section": "Procore",
+      "rule": "An SSOV must be fully allocated before its status will move.",
+      "detail": "Procore reports the refusal as a `400` with a genuinely empty JSON body — no `error`, no `message`, no `errors` key. Confirmed 2026-08-21: five `set_subcontractor_sov_status` calls failed this way while lines were partially allocated, and all five succeeded after `add_ssov_detail_line_item` took every line's \"Remaining To Allocate\" to $0.00, with no permission change (Ahmed confirmed Commitments `Admin` was never granted). An earlier session diagnosed the same `400` as a permissions gap from the OAS description text; that was wrong. If a financial write returns an empty-bodied `400`, suspect an unsatisfied business rule before suspecting permissions."
+    },
+    {
+      "id": "the-ssov-status-field-and-its-endpoint-have-different-names",
+      "section": "Procore",
+      "rule": "The SSOV status field and its endpoint have different names.",
+      "detail": "The endpoint is `.../subcontractor_schedule_of_values_status`; the field on the contract record is **`billing_schedule_of_values_status`**. Searching a commitment payload for `subcontractor_*` finds nothing and looks like the write silently failed."
+    },
+    {
+      "id": "a-commitments-vendorid-can-outlive-the-vendor",
+      "section": "Procore",
+      "rule": "A commitment's `vendor.id` can outlive the vendor.",
+      "detail": "The vendor name is denormalised onto the commitment, so a commitment renders fine while its `vendor.id` `404`s — which is what deleting a duplicate company leaves behind. Resolve vendors by ID and you get a `404`; resolve by the denormalised name and you do not notice. See `state.md` for which fixtures are affected."
+    },
+    {
+      "id": "change-events-need-two-fields-nothing-tells-you-about-and-on",
+      "section": "Procore",
+      "rule": "Change events need two fields nothing tells you about, and one of them is named differently on the way in.",
+      "detail": "`POST /rest/v1.0/change_events` refuses a create with `{'change_event_status': ['required'], 'event_scope': ['is not included in the list']}`. Both parts mislead. The scope field is `event_scope` on the write and on the v1.0 record, but Procore's own `/rest/v1.1/change_events/new` template returns it as **`scope`** — so copying the template's field names into a write produces an absent `event_scope`, and an absent one fails the enum check rather than defaulting. The status is a company-configured record whose id differs per company; `/rest/v1.1/change_events/new` returns the one Procore's UI would use, which is the way to resolve it without hard-coding an id. Confirmed 2026-08-21."
+    },
+    {
+      "id": "change-order-statuses-are-lowercase",
+      "section": "Procore",
+      "rule": "Change order statuses are lowercase.",
+      "detail": "`POST .../commitment_change_orders` with `status: \"Draft\"` returns `'status Draft is not a valid status'`; `\"draft\"` works. `/rest/v1.0/change_order/statuses` returns an empty list for this company, so it will not tell you the vocabulary — a potential change order written minutes earlier reading back as `\"draft\"` is what settled it. Confirmed 2026-08-21."
+    },
+    {
+      "id": "procores-v20-collections-are-data-not-bare-lists",
+      "section": "Procore",
+      "rule": "Procore's v2.0 collections are `{\"data\": [...]}`, not bare lists.",
+      "detail": "Code that assumes a list gets a dict and raises before it ever reaches Procore's data. `get_budget_summary` has this bug against `/rest/v2.0/companies/{id}/projects/{id}/budget_line_items`."
+    },
+    {
+      "id": "a-resources-version-decides-whether-payment-exists",
+      "section": "Procore",
+      "rule": "A resource's version decides whether payment exists.",
+      "detail": "`requisitions` on v1.0 returns `status` and `payment_date` and nothing else about money owed. The SAME resource on **v1.1** additionally returns `payment_summary` (`invoice_paid_in_full`, `invoiced_amount_due`, `procore_pay.amount`, `manual.amount`) and `erp_status`. Nothing in the v1.0 response hints that a richer version exists, so reading v1.0 and concluding \"Procore does not track this\" is the trap — and it was walked into on 2026-08-21, in writing. Procore versions resources independently; check the other version before concluding a field is absent."
+    },
+    {
+      "id": "invoice-paid-in-full-can-be-true-on-an-unpaid-invoice",
+      "section": "Procore",
+      "rule": "`invoice_paid_in_full` can be true on an unpaid invoice.",
+      "detail": "It reads `true` on sandbox requisitions 181205 and 181206, both drafts with nothing claimed — 0 of 0 is paid in full. Pair it with `invoiced_amount_due` before treating it as a paid flag."
+    },
+    {
+      "id": "only-the-most-recently-created-invoice-on-a-commitment-can-b",
+      "section": "Procore",
+      "rule": "Only the most recently created invoice on a commitment can be edited.",
+      "detail": "Procore refuses a PATCH on any earlier one with a `400` reading *\"Only the most recently created Invoice is editable or deletable\"*. Confirmed 2026-08-21 against requisition 181205, which is chained behind 181206 (`previous_requisition_id`). This had been written down as inference from a UI observation; it is an API rule with a clear message. It follows from progressive invoicing -- each invoice's SOV math builds on the previous one's work-completed, so editing an earlier one would invalidate every later \"previous\" column. For anything automated: aim at the latest invoice, and never create out of order, because nothing here deletes and the lock is not recoverable from this side."
+    },
+    {
+      "id": "a-requisition-lines-patch-body-is-wrapped-in-the-resources-f",
+      "section": "Procore",
+      "rule": "A requisition line's PATCH body is wrapped in the resource's FULL name.",
+      "detail": "`PATCH /rest/v1.0/requisitions/{id}/contract_detail_items/{id}` requires `{\"requisition_contract_detail_item\": {...}}`, not `{\"contract_detail_item\": {...}}` as the path segment suggests. Procore names the key it wanted in the error -- *\"param is missing or the value is empty or invalid: requisition_contract_detail_item\"* -- so the 400 is the answer, not a puzzle. `project_id` is a **query** parameter on this endpoint, not a body field. Confirmed 2026-08-21, live and against the full OAS."
+    },
+    {
+      "id": "invoice-line-retainage-is-written-as-an-amount-the-percent-i",
+      "section": "Procore",
+      "rule": "Invoice line retainage is written as an AMOUNT; the percent is an output.",
+      "detail": "The PATCH schema offers `work_completed_retainage_retained_this_ period` (an amount) and has **no percent field at all**. `work_completed_retainage_percent_this_period` is readable on the record and is derived by Procore: writing `200.00` against a `2000.00` claim makes the percent field read back `10.00`. So a tool taking a rate must do the arithmetic itself. Procore's schema also marks the field admin-only and notes work completed this period must be non-zero for retainage to hold. Confirmed 2026-08-21."
+    },
+    {
+      "id": "procore-computes-total-completed-and-stored-to-date",
+      "section": "Procore",
+      "rule": "Procore computes `total_completed_and_stored_to_date`.",
+      "detail": "It is absent from the PATCH schema and moves on its own: setting `work_completed_this_period` to `2000.00` took the total from `3980.25` to `2000.00` and `total_completed_and_stored_to_date_percent` to `44.47` (2000/4497.68). Do not write it. Two numbers that disagree is the failure mode being avoided."
+    },
+    {
+      "id": "money-on-requisition-line-items-goes-to-procore-as-a-string",
+      "section": "Procore",
+      "rule": "Money on requisition line items goes to Procore as a STRING.",
+      "detail": "Its schema types every figure on that endpoint as `string` and its GET returns them that way (`\"4497.68\"`). A JSON number is refused with a `422`: *\"Work completed this period value has incompatible type\"*. The rest of this repo already does this -- `add_commitment_line_item` and its siblings send `\"amount\": str(amount)` -- so the convention was established and live-tested before this endpoint went and needed it again."
+    },
+    {
+      "id": "attachments-are-not-one-flow",
+      "section": "Procore",
+      "rule": "Attachments are not one flow.",
+      "detail": "Documents and Photos use the two-step signed upload (`client.upload_file()`, returns a UUID). `direct_costs` requires the whole request as `multipart/form-data` with bytes inline and has no attachment sub-resource. `requisitions` wants `requisition.upload_ids` (UUID strings) on **v1.1** — `v1.0` has no such field, and `prostore_file_ids` takes integers, not upload UUIDs, which Procore drops silently rather than rejecting."
+    },
+    {
+      "id": "cloudflares-deploy-success-comment-on-a-branch-commit-is-not",
+      "section": "This deployment",
+      "rule": "Cloudflare's deploy-success comment on a branch commit is not a production deploy.",
+      "detail": "It builds branch commits too. Production is the default branch only. Misreading a branch build as production sent two sessions hunting a manifest cache that did not exist; the real cause was an unmerged branch. If a tool seems missing, check what the default branch actually contains before believing anything else."
+    },
+    {
+      "id": "health-returns-a-bare-ok",
+      "section": "This deployment",
+      "rule": "`/health` returns a bare `ok`",
+      "detail": "with no version or commit, so it cannot tell you what is deployed. The fastest real check: curl .../health # 200 ok curl -X OPTIONS .../mcp -o /dev/null -w '%{http_code}' # 204, CORS live curl -X POST .../mcp ... # 401, gate intact"
+    },
+    {
+      "id": "the-connector-drops-and-reconnecting-mid-session-does-not-he",
+      "section": "This deployment",
+      "rule": "The connector drops, and reconnecting mid-session does not help.",
+      "detail": "It attaches at session start. If Procore tools are missing, start a new session rather than reconnecting in settings."
+    },
+    {
+      "id": "a-changed-tool-propagates-mid-session-a-new-tool-does-not",
+      "section": "This deployment",
+      "rule": "A changed tool propagates mid-session; a NEW tool does not.",
+      "detail": "Both were observed on 2026-08-21. An edit to an existing tool -- a fixed request body, an added parameter -- reaches the running session once Cloudflare deploys, and three fixes were verified live that way within minutes. Two brand-new tools merged the same afternoon never appeared, 11 minutes after the merge landed on the default branch. So a session can verify its own fixes to tools that already exist, but cannot call anything it has just invented. Plan a build session to end with the new tools untested, and open a fresh session to exercise them -- do not sit waiting for them to show up."
+    },
+    {
+      "id": "transient-blocks-are-transient",
+      "section": "This deployment",
+      "rule": "Transient blocks are transient.",
+      "detail": "Procore writes occasionally hit a Cloudflare `502` or a classifier block on first attempt and succeed on an immediate retry. Seen repeatedly across sessions. Retry once before diagnosing anything."
+    },
+    {
+      "id": "a-tool-that-has-never-been-run-should-be-assumed-broken-not-",
+      "section": "This deployment",
+      "rule": "A tool that has never been run should be assumed broken, not assumed fine.",
+      "detail": "Of the eleven tools built 2026-08-21 and tested 2026-08-21, three were dead on arrival — two 400'd on every possible call, one silently returned `null` for a field it read under the wrong name. All three shipped with the suite green, because this repo's tests assert a tool's *shape* — its parameters, its status enum, that it can never reach `approved` — and nothing in them puts a request body in front of Procore. That is a reasonable place to draw the line, but it means a green suite says nothing about whether a write works. Only a live call does. This is the reason `state.json` classifies every tool as verified or not, and the reason \"built\" is never written down as \"works\"."
+    },
+    {
+      "id": "an-index-scoped-to-one-purpose-cannot-answer-a-different-que",
+      "section": "Ship discipline",
+      "rule": "An index scoped to one purpose cannot answer a different question.",
+      "detail": "`spec/procore-oas-subset.json` covers only resources some existing tool already calls, so it answers \"what does this repo use\", not \"what does Procore support\". `procore-read-index.json` is GET-only, so it structurally cannot see writes. `search_procore_api` now reads `procore-endpoint-index.json` (every path, every verb) for exactly this reason, while `procore_get` still validates against the read index — the split between what can be found and what can be called is the safety property, and widening the first must never touch the second."
+    },
+    {
+      "id": "ship-data-files-in-the-dockerfile",
+      "section": "Ship discipline",
+      "rule": "Ship data files in the Dockerfile.",
+      "detail": "An index that exists locally and not in the image is dead on the hosted server. This has happened once already."
+    }
+  ],
+  "tools": {
+    "add_commitment_line_item": {
+      "verified": true,
+      "evidence": "2026-08-21, one line added to each of the five WCM commitments"
+    },
+    "add_company_to_project": {
+      "verified": true,
+      "evidence": "2026-08-20, BBM Ltd added to project 362778"
+    },
+    "add_contact_to_project": {
+      "verified": true,
+      "evidence": "2026-08-20, all seven added to 362778, no permission template"
+    },
+    "add_direct_cost_line_item": {
+      "verified": true,
+      "evidence": "2026-08-21, direct cost 477851, amount corrected from 0.0 to 990.06"
+    },
+    "add_potential_change_order_line_item": {
+      "verified": true,
+      "evidence": "2026-08-21, line 2077478 on PCO 47426, cost code 19382996; PCO grand_total re-read as 1.0."
+    },
+    "add_ssov_detail_line_item": {
+      "verified": true,
+      "evidence": "2026-08-21, eleven detail lines, every line fully allocated"
+    },
+    "create_change_event_draft": {
+      "verified": true,
+      "evidence": "2026-08-21, change events 446562 (scope tbd) and 446563 (scope out_of_scope), each re-read; both required a fix first -- see the log for that day."
+    },
+    "create_commitment_change_order_draft": {
+      "verified": true,
+      "evidence": "2026-08-21, CCO 47427 on commitment 618651, re-read at status draft, executed false, grand_total 0.0; required a fix first."
+    },
+    "create_company": {
+      "verified": true,
+      "evidence": "2026-08-20, BBM Ltd 3739183, after the Directory Admin grant"
+    },
+    "create_contact": {
+      "verified": true,
+      "evidence": "2026-08-20, seven contacts 466411-466417"
+    },
+    "create_meeting_draft": {
+      "verified": true,
+      "evidence": "2026-08-21, meeting 14359 on project 362778, re-read is_draft true with attendees []."
+    },
+    "create_potential_change_order_draft": {
+      "verified": true,
+      "evidence": "2026-08-21, PCO 47426 on commitment 618651, re-read at status draft."
+    },
+    "create_punch_item": {
+      "verified": true,
+      "evidence": "2026-08-21, punch item 134400 on project 362778, re-read open, unassigned, no distribution."
+    },
+    "create_rfi": {
+      "verified": true,
+      "evidence": "2026-08-19, RFI 109573 created as unsent draft, status draft, number null"
+    },
+    "find_billing_periods": {
+      "verified": true,
+      "evidence": "2026-08-21, project 362778, returned period 10966 (2026-07-01 to 2026-07-31, due 2026-08-25)."
+    },
+    "find_change_events": {
+      "verified": true,
+      "evidence": "2026-08-21, project 362778, read back change events 446562 and 446563 after creating them."
+    },
+    "find_change_orders": {
+      "verified": true,
+      "evidence": "2026-08-21, read back change order request 39914, created by Procore alongside PCO 47426."
+    },
+    "find_commitments": {
+      "verified": true,
+      "evidence": "2026-08-21, read all five WCM commitments"
+    },
+    "find_companies": {
+      "verified": true,
+      "evidence": "2026-08-21, read company and project directories"
+    },
+    "find_contacts": {
+      "verified": true,
+      "evidence": "2026-08-19, returned real data"
+    },
+    "find_cost_codes": {
+      "verified": true,
+      "evidence": "2026-08-20, resolved General Requirements 19382996"
+    },
+    "find_direct_costs": {
+      "verified": true,
+      "evidence": "2026-08-21, confirmed 477851 amount after the line-item fix"
+    },
+    "find_invoice_line_items": {
+      "verified": true,
+      "evidence": "2026-08-21, project 362778. Read invoice 181205's three lines (23854/4497.68, 23855/22041.52, 23856/26539.20) and invoice 181206's (23857/23858/23859), and was used again afterwards to confirm the write independently of the write's own read-back. Correct on first call -- the only one of the two that was."
+    },
+    "find_punch_items": {
+      "verified": true,
+      "evidence": "2026-08-21, read back punch item 134400."
+    },
+    "find_rfis": {
+      "verified": true,
+      "evidence": "2026-08-19, returned real data"
+    },
+    "find_subcontractor_invoices": {
+      "verified": true,
+      "evidence": "2026-08-21, project 362778, returned requisitions 181205 and 181206 on commitment 618653; 181205 cross-checked against its raw record."
+    },
+    "list_projects": {
+      "verified": true,
+      "evidence": "2026-08-19, returned real data"
+    },
+    "procore_get": {
+      "verified": true,
+      "evidence": "2026-08-21, used throughout for live verification reads"
+    },
+    "search_procore_api": {
+      "verified": true,
+      "evidence": "2026-08-19, returns from the indexed endpoint set"
+    },
+    "set_invoice_line_progress": {
+      "verified": true,
+      "evidence": "2026-08-21, invoice 181206 line 23857 on project 362778: work completed this period 3980.25 -> 2000.00 with 10% retainage, read back independently. It took THREE fixes to get there and every one of the three assumptions recorded against it was tested; two were wrong. See the log for that day. Verified only for the amount-accounting, latest-invoice case: a unit-accounting contract takes a different field and is still untested."
+    },
+    "set_subcontractor_sov_status": {
+      "verified": true,
+      "evidence": "2026-08-21, all five WCM commitments to under_review, each re-read to confirm"
+    },
+    "update_contact": {
+      "verified": true,
+      "evidence": "2026-08-20, all seven renamed and re-read to confirm"
+    },
+    "add_prime_contract_line_item": {
+      "verified": false,
+      "reason": "Blocked on the same missing fixture as create_prime_change_order_draft: project 362778 has no prime contract to add a line to. Tried 2026-08-21."
+    },
+    "create_budget_modification": {
+      "verified": false,
+      "reason": "Blocked on a missing fixture, not a defect. Tried 2026-08-21: project 362778 has no budget line items -- GET /rest/v2.0/companies/4288787/projects/362778/budget_line_items returns {\"data\": []} -- and the tool needs two line item ids to move money between."
+    },
+    "create_commitment_draft": {
+      "verified": false,
+      "reason": "The five WCM commitments on 362778 were most likely created by WCM's own Apps Script integration, not this repo. No confirmed call from here."
+    },
+    "create_daily_log_note": {
+      "verified": false,
+      "reason": "Daily Log is not on the app's permission grid at all."
+    },
+    "create_direct_cost_draft": {
+      "verified": false,
+      "reason": "Direct cost 477851 predates this repo's involvement; only its line item was written from here."
+    },
+    "create_prime_change_order_draft": {
+      "verified": false,
+      "reason": "Blocked on a missing fixture, not a defect. Tried 2026-08-21: project 362778 has no prime contract. GET /rest/v1.0/prime_contracts returns an empty list at 200 -- so this is 'none exists', not an ambiguous 404 -- and the singular /rest/v1.0/prime_contract 404s. No tool here creates a prime contract, so the tool cannot be reached from this project."
+    },
+    "create_subcontractor_invoice_draft": {
+      "verified": false,
+      "reason": "Still never confirmed as a call FROM here, but two things were settled 2026-08-21 and both narrow it. (1) MEASURED: requisition 181206's created_by is directory_change-bf9ff6e0@procore.com, this app's DMSA service account -- so this server did create 181205/181206, upgrading Ahmed's report from recollection to fact. (2) SETTLED BY OAS: period_id, requisition_start and requisition_end ARE documented writable POST body fields on both v1.0 and v1.1, inside the 'requisition' wrapper, and the tool already builds the body that way. So the assumption flagged as risky is supported by the spec and the body shape matches it. What remains unverified is only runtime behaviour: the date-setting code landed 15:36 UTC and 181206 was created 14:57 UTC, 39 minutes earlier, so the CURRENT version has never created an invoice. Note 181206's dates read null last session and are populated now -- a person retyped them, which is the cost that code exists to remove. Deliberately NOT tested live: a create would be irreversible and would lock invoice 181206, the line just written to."
+    },
+    "draft_rfi_response": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_documents": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_drawings": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_emails": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_forms": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_inspections": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_instructions": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_observations": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_photos": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_potential_change_orders": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_schedule_tasks": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_specifications": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "find_submittals": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "get_budget_summary": {
+      "verified": false,
+      "reason": "NO LONGER BROKEN, but still not verified. The crash is fixed and the fix confirmed live 2026-08-21: it raised 'Expected a list from companies/4288787/projects/362778/budget_line_items, got dict' because Procore's v2.0 collections are {'data': [...]}. Fixed in client.py's get_paginated rather than in this tool, so every v2.0 resource is covered, with a regression test. It now returns an empty budget honestly, which is the truth for project 362778 -- GET budget_line_items returns {'data': []}. What is STILL unverified is everything past that: no populated budget has ever been read, so the field names it maps (original_budget_amount, budget_modifications, committed_costs, projected_costs) are unconfirmed against real v2.0 rows. Needs a project with a budget."
+    },
+    "get_daily_logs": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "get_prime_contract": {
+      "verified": false,
+      "reason": "Exercised 2026-08-21 and returned Procore's 404 truthfully: project 362778 has no prime contract. What the tool does with a real contract is still unconfirmed."
+    },
+    "get_project": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "get_rfi": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "get_submittal": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "list_inspection_templates": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "list_permission_templates": {
+      "verified": false,
+      "reason": "403s; a human sets access templates in Procore by hand."
+    },
+    "upload_document": {
+      "verified": false,
+      "reason": "Never exercised."
+    },
+    "upload_photo": {
+      "verified": false,
+      "reason": "Never exercised."
+    }
+  },
+  "counts": {
+    "tools_total": 62,
+    "tools_verified": 32,
+    "tools_unverified": 30
+  }
+}
