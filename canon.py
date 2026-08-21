@@ -27,6 +27,7 @@ session already has.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import subprocess
 import sys
@@ -35,6 +36,15 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 CONFIG = ROOT / "canon.json"
+
+# This file is copied into all three repositories on purpose, so the same
+# command means the same thing wherever a session opens. Three copies can
+# drift, which is the exact disease this script treats, so one repo owns it
+# and `check` compares its own bytes against that copy. Drift is a warning,
+# never a failure: a consumer with an older protocol still works.
+PROTOCOL_OWNER = "CyberSamada/WCM-Mission-Control"
+PROTOCOL_REF = "claude/mission-control-tracker-tadfzn"
+PROTOCOL_PATH = "canon.py"
 
 GREEN, RED, YELLOW, DIM, OFF = "\033[32m", "\033[31m", "\033[33m", "\033[2m", "\033[0m"
 
@@ -121,6 +131,30 @@ def read_remote_file(repo: str, ref: str, path: str) -> str:
         return target.read_text(encoding="utf-8")
 
 
+def protocol_drift() -> str | None:
+    """Warn when this copy of canon.py differs from the one that owns it.
+
+    Returns a message, or None when the copies agree or the owner cannot be
+    reached. Never raises: a protocol check must not be able to stop a repo
+    from importing its facts.
+    """
+    if ROOT.name == PROTOCOL_OWNER.split("/")[-1]:
+        return None
+    try:
+        theirs = read_remote_file(PROTOCOL_OWNER, PROTOCOL_REF, PROTOCOL_PATH)
+    except CanonError:
+        return None
+    mine = Path(__file__).read_text(encoding="utf-8")
+    if mine == theirs:
+        return None
+    short = hashlib.sha256(mine.encode()).hexdigest()[:8]
+    other = hashlib.sha256(theirs.encode()).hexdigest()[:8]
+    return (
+        f"canon.py here ({short}) differs from {PROTOCOL_OWNER}@{PROTOCOL_REF} "
+        f"({other}). Copy theirs over this one."
+    )
+
+
 def cmd_status(config: dict) -> int:
     repo = config.get("repo", "?")
     print(f"{DIM}repo{OFF} {repo}\n")
@@ -171,6 +205,10 @@ def cmd_check(config: dict) -> int:
             continue
         if spec.get("imported_sha") != current:
             behind.append(name)
+
+    drift = protocol_drift()
+    if drift:
+        print(f"{YELLOW}!{OFF} {drift}")
 
     for name in unreachable:
         print(f"{YELLOW}?{OFF} {name}: cannot reach the owner. Not treated as a failure.")
