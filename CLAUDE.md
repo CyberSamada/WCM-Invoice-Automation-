@@ -49,6 +49,36 @@ The learn-while-fixing field saves the alias at the corrected invoice's project+
 the Gemini prompt (GeminiService.gs), each alias renders as `"text" => Project P, Subproject S` (or
 `(project level — no specific subproject)`) and is described as AUTHORITATIVE.
 
+## Shared facts: read `canon/` before touching Procore code
+
+This repo is not the only one that calls Procore. `CyberSamada/Procore_Claude_Intergration`
+runs tools against a **live** Procore and records what came back; this repo does not. Its
+findings arrive here as `canon/procore-facts.json`, pulled by `canon.py` and stamped in
+`canon.json` with the commit it came from.
+
+```bash
+python3 canon.py status    # what this repo owns, and whether its imports are current
+python3 canon.py check     # exit 1 when an import is behind its owner
+python3 canon.py pull      # re-import and stamp
+```
+
+**Run `python3 canon.py check` at the start of any session that touches `ProcoreClient.gs`,
+`ProcoreSend.gs`, or anything else that talks to Procore.** If it says an import is behind,
+pull before you write code against remembered behavior.
+
+Two rules:
+
+- **Never edit a file in `canon/`.** It is owned elsewhere. Fix it at the owner, merge there,
+  pull here. An edit here is thrown away on the next pull and makes this repo look
+  authoritative while it disagrees with the owner.
+- **This repo owns `project_reference.csv`** — WCM's project numbering, because the numbering
+  is enforced by money here. `WCM-Mission-Control` imports it the same way. So a project number
+  is fixed *here*, never patched downstream.
+
+`HANDOFF.md` §3's `[SPEC]`/`[OBSERVED]` tags are a hand-made snapshot of that same knowledge,
+taken 2026-08-20. They are superseded by `canon/procore-facts.json`. Do not add new Procore
+findings to §3; they belong at the owner. See `canon/README.md` for what that drift already cost.
+
 ## What must never go in this repo
 
 **This repo is readable by anyone who can see it** (as of this writing, publicly). So:
