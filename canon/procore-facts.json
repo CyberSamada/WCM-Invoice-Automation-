@@ -39,6 +39,12 @@
       "detail": "Asked directly by Ahmed, 2026-08-21. A preference is a default a person overrides routinely; this is never overridable. A preference is scoped to one company; sending a subcontractor an unintended email is bad at every company. A preference is loaded only for operational work, so it would be absent exactly when someone is editing code. And `procore_mcp/` cannot read preferences at all, by design and by test — so a boundary living there would be unenforceable. Boundaries are system side and executable. Preferences are advisory and company-scoped. Approval is the same answer for the same reasons."
     },
     {
+      "id": "never-set-an-email-to-read",
+      "section": "Hard boundaries",
+      "rule": "Never set an email to read.",
+      "detail": "Ahmed, 2026-08-21, given to all three repos: *\"Never ever set my emails to read. This is very important.\"* No tool anywhere may remove Gmail's `UNREAD` label or mark a message or thread read, including mail it has just processed. Unread is Ahmed's queue, and Gmail keeps no history of read state, so the change is permanent and cannot be undone. Reading a message is fine; changing whether it has been read is not. This repo has no Gmail tool and must not gain one that does this."
+    },
+    {
       "id": "writes-create-drafts-only",
       "section": "Hard boundaries",
       "rule": "Writes create drafts only.",
