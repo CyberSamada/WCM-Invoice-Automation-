@@ -1050,6 +1050,67 @@ sized to match) sidesteps this; a real commitment with multiple cost-code lines 
 "always one line" rule or a way for the invoice to specify which cost code, and nobody has decided that
 yet. Still open — this file's job is to remember that it's open, not to pick an answer nobody asked for.
 
+### WHY the invoice-to-SOV paths are what they are — the domain reasoning, written down
+
+**Read this before changing how an invoice maps to a commitment's SOV lines.** The three-path split
+below (and in the MCP handoff) is not an arbitrary engineering compromise — it follows how construction
+billing actually works. It was worked out with Ahmed in conversation and would otherwise be lost; the
+next person to touch this will otherwise "simplify" it back into a guess.
+
+**1. The Commitment SOV is the contract document. The subcontractor's invoice is a claim against it.**
+When a subcontract is negotiated, the SOV attached to it (in Procore: the commitment's line items) is an
+exhibit of the signed agreement. Once approved — which is the gate that made a live send fail earlier in
+§12 — that structure is what the sub is contractually obligated to bill against. **Line items always
+reconcile to the GC's approved commitment SOV, never to the sub's own self-reported numbers directly.**
+
+**2. There is no second "Subcontractor SOV" object, in Procore or here.** What people colloquially call
+the sub's SOV is their pay application (AIA G702/G703, or whatever format they use) — supporting
+*evidence* for the percentage they're claiming, not a competing system of record. Procore tracks exactly
+one authoritative SOV per commitment. This is why `is_sov_formatted`/`line_items` (GeminiService.gs)
+capture what the sub *claims*, and why matching those claims to real SOV lines is a separate,
+fallible step rather than a direct write.
+
+**3. When the sub's invoice doesn't cleanly map to the GC's SOV, that is a human reconciliation step,
+not a computation.** Different line descriptions, different granularity, a change order not yet
+processed — a PM or cost engineer maps the claimed dollars to the correct approved line. If the sub is
+billing scope that isn't on the approved SOV at all, that's a real flag (a change order is needed, or
+the invoice gets held), not something to force a match on. **This is the reason Path 2 returns
+unresolved instead of guessing, and Path 3 defers to manual entry entirely.** Procore's own
+`create_subcontractor_invoice_draft` leaving these fields human-filled reflects the same judgment — it
+is not a tooling gap to route around.
+
+**4. One SOV line absorbing many invoices over time is the NORMAL case, not an edge case.** "Total
+Completed & Stored to Date" is precisely the running sum of "Work Completed This Period" across every
+prior requisition on that line, plus the current one. A $2,400 line billed $800 × 3 works identically to
+a $500k structural line billed monthly for a year. **So a single-line commitment stays unambiguous no
+matter how many invoices arrive against it** — which is what makes Path 1 safe to automate outright, and
+answers the "which line does this belong to?" question §12 originally flagged as open, for that case.
+
+**5. Small/simple invoices are not supposed to go through this machinery at all.** Procore's design
+intent — matching Ahmed's own description of WCM's real inbox (small trades, no time to confirm SOVs) —
+splits three ways, and picking the right lane matters more than better parsing:
+- **Direct Costs** for PO-based/one-off work: no commitment, no SOV, no billing period, no retainage
+  machinery. This repo already treats Direct Cost as a first-class send path; that decision matches
+  Procore's intent rather than working around it.
+- **A single-line SOV** when a small trade does get a formal commitment. Procore never required a
+  detailed cost-code breakdown; a $2,400 PO can be one $2,400 line. Percent-complete on a one-visit job
+  is degenerate anyway (0% or 100%), so multi-line granularity there is overhead with no information gain.
+- **Multi-line SOV + progress billing** only for trades genuinely billing progressively over months.
+
+**6. Retainage is a progress-billing convention, not a universal rule.** 10% is standard on prime
+contracts and major progress-billed subcontracts; most firms do NOT hold retainage on small PO-based
+service invoices, because the accounting overhead exceeds the value at that size. **This is why nothing
+in this repo ever assumes a rate** — `stated_retainage_percent` captures only what the invoice printed,
+and the MCP handoff insists the rate be a parameter passed per call. Whether WCM wants a blanket 10% or
+a threshold is a policy call for Ahmed, still unanswered; the code must not pre-empt it by defaulting.
+
+**The through-line, and it is the same principle this codebase already applies everywhere else** (the
+commitment matcher's "never auto-pick an ambiguous vendor", NexusSync's scored-not-guessed matching, the
+bulk-send `needsMatch` queue): **don't try to make every invoice machine-parseable to full precision.**
+Let the unambiguous majority auto-process, and route genuine ambiguity to a fast human decision rather
+than a computed guess. The fix for messy small-trade invoices is classifying them into the right lane
+(Direct Cost / single-line), not parsing them harder.
+
 ### The division of labor, settled: Invoice Desk parses, Procore MCP computes and writes
 
 Ahmed pushed for a clearer split before more got built: *"Invoice desk should start parsing Retainage,
@@ -1118,7 +1179,13 @@ earlier, more speculative draft — the field names/shapes below are real, not p
 > a stated SC# disambiguates). The rest is captured and sitting in the Invoice Log, unused past that,
 > waiting on a Procore-side capability to consume it.
 >
-> What we need built, in two paths — please don't try to cover both with one function:
+> What we need built, in two paths — please don't try to cover both with one function. The paths are
+> shaped by how construction billing actually works, not by engineering convenience; the reasoning is
+> written up in full under "WHY the invoice-to-SOV paths are what they are" above, and the short version
+> is: line items reconcile to the GC's APPROVED commitment SOV (the contract exhibit), never to the
+> sub's own claimed numbers directly; a claim that doesn't map cleanly onto an approved line is a human
+> reconciliation step, not a computation; and one SOV line absorbing many invoices over time is the
+> normal case, which is what makes Path 1 unambiguous however many invoices arrive.
 >
 > **Path 1 — single-line commitment (expected to be the common case for WCM's small-trade volume).**
 > Given a commitment id + an amount for this period + a retainage rate (a parameter you're told,
